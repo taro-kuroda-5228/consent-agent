@@ -10,6 +10,19 @@ import { Separator } from "@/components/ui/separator";
 import qaData from "@/data/mock-qa.json";
 import understandingData from "@/data/mock-understanding.json";
 
+interface QAResult {
+  answer: string;
+  safetyLabel: string;
+  requiresDoctorReview: boolean;
+}
+
+const SAFETY_LABEL_MAP: Record<string, { label: string; color: string }> = {
+  general: { label: "一般説明", color: "bg-green-100 text-green-800" },
+  "doctor-review": { label: "医師確認が必要", color: "bg-red-100 text-red-800" },
+  "individual-prognosis": { label: "個別予後は断定不可", color: "bg-orange-100 text-orange-800" },
+  "consent-guidance": { label: "同意誘導禁止", color: "bg-purple-100 text-purple-800" },
+};
+
 export default function QAPage() {
   const params = useParams();
   const router = useRouter();
@@ -17,14 +30,43 @@ export default function QAPage() {
 
   const [expandedFAQ, setExpandedFAQ] = useState<number | null>(null);
   const [freeQuestion, setFreeQuestion] = useState("");
-  const [freeAnswer, setFreeAnswer] = useState<string | null>(null);
+  const [freeAnswer, setFreeAnswer] = useState<QAResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [aiSource, setAiSource] = useState<"idle" | "gemini" | "fallback">("idle");
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [concerns, setConcerns] = useState("");
 
-  const handleFreeQuestion = () => {
-    if (freeQuestion.trim()) {
-      setFreeAnswer(qaData.freeQAResponse);
+  const handleFreeQuestion = async () => {
+    if (!freeQuestion.trim()) return;
+    setLoading(true);
+    try {
+      const res = await fetch("/api/qa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          question: freeQuestion,
+          diagnosis: "Stanford A型急性大動脈解離",
+          plannedSurgery: "上行大動脈置換術",
+          risks: ["死亡", "脳梗塞", "出血", "腎不全", "再手術"],
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setFreeAnswer(data);
+        setAiSource("gemini");
+      } else {
+        throw new Error("API error");
+      }
+    } catch {
+      setFreeAnswer({
+        answer: qaData.freeQAResponse,
+        safetyLabel: "doctor-review",
+        requiresDoctorReview: true,
+      });
+      setAiSource("fallback");
     }
+    setLoading(false);
   };
 
   const selectAnswer = (qId: string, optionIndex: number) => {
@@ -83,7 +125,12 @@ export default function QAPage() {
         {/* 自由質問 */}
         <Card>
           <CardHeader className="pb-1 pt-3 px-4">
-            <CardTitle className="text-sm">✏️ 自由に質問する</CardTitle>
+            <CardTitle className="text-sm">
+              ✏️ 自由に質問する
+              {aiSource === "gemini" && (
+                <Badge className="ml-2 bg-green-600 text-white text-xs">Gemini</Badge>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-3">
             <Textarea
@@ -95,13 +142,23 @@ export default function QAPage() {
             <Button
               onClick={handleFreeQuestion}
               className="w-full bg-blue-600 hover:bg-blue-700"
-              disabled={!freeQuestion.trim()}
+              disabled={!freeQuestion.trim() || loading}
             >
-              質問する
+              {loading ? "⏳ 回答生成中..." : "質問する"}
             </Button>
             {freeAnswer && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-sm text-blue-800">{freeAnswer}</p>
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                <p className="text-sm text-blue-800">{freeAnswer.answer}</p>
+                {freeAnswer.safetyLabel && (
+                  <Badge className={`text-xs ${SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.color || "bg-gray-100 text-gray-800"}`}>
+                    {SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.label || freeAnswer.safetyLabel}
+                  </Badge>
+                )}
+                {freeAnswer.requiresDoctorReview && (
+                  <Badge className="bg-red-600 text-white text-xs">
+                    🔴 担当医が直接説明します
+                  </Badge>
+                )}
               </div>
             )}
           </CardContent>

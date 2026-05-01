@@ -22,6 +22,13 @@ const AVAILABLE_RISKS = [
   "心不全",
 ];
 
+interface ExplanationCard {
+  id: string;
+  icon: string;
+  title: string;
+  content: string;
+}
+
 export default function ClinicianIntake() {
   const router = useRouter();
   const [age, setAge] = useState("");
@@ -34,6 +41,9 @@ export default function ClinicianIntake() {
   const [transfusion, setTransfusion] = useState("");
   const [risks, setRisks] = useState<string[]>([]);
   const [notes, setNotes] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [generatedExplanation, setGeneratedExplanation] = useState<ExplanationCard[] | null>(null);
+  const [aiSource, setAiSource] = useState<"idle" | "gemini" | "fallback">("idle");
 
   const loadDemo = () => {
     setAge(String(demoCase.age));
@@ -54,7 +64,41 @@ export default function ClinicianIntake() {
     );
   };
 
-  const generateLink = () => {
+  const generateFamilyLink = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/explain", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          diagnosis,
+          plannedSurgery,
+          risks,
+          urgency,
+          purpose,
+          cardiopulmonaryBypass,
+          transfusion,
+          notes,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setGeneratedExplanation(data.explanation);
+        setAiSource("gemini");
+      } else {
+        throw new Error("API error");
+      }
+    } catch {
+      // Fallback to mock
+      const { default: mockExplanation } = await import("@/data/mock-explanation.json");
+      setGeneratedExplanation(mockExplanation);
+      setAiSource("fallback");
+    }
+    setLoading(false);
+  };
+
+  const goToFamilyPage = () => {
     router.push("/family/demo-aad-001");
   };
 
@@ -82,7 +126,6 @@ export default function ClinicianIntake() {
             <CardTitle className="text-base">症例情報入力</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            {/* 年齢・性別 */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="age" className="text-sm">年齢</Label>
@@ -110,7 +153,6 @@ export default function ClinicianIntake() {
               </div>
             </div>
 
-            {/* 診断名 */}
             <div className="space-y-1.5">
               <Label htmlFor="diagnosis" className="text-sm">診断名</Label>
               <Input
@@ -121,7 +163,6 @@ export default function ClinicianIntake() {
               />
             </div>
 
-            {/* 緊急度 */}
             <div className="space-y-1.5">
               <Label htmlFor="urgency" className="text-sm">緊急度</Label>
               <select
@@ -137,7 +178,6 @@ export default function ClinicianIntake() {
               </select>
             </div>
 
-            {/* 予定手術 */}
             <div className="space-y-1.5">
               <Label htmlFor="surgery" className="text-sm">予定手術</Label>
               <Input
@@ -148,7 +188,6 @@ export default function ClinicianIntake() {
               />
             </div>
 
-            {/* 主な目的 */}
             <div className="space-y-1.5">
               <Label htmlFor="purpose" className="text-sm">主な目的</Label>
               <Textarea
@@ -162,7 +201,6 @@ export default function ClinicianIntake() {
 
             <Separator />
 
-            {/* 人工心肺・輸血 */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-sm">人工心肺 (CPB)</Label>
@@ -205,7 +243,6 @@ export default function ClinicianIntake() {
 
             <Separator />
 
-            {/* リスク */}
             <div className="space-y-2">
               <Label className="text-sm">主なリスク</Label>
               <div className="flex flex-wrap gap-2">
@@ -226,7 +263,6 @@ export default function ClinicianIntake() {
               </div>
             </div>
 
-            {/* 特記事項 */}
             <div className="space-y-1.5">
               <Label htmlFor="notes" className="text-sm">特記事項</Label>
               <Textarea
@@ -247,7 +283,7 @@ export default function ClinicianIntake() {
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5">
                   <span className="text-green-600">✅</span>
-                  <span className="text-xs text-gray-600">エビデンス準備完了</span>
+                  <span className="text-xs text-gray-600">Gemini API接続可</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-green-600">✅</span>
@@ -265,7 +301,7 @@ export default function ClinicianIntake() {
           </CardContent>
         </Card>
 
-        {/* Buttons */}
+        {/* Generate Button */}
         <div className="grid grid-cols-2 gap-3">
           <Button
             onClick={loadDemo}
@@ -275,13 +311,46 @@ export default function ClinicianIntake() {
             📋 デモを読み込む
           </Button>
           <Button
-            onClick={generateLink}
+            onClick={generateFamilyLink}
             className="bg-blue-600 hover:bg-blue-700"
             size="lg"
+            disabled={loading || !diagnosis}
           >
-            🔗 家族向けリンクを作成
+            {loading ? "⏳ Gemini生成中..." : "🔗 説明を生成する"}
           </Button>
         </div>
+
+        {/* Generated Explanation Preview */}
+        {generatedExplanation && (
+          <Card className="border-blue-200 bg-blue-50/50">
+            <CardHeader className="pb-2 pt-3 px-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <span>🤖 AI生成プレビュー</span>
+                {aiSource === "gemini" && (
+                  <Badge className="bg-green-600 text-white text-xs">Gemini Live</Badge>
+                )}
+                {aiSource === "fallback" && (
+                  <Badge className="bg-gray-500 text-white text-xs">フォールバック（mock）</Badge>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-3 space-y-2">
+              {generatedExplanation.map((card) => (
+                <div key={card.id} className="bg-white rounded-lg p-3 border">
+                  <p className="text-sm font-medium">{card.icon} {card.title}</p>
+                  <p className="text-xs text-gray-600 mt-1 whitespace-pre-line">{card.content}</p>
+                </div>
+              ))}
+              <Button
+                onClick={goToFamilyPage}
+                className="w-full bg-blue-600 hover:bg-blue-700 mt-2"
+                size="lg"
+              >
+                📱 家族向け画面を開く
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
