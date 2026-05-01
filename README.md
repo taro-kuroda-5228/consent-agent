@@ -1,36 +1,64 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MedEvidence Consent Agent
 
-## Getting Started
+Phase 1 click demo for Google Hackathon.
 
-First, run the development server:
+## Purpose
+
+This prototype demonstrates an AI-native consent support workflow for acute type A aortic dissection emergency surgery:
+
+1. Physician setup
+2. Family-facing explanation cards
+3. Evidence drawer with PMID-backed mock citations
+4. Understanding check and safety triage
+5. Physician summary / FHIR Consent-like JSON export
+
+## How to run
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Verification commands
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm test -- --run
+npm run lint
+npm run build
+```
 
-## Learn More
+## What is real in Phase 1
 
-To learn more about Next.js, take a look at the following resources:
+- Runnable Next.js / React / TypeScript UI
+- Deterministic TypeScript demo utilities
+- Structured mock evidence cards
+- Understanding-check scoring
+- Safety flags that route risky questions back to physician review
+- FHIR Consent-like draft JSON shape
+- No real patient identifiers
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## What is fake or stubbed in Phase 1
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Gemini API responses are mocked by deterministic explanation cards
+- MedEvidence RAG retrieval is mocked by local evidence data
+- Authentication is not implemented
+- Firestore/audit persistence is not implemented
+- Cloud Run deployment is not implemented
 
-## Deploy on Vercel
+## Phase 2 target
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Connect the demo workflow to live services:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Consent Agent API endpoint sends query to MedEvidence `/api/search/v3`
+- Returned citations with PMID are normalized into evidence cards
+- Evidence snippets are injected into Gemini prompt templates
+- Gemini generates family-facing explanation cards and physician summaries
+- Mock retrieval remains only as fallback/demo-stability mode
+
+## Data and secrets notes
+
+- Do not commit API keys, service account JSON, real patient names, chart IDs, DICOM, consent forms, or raw clinical notes.
+- Use anonymous demo data only until Medical Horizon security/compliance review is complete.
+- AI supports explanation, organization, understanding check, and documentation. AI does not obtain final consent or replace physician judgment.
