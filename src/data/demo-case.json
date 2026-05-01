@@ -1,0 +1,13 @@
+{
+  "caseId": "demo-aad-001",
+  "age": 62,
+  "sex": "Male",
+  "diagnosis": "Stanford Type A acute aortic dissection",
+  "urgency": "Immediate emergency surgery",
+  "plannedSurgery": "Emergency ascending aorta replacement",
+  "purpose": "裂けた大動脈の部分を人工血管に置換し、破裂を防ぐ。",
+  "cardiopulmonaryBypass": true,
+  "transfusion": "Likely required",
+  "risks": ["Death", "Stroke", "Bleeding", "Renal failure", "Reoperation"],
+  "notes": "高血圧既往あり。市民病院からドクターヘリで搬送。意識清明。"
+}

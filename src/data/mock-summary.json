@@ -1,0 +1,63 @@
+{
+  "caseId": "demo-aad-001",
+  "summary": {
+    "understood": [
+      "大動脈解離の病態",
+      "緊急手術の必要性",
+      "主なリスク（出血、脳梗塞、腎不全）",
+      "手術しない場合のリスク"
+    ],
+    "notUnderstood": [
+      "術後の見通し"
+    ],
+    "concerns": [
+      "術後の生活に戻れるか心配"
+    ],
+    "doctorQuestions": [
+      "手術の成功率",
+      "術後の具体的な見通し"
+    ]
+  },
+  "understandingScore": 4,
+  "totalQuestions": 5,
+  "doctorReviewRequired": true,
+  "patientConcerns": "術後の生活に戻れるか心配",
+  "fhirConsent": {
+    "resourceType": "Consent",
+    "id": "consent-demo-aad-001",
+    "status": "proposed",
+    "scope": {
+      "coding": [
+        {
+          "system": "http://terminology.hl7.org/CodeSystem/consentscope",
+          "code": "treatment",
+          "display": "Treatment"
+        }
+      ]
+    },
+    "category": [
+      {
+        "coding": [
+          {
+            "system": "http://loinc.org",
+            "code": "59284-0",
+            "display": "Consent Document"
+          }
+        ]
+      }
+    ],
+    "patient": {
+      "reference": "Patient/demo-aad-001",
+      "display": "62歳男性 / Stanford Type A acute aortic dissection"
+    },
+    "dateTime": "2026-05-01T11:00:00Z",
+    "policyRule": {
+      "coding": [
+        {
+          "system": "http://terminology.hl7.org/CodeSystem/v3-ActCode",
+          "code": "INFA"
+        }
+      ]
+    }
+  }
+}
