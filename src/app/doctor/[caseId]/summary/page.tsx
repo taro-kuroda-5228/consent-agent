@@ -31,38 +31,38 @@ export default function DoctorSummary() {
   const { summary, understandingScore, totalQuestions } = summaryData;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-6 py-4">
-        <h1 className="text-xl font-bold text-gray-900">
-          Dissection Consent Agent
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-white border-b px-5 py-4 sticky top-0 z-10">
+        <h1 className="text-lg font-bold text-gray-900">
+          説明同意エージェント
         </h1>
-        <p className="text-sm text-gray-500">
-          Powered by MedEvidence × Gemini
+        <p className="text-xs text-gray-500">
+          MedEvidence × Gemini
         </p>
       </header>
 
-      <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <div className="max-w-4xl mx-auto p-4 space-y-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-2xl font-bold">医師用サマリー</h2>
-            <p className="text-sm text-gray-500">
-              Case: {summaryData.caseId} | 62歳男性 / Stanford Type A
+            <h2 className="text-lg font-bold">医師用サマリー</h2>
+            <p className="text-xs text-gray-500">
+              症例: {summaryData.caseId} / 62歳男性 / Stanford A型
             </p>
           </div>
-          <Badge className="bg-red-100 text-red-800 border-red-200 text-sm px-3 py-1">
-            Doctor Review: REQUIRED
+          <Badge className="bg-red-100 text-red-800 border-red-200 text-xs px-3 py-1">
+            🔴 医師確認：必須
           </Badge>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Understood */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {/* 理解済み */}
           <Card className="border-l-4 border-l-green-500">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-base text-green-800">
+            <CardHeader className="pb-1 pt-3 px-4">
+              <CardTitle className="text-sm text-green-800">
                 ✅ 理解済み
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-1">
+            <CardContent className="px-4 pb-3 space-y-0.5">
               {summary.understood.map((item, i) => (
                 <p key={i} className="text-sm text-gray-700">
                   ✅ {item}
@@ -71,14 +71,14 @@ export default function DoctorSummary() {
             </CardContent>
           </Card>
 
-          {/* Not Understood */}
+          {/* 未理解 */}
           <Card className="border-l-4 border-l-yellow-500">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-base text-yellow-800">
+            <CardHeader className="pb-1 pt-3 px-4">
+              <CardTitle className="text-sm text-yellow-800">
                 ⚠️ 未理解
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-1">
+            <CardContent className="px-4 pb-3 space-y-0.5">
               {summary.notUnderstood.map((item, i) => (
                 <p key={i} className="text-sm text-gray-700">
                   ⚠️ {item}
@@ -87,14 +87,14 @@ export default function DoctorSummary() {
             </CardContent>
           </Card>
 
-          {/* Concerns */}
+          {/* 不安 */}
           <Card className="border-l-4 border-l-orange-500">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-base text-orange-800">
+            <CardHeader className="pb-1 pt-3 px-4">
+              <CardTitle className="text-sm text-orange-800">
                 😰 家族の不安
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-1">
+            <CardContent className="px-4 pb-3 space-y-0.5">
               {summary.concerns.map((item, i) => (
                 <p key={i} className="text-sm text-gray-700">
                   😰 {item}
@@ -103,14 +103,14 @@ export default function DoctorSummary() {
             </CardContent>
           </Card>
 
-          {/* Doctor Questions */}
+          {/* 医師直接回答 */}
           <Card className="border-l-4 border-l-red-500">
-            <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-base text-red-800">
+            <CardHeader className="pb-1 pt-3 px-4">
+              <CardTitle className="text-sm text-red-800">
                 🔴 医師が直接答えるべき質問
               </CardTitle>
             </CardHeader>
-            <CardContent className="px-4 pb-4 space-y-1">
+            <CardContent className="px-4 pb-3 space-y-0.5">
               {summary.doctorQuestions.map((item, i) => (
                 <p key={i} className="text-sm text-gray-700">
                   🔴 {item}
@@ -122,34 +122,34 @@ export default function DoctorSummary() {
 
         <Separator />
 
-        {/* eConsent Handoff */}
+        {/* eConsent */}
         <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-base">📋 eConsent Handoff</CardTitle>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm">📋 eConsent ハンドオフ</CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-4 space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-xs text-gray-500">FHIR Consent JSON</p>
-                <p className="text-sm font-bold text-green-600">Ready ✅</p>
+          <CardContent className="px-4 pb-3 space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="bg-gray-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-gray-500">FHIR JSON</p>
+                <p className="text-sm font-bold text-green-600">準備完了 ✅</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-xs text-gray-500">Status</p>
-                <p className="text-sm font-bold text-yellow-600">proposed</p>
+              <div className="bg-gray-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-gray-500">ステータス</p>
+                <p className="text-sm font-bold text-yellow-600">提案済み</p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-xs text-gray-500">Understanding Score</p>
+              <div className="bg-gray-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-gray-500">理解度スコア</p>
                 <p className="text-sm font-bold text-blue-600">
                   {understandingScore}/{totalQuestions}
                 </p>
               </div>
-              <div className="bg-gray-50 rounded-lg p-3 text-center">
-                <p className="text-xs text-gray-500">Doctor Review</p>
-                <p className="text-sm font-bold text-red-600">REQUIRED</p>
+              <div className="bg-gray-50 rounded-lg p-2 text-center">
+                <p className="text-xs text-gray-500">医師確認</p>
+                <p className="text-sm font-bold text-red-600">必須</p>
               </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex gap-2">
               <Button
                 onClick={copyJSON}
                 variant="outline"

@@ -38,21 +38,21 @@ export default function QAPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b px-4 py-3">
-        <h1 className="text-lg font-bold text-gray-900">質問 &amp; 確認</h1>
+    <div className="min-h-screen bg-slate-50">
+      <header className="bg-white border-b px-4 py-3 sticky top-0 z-10">
+        <h1 className="text-lg font-bold text-gray-900">質問 & 確認</h1>
         <p className="text-xs text-gray-500">
           ※ 担当医師の説明を補助するものです
         </p>
       </header>
 
-      <div className="max-w-md mx-auto p-4 space-y-4 pb-24">
-        {/* FAQ Section */}
+      <div className="max-w-lg mx-auto p-4 space-y-3 pb-24">
+        {/* FAQ */}
         <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-base">❓ よくある質問</CardTitle>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm">❓ よくある質問</CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-4 space-y-2">
+          <CardContent className="px-4 pb-3 space-y-2">
             {qaData.faq.map((item, idx) => (
               <div key={idx} className="border rounded-lg overflow-hidden">
                 <button
@@ -80,17 +80,17 @@ export default function QAPage() {
           </CardContent>
         </Card>
 
-        {/* Free Question */}
+        {/* 自由質問 */}
         <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-base">✏️ 自由に質問する</CardTitle>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm">✏️ 自由に質問する</CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-4 space-y-3">
+          <CardContent className="px-4 pb-3 space-y-3">
             <Textarea
               placeholder="気になることを入力してください..."
               value={freeQuestion}
               onChange={(e) => setFreeQuestion(e.target.value)}
-              rows={3}
+              rows={2}
             />
             <Button
               onClick={handleFreeQuestion}
@@ -109,18 +109,18 @@ export default function QAPage() {
 
         <Separator />
 
-        {/* Understanding Check */}
+        {/* 理解度チェック */}
         <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-base">📝 理解度チェック</CardTitle>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm">📝 理解度チェック</CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-4 space-y-5">
+          <CardContent className="px-4 pb-3 space-y-4">
             {understandingData.questions.map((q, qIdx) => (
-              <div key={q.id} className="space-y-2">
+              <div key={q.id} className="space-y-1.5">
                 <p className="text-sm font-medium">
                   Q{qIdx + 1}: {q.question}
                 </p>
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {q.options.map((opt, optIdx) => {
                     const selected = answers[q.id] === optIdx;
                     return (
@@ -143,24 +143,24 @@ export default function QAPage() {
           </CardContent>
         </Card>
 
-        {/* Concerns */}
+        {/* 不安 */}
         <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-base">😰 不安・確認したいこと</CardTitle>
+          <CardHeader className="pb-1 pt-3 px-4">
+            <CardTitle className="text-sm">😰 不安・確認したいこと</CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-4">
+          <CardContent className="px-4 pb-3">
             <Textarea
               placeholder="不安なこと、確認したいことを自由に書いてください..."
               value={concerns}
               onChange={(e) => setConcerns(e.target.value)}
-              rows={3}
+              rows={2}
             />
           </CardContent>
         </Card>
 
         <Button
           onClick={handleSubmit}
-          className="w-full bg-green-600 hover:bg-green-700 text-base py-6"
+          className="w-full bg-green-600 hover:bg-green-700 text-base py-5"
           size="lg"
           disabled={!allAnswered}
         >
