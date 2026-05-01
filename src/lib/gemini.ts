@@ -12,7 +12,7 @@ export async function generateExplanation(context: {
   transfusion: string;
   notes: string;
 }) {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
 
   const prompt = `あなたは急性大動脈解離の緊急手術前に、家族向け説明文を作成するAIアシスタントです。
 以下の症例情報をもとに、家族向けの説明カードを5枚生成してください。
@@ -95,7 +95,7 @@ export async function generateQA(
   safetyLabel: "general" | "doctor-review" | "individual-prognosis" | "consent-guidance";
   requiresDoctorReview: boolean;
 }> {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
 
   const prompt = `あなたは急性大動脈解離の緊急手術に関する家族からの質問に答えるAIアシスタントです。
 
@@ -150,7 +150,7 @@ export async function generateDoctorSummary(data: {
   concerns: string;
   risks: string[];
 }) {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-preview-05-20" });
 
   const prompt = `あなたは緊急手術前の家族説明セッションの結果を、担当医師向けに整理するAIアシスタントです。
 
