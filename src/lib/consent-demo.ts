@@ -696,6 +696,24 @@ export type EvidenceBoundQAResult = {
   evidenceReferences: string[];
   retrievedEvidence: EvidenceCard[];
   templateReferences?: FacilityAnswerTemplate[];
+  supportingSpans?: Array<{ evidenceId: string; text: string }>;
+  extractionMode?: "facility-template" | "agentic-source-bounded" | "deterministic-source-bounded";
+};
+
+export type SupportingSpanExtraction = {
+  answerable: boolean;
+  confidence: "high" | "moderate" | "low";
+  reason: string;
+  supportingSpans: Array<{ evidenceId: string; span: string; chunkId?: string }>;
+  abstainReason?: string;
+};
+
+type ConsentQAContext = {
+  diagnosis: string;
+  plannedSurgery: string;
+  risks: string[];
+  selectedEvidence: EvidenceCard[];
+  facilityAnswerTemplates?: FacilityAnswerTemplate[];
 };
 
 const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResult["safetyLabel"]; requiresDoctorReview: boolean }> = [
@@ -1128,6 +1146,124 @@ function getAnswerEvidence(question: string, evidence: EvidenceCard[]): Evidence
   }
 
   return evidence;
+}
+
+function noDirectAnswerResult(question: string): EvidenceBoundQAResult {
+  const normalized = question.toLowerCase();
+  const matchedPolicy = QUESTION_TERMS.find((group) =>
+    group.terms.some((term) => normalized.includes(term.toLowerCase())),
+  );
+  return {
+    answer: "選択済み参考資料内には、この質問に直接答えられる記載が見つかりません。",
+    safetyLabel: matchedPolicy?.safetyLabel ?? "doctor-review",
+    requiresDoctorReview: true,
+    retrievalMode: "physician-curated-only",
+    evidenceReferences: [],
+    retrievedEvidence: [],
+  };
+}
+
+function normalizeEvidenceSpan(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function canonicalSpanFromEvidence(span: string, evidence: EvidenceCard): string | undefined {
+  const normalizedRequested = normalizeEvidenceSpan(span).toLowerCase();
+  if (!normalizedRequested) return undefined;
+  return splitEvidenceSpans(evidence).find((candidate) => {
+    const normalizedCandidate = normalizeEvidenceSpan(candidate).toLowerCase();
+    return normalizedCandidate === normalizedRequested || normalizedCandidate.includes(normalizedRequested) || normalizedRequested.includes(normalizedCandidate);
+  });
+}
+
+function verifySupportingSpanExtraction(
+  extraction: SupportingSpanExtraction,
+  selectedEvidence: EvidenceCard[],
+): Array<{ evidence: EvidenceCard; text: string }> {
+  if (!extraction.answerable || extraction.supportingSpans.length === 0) return [];
+  const selectedById = new Map(selectedEvidence.map((item) => [item.evidenceId, item]));
+  const verified: Array<{ evidence: EvidenceCard; text: string }> = [];
+
+  for (const requested of extraction.supportingSpans) {
+    const evidence = selectedById.get(requested.evidenceId);
+    if (!evidence) continue;
+    const canonical = canonicalSpanFromEvidence(requested.span, evidence);
+    if (!canonical) continue;
+    if (!verified.some((item) => item.evidence.evidenceId === evidence.evidenceId && item.text === canonical)) {
+      verified.push({ evidence, text: canonical });
+    }
+  }
+
+  return verified.slice(0, 3);
+}
+
+function answerFromSupportingSpans(spans: Array<{ text: string }>): string {
+  const answer = spans
+    .map((item) => cleanFamilyAnswerSpan(item.text))
+    .filter(Boolean)
+    .join("。")
+    .replace(/。+/g, "。");
+  const normalizedAnswer = answer.endsWith("。") ? answer : `${answer}。`;
+  return normalizedAnswer.length <= 260 ? normalizedAnswer : `${normalizedAnswer.slice(0, 257)}...`;
+}
+
+export function synthesizeEvidenceBoundQAFromSupportingSpans(
+  question: string,
+  context: ConsentQAContext,
+  extraction: SupportingSpanExtraction,
+): EvidenceBoundQAResult {
+  const normalized = question.toLowerCase();
+
+  const facilityTemplate = findMatchingFacilityTemplate(question, context.facilityAnswerTemplates);
+  if (facilityTemplate) {
+    return {
+      answer: facilityTemplate.answer,
+      safetyLabel: "facility-template",
+      requiresDoctorReview: false,
+      retrievalMode: "physician-curated-only",
+      evidenceReferences: [facilityTemplate.templateId],
+      retrievedEvidence: [],
+      templateReferences: [facilityTemplate],
+      extractionMode: "facility-template",
+    };
+  }
+
+  if (normalized.includes("成功率") || normalized.includes("助か")) {
+    return {
+      answer: "選択済み参考資料内だけでは、個別の成功率や死亡率は断定できません。担当医が患者さんの状態に合わせて直接補足します。",
+      safetyLabel: "individual-prognosis",
+      requiresDoctorReview: true,
+      retrievalMode: "physician-curated-only",
+      evidenceReferences: [],
+      retrievedEvidence: [],
+    };
+  }
+
+  if (normalized.includes("同意") || normalized.includes("受けるべき") || normalized.includes("やるべき")) {
+    return {
+      answer: "AIが同意を勧めたり決めたりすることはできません。参考資料の範囲を整理し、最終判断は担当医と確認してください。",
+      safetyLabel: "consent-guidance",
+      requiresDoctorReview: true,
+      retrievalMode: "physician-curated-only",
+      evidenceReferences: [],
+      retrievedEvidence: [],
+    };
+  }
+
+  const verifiedSpans = verifySupportingSpanExtraction(extraction, context.selectedEvidence);
+  if (verifiedSpans.length === 0) return noDirectAnswerResult(question);
+
+  const evidenceById = new Map(verifiedSpans.map((item) => [item.evidence.evidenceId, item.evidence]));
+  return {
+    answer: answerFromSupportingSpans(verifiedSpans),
+    safetyLabel: extraction.confidence === "low" ? "doctor-review" : "general",
+    requiresDoctorReview: extraction.confidence === "low",
+    retrievalMode: "physician-curated-only",
+    evidenceReferences: Array.from(evidenceById.keys()),
+    retrievedEvidence: Array.from(evidenceById.values()),
+    supportingSpans: verifiedSpans.map((item) => ({ evidenceId: item.evidence.evidenceId, text: item.text })),
+    extractionMode: "agentic-source-bounded",
+  };
 }
 
 export function synthesizeEvidenceBoundQA(

@@ -15,6 +15,7 @@ import {
   scoreUnderstandingCheck,
   suggestEvidenceCandidates,
   synthesizeEvidenceBoundQA,
+  synthesizeEvidenceBoundQAFromSupportingSpans,
 } from "./consent-demo";
 
 describe("consent demo utilities", () => {
@@ -291,24 +292,81 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
-  it("keeps the no-direct-answer guardrail for unknown papers when generic expansion still finds no supporting span", () => {
+  it("uses source-bounded agentic extraction to answer when dictionary matching would miss the family's wording", () => {
     const uploaded = createPhysicianUploadedEvidence({
-      title: "Unknown anticoagulation note",
-      fileName: "unknown-anticoagulation.pdf",
-      extractedText: "The selected paper discusses postoperative anticoagulation and reports major bleeding in 4% of patients.",
-      keyFindings: ["Major bleeding was reported in 4% of patients."],
+      title: "Unknown postoperative neurocognitive cohort",
+      fileName: "unknown-neurocognitive-cohort.pdf",
+      extractedText:
+        "Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery. The study did not evaluate pregnancy outcomes.",
+      keyFindings: ["Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery."],
     });
 
-    const result = synthesizeEvidenceBoundQA("将来の妊娠への影響は書いてある？", {
-      diagnosis: "術後管理",
-      plannedSurgery: "未指定の手術",
-      risks: ["出血"],
-      selectedEvidence: [uploaded],
-      facilityAnswerTemplates: [],
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "術後に頭がぼーっとすることはどれくらいありますか？",
+      {
+        diagnosis: "術後回復",
+        plannedSurgery: "未指定の手術",
+        risks: ["せん妄"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      },
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "The extracted source span directly reports postoperative delirium frequency.",
+        supportingSpans: [
+          {
+            evidenceId: uploaded.evidenceId,
+            span: "Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery.",
+          },
+        ],
+      },
+    );
+
+    expect(result.answer).toContain("22%");
+    expect(result.answer).toMatch(/postoperative delirium/i);
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual([uploaded.evidenceId]);
+    expect(result.supportingSpans?.map((item) => item.text)).toEqual([
+      "Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery.",
+    ]);
+    expect(result.extractionMode).toBe("agentic-source-bounded");
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
+  it("rejects agentic extracted spans that are not present in physician-selected sources", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Unknown postoperative bleeding cohort",
+      fileName: "unknown-bleeding-cohort.pdf",
+      extractedText: "Major bleeding occurred in 4% of patients after surgery.",
+      keyFindings: ["Major bleeding occurred in 4% of patients after surgery."],
     });
+
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "将来の妊娠への影響は書いてある？",
+      {
+        diagnosis: "術後管理",
+        plannedSurgery: "未指定の手術",
+        risks: ["出血"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      },
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "This span is hallucinated and should be rejected by verification.",
+        supportingSpans: [
+          {
+            evidenceId: uploaded.evidenceId,
+            span: "Pregnancy outcomes were not affected by the operation.",
+          },
+        ],
+      },
+    );
 
     expect(result.answer).toContain("選択済み参考資料内には、この質問に直接答えられる記載が見つかりません");
-    expect(result.answer).not.toContain("major bleeding");
+    expect(result.answer).not.toContain("Pregnancy outcomes");
     expect(result.evidenceReferences).toEqual([]);
     expect(result.retrievedEvidence).toEqual([]);
     expect(result.requiresDoctorReview).toBe(true);

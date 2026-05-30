@@ -3,8 +3,10 @@ import {
   retrieveMockEvidence,
   resolveEvidenceSelectionForRequest,
   synthesizeEvidenceBoundQA,
+  synthesizeEvidenceBoundQAFromSupportingSpans,
   type EvidenceCard,
   type FacilityAnswerTemplate,
+  type SupportingSpanExtraction,
 } from "./consent-demo";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -106,15 +108,102 @@ ${evidenceText}
   return JSON.parse(jsonMatch[0]);
 }
 
+type QAContext = {
+  diagnosis: string;
+  plannedSurgery: string;
+  risks: string[];
+  selectedEvidence?: EvidenceCard[];
+  facilityAnswerTemplates?: FacilityAnswerTemplate[];
+};
+
+type SourceBoundedSpanExtractor = (question: string, context: QAContext & { selectedEvidence: EvidenceCard[] }) => Promise<SupportingSpanExtraction>;
+
+function serializeEvidenceForSpanExtraction(selectedEvidence: EvidenceCard[]): string {
+  return selectedEvidence
+    .map((item) => {
+      const spans = [
+        ...(item.keyFindings ?? []),
+        item.quotedSpan,
+        item.displayForFamily,
+        item.claim,
+        item.clinicianSummary,
+      ]
+        .filter((span): span is string => Boolean(span))
+        .map((span, index) => `  - chunk-${index + 1}: ${span.replace(/\s+/g, " ").trim()}`)
+        .join("\n");
+
+      return `SOURCE ${item.evidenceId}\nTitle: ${item.title}\nType: ${item.sourceType}\nPriority: ${item.origin === "facility-document" || item.origin === "physician-upload" ? "facility-or-physician-upload-first" : "selected-literature"}\nChunks:\n${spans}`;
+    })
+    .join("\n\n");
+}
+
+function parseSupportingSpanExtraction(text: string): SupportingSpanExtraction {
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error("Failed to parse source-bounded extraction response as JSON");
+  }
+  const parsed = JSON.parse(jsonMatch[0]) as Partial<SupportingSpanExtraction>;
+  return {
+    answerable: parsed.answerable === true,
+    confidence: parsed.confidence === "high" || parsed.confidence === "moderate" || parsed.confidence === "low" ? parsed.confidence : "low",
+    reason: typeof parsed.reason === "string" ? parsed.reason : "",
+    supportingSpans: Array.isArray(parsed.supportingSpans)
+      ? parsed.supportingSpans
+          .filter((item) => typeof item?.evidenceId === "string" && typeof item?.span === "string")
+          .map((item) => ({ evidenceId: item.evidenceId, span: item.span, chunkId: typeof item.chunkId === "string" ? item.chunkId : undefined }))
+      : [],
+    abstainReason: typeof parsed.abstainReason === "string" ? parsed.abstainReason : undefined,
+  };
+}
+
+export async function extractSupportingSpansWithGemini(
+  question: string,
+  context: QAContext & { selectedEvidence: EvidenceCard[] },
+): Promise<SupportingSpanExtraction> {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const evidenceText = serializeEvidenceForSpanExtraction(context.selectedEvidence);
+  const prompt = `あなたはMedEvidence Consent AgentのSource-bounded Retrieval担当です。
+医師が選択したソースだけを読み、家族の質問に直接答えられる根拠スパンを抽出してください。
+
+【最重要ルール】
+- 以下の【医師が選択したソース】に含まれる文字列だけを根拠にする。
+- 選択されていない文献、一般知識、推測、外部検索は禁止。
+- supportingSpans[].span は、ソース内の文を原文のままコピーする。要約・翻訳・言い換えは禁止。
+- 直接答える記載がない場合は answerable=false にする。
+- 施設資料または医師アップロード資料が直接答えられる場合は、それを最優先する。
+- 個別の成功率・同意判断を求める質問は、スパンがあっても慎重に扱うため confidence=low にする。
+
+【症例】
+- 診断: ${context.diagnosis}
+- 予定手術: ${context.plannedSurgery}
+- リスク: ${context.risks.join("、") || "未入力"}
+
+【家族の質問】
+${question}
+
+【医師が選択したソース】
+${evidenceText || "（選択済みソースなし）"}
+
+【出力形式】
+JSONのみを返してください。
+{
+  "answerable": true,
+  "confidence": "high | moderate | low",
+  "reason": "質問とスパンが直接対応する理由。なければ不足理由。",
+  "supportingSpans": [
+    { "evidenceId": "SOURCE_ID", "chunkId": "chunk-1", "span": "ソース内の文を原文コピー" }
+  ],
+  "abstainReason": "answerable=false の場合のみ"
+}`;
+
+  const result = await model.generateContent(prompt);
+  return parseSupportingSpanExtraction(result.response.text());
+}
+
 export async function generateQA(
   question: string,
-  context: {
-    diagnosis: string;
-    plannedSurgery: string;
-    risks: string[];
-    selectedEvidence?: EvidenceCard[];
-    facilityAnswerTemplates?: FacilityAnswerTemplate[];
-  }
+  context: QAContext,
+  spanExtractor: SourceBoundedSpanExtractor = extractSupportingSpansWithGemini,
 ): Promise<{
   answer: string;
   safetyLabel: "general" | "doctor-review" | "individual-prognosis" | "consent-guidance" | "facility-template";
@@ -123,12 +212,30 @@ export async function generateQA(
   evidenceReferences?: string[];
   retrievedEvidence?: EvidenceCard[];
   templateReferences?: FacilityAnswerTemplate[];
+  supportingSpans?: Array<{ evidenceId: string; text: string }>;
+  extractionMode?: "facility-template" | "agentic-source-bounded" | "deterministic-source-bounded";
 }> {
   const selectedEvidence = context.selectedEvidence !== undefined
     ? context.selectedEvidence
     : resolveEvidenceSelectionForRequest(retrieveMockEvidence(context.diagnosis), undefined);
 
-  return synthesizeEvidenceBoundQA(question, { ...context, selectedEvidence });
+  const resolvedContext = { ...context, selectedEvidence };
+
+  if (!process.env.GEMINI_API_KEY && spanExtractor === extractSupportingSpansWithGemini) {
+    return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
+  }
+
+  try {
+    const extraction = await spanExtractor(question, resolvedContext);
+    const agenticResult = synthesizeEvidenceBoundQAFromSupportingSpans(question, resolvedContext, extraction);
+    if (agenticResult.evidenceReferences.length > 0 || agenticResult.safetyLabel !== "doctor-review") {
+      return agenticResult;
+    }
+  } catch (error) {
+    console.warn("Source-bounded extraction failed; falling back to deterministic selected-source retrieval", error);
+  }
+
+  return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
 }
 
 export async function generateDoctorSummary(data: {
