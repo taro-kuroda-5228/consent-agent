@@ -227,6 +227,23 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("agentically searches selected documents for long-term prognosis instead of returning no direct answer", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("長期的な予後は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "全弓部置換術 + frozen elephant trunk",
+      risks: ["死亡", "再手術"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toMatch(/遠隔期死亡|長期サーベイランス|再手術|サーベイランス/);
+    expect(result.evidenceReferences.length).toBeGreaterThan(0);
+    expect(result.retrievedEvidence.length).toBeGreaterThan(0);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("answers published mortality-rate questions from selected evidence when the numeric span is present", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), ["AAD-005"]);
     const result = synthesizeEvidenceBoundQA("この参考文献で院内死亡率は何%？", {

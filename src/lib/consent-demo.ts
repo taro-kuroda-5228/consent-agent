@@ -691,6 +691,7 @@ const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResul
   { terms: ["腎", "腎不全", "renal"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["臓器", "血流", "malperfusion"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["手術", "なぜ", "必要", "緊急", "しない", "破裂", "心タンポナーデ"], safetyLabel: "doctor-review", requiresDoctorReview: true },
+  { terms: ["長期", "長期的", "予後", "遠隔期", "再手術", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance", "follow-up"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["病気", "大動脈解離", "解離", "dissection"], safetyLabel: "general", requiresDoctorReview: false },
 ];
 
@@ -711,6 +712,9 @@ function getQuestionTerms(question: string): string[] {
   if (["対麻痺", "脊髄障害", "脊髄", "spinal", "paraplegia"].some((term) => normalized.includes(term.toLowerCase()))) {
     return ["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia"];
   }
+  if (["長期", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance"].some((term) => normalized.includes(term.toLowerCase()))) {
+    return ["長期", "長期的", "予後", "遠隔期", "遠隔", "晩期", "再手術", "大動脈再手術", "経過", "フォロー", "サーベイランス", "late mortality", "late", "long-term", "surveillance", "follow-up", "aortic re-operation", "reoperation", "late-survival"];
+  }
   const matchedGroups = QUESTION_TERMS.filter((group) =>
     group.terms.some((term) => normalized.includes(term.toLowerCase())),
   );
@@ -728,9 +732,54 @@ function findRelevantSelectedEvidence(question: string, selectedEvidence: Eviden
       item.title,
       item.clinicianSummary,
       ...(item.keyFindings ?? []),
+      ...(item.outcomeTags ?? []),
+      item.clinicalScope,
     ].join(" ").toLowerCase();
     return terms.some((term) => sourceText.includes(term.toLowerCase()));
   });
+}
+
+function agenticSearchSelectedEvidence(question: string, selectedEvidence: EvidenceCard[]): EvidenceCard[] {
+  const terms = getQuestionTerms(question);
+  const normalizedQuestion = question.toLowerCase();
+  const queryTokens = Array.from(new Set([
+    ...terms,
+    ...normalizedQuestion.split(/[\s、。・？?]+/).filter((term) => term.length >= 2),
+  ])).map((term) => term.toLowerCase());
+
+  const scored = selectedEvidence.map((item, index) => {
+    const spans = splitEvidenceSpans(item);
+    const searchableText = [
+      item.title,
+      item.displayForFamily,
+      item.claim,
+      item.quotedSpan,
+      item.clinicianSummary,
+      item.clinicalScope,
+      ...(item.keyFindings ?? []),
+      ...(item.outcomeTags ?? []),
+    ].join(" ").toLowerCase();
+    const termHits = queryTokens.filter((term) => searchableText.includes(term)).length;
+    const spanHits = spans.reduce((count, span) => {
+      const normalizedSpan = span.toLowerCase();
+      return count + queryTokens.filter((term) => normalizedSpan.includes(term)).length;
+    }, 0);
+    const sourcePriority = item.origin === "facility-document" || item.origin === "physician-upload" ? 2 : 0;
+    const score = termHits * 10 + spanHits * 5 + sourcePriority - index * 0.01;
+    return { item, score };
+  });
+
+  return scored
+    .filter((candidate) => candidate.score >= 5)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2)
+    .map((candidate) => candidate.item);
+}
+
+function findAnswerableSelectedEvidence(question: string, selectedEvidence: EvidenceCard[]): EvidenceCard[] {
+  const directlyRelevant = findRelevantSelectedEvidence(question, selectedEvidence);
+  if (directlyRelevant.length > 0) return directlyRelevant;
+  return agenticSearchSelectedEvidence(question, selectedEvidence);
 }
 
 function isDiseaseDefinitionQuestion(question: string): boolean {
@@ -758,6 +807,28 @@ function isEmergencySurgeryNeedQuestion(question: string): boolean {
   const asksSurgery = ["手術", "治療", "オペ", "surgery"].some((term) => normalized.includes(term.toLowerCase()));
   return asksWhy && asksUrgentTiming && asksSurgery;
 }
+function isLongTermPrognosisQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  return ["長期", "長期的", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance", "follow-up"].some((term) =>
+    normalized.includes(term.toLowerCase()),
+  );
+}
+
+function summarizeLongTermPrognosisFromEvidence(evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
+  const candidates = evidence.flatMap((item) =>
+    splitEvidenceSpans(item).map((span) => ({ item, span, normalizedSpan: span.toLowerCase() })),
+  );
+  const best = candidates.find((candidate) =>
+    ["遠隔期死亡", "late mortality", "長期サーベイランス", "サーベイランス", "再手術", "aortic re-operation", "reoperation", "late-survival"].some((term) =>
+      candidate.normalizedSpan.includes(term.toLowerCase()),
+    ),
+  );
+  if (!best) return undefined;
+
+  const answer = cleanFamilyAnswerSpan(best.span);
+  return { answer: answer.length <= 220 ? answer : `${answer.slice(0, 217)}...`, source: best.item };
+}
+
 
 function makeFamilyFriendlyMedicalText(span: string): string {
   return span
@@ -930,6 +1001,11 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return numericRisk.answer;
 
+  if (isLongTermPrognosisQuestion(question)) {
+    const longTerm = summarizeLongTermPrognosisFromEvidence(evidence);
+    if (longTerm) return longTerm.answer;
+  }
+
   if (isEmergencySurgeryNeedQuestion(question)) {
     const emergencyNeed = summarizeEmergencyNeedFromEvidence(evidence);
     if (emergencyNeed) return emergencyNeed.answer;
@@ -951,6 +1027,11 @@ function getAnswerEvidence(question: string, evidence: EvidenceCard[]): Evidence
 
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return [numericRisk.source];
+
+  if (isLongTermPrognosisQuestion(question)) {
+    const longTerm = summarizeLongTermPrognosisFromEvidence(evidence);
+    if (longTerm) return [longTerm.source];
+  }
 
   if (isEmergencySurgeryNeedQuestion(question)) {
     const emergencyNeed = summarizeEmergencyNeedFromEvidence(evidence);
@@ -1012,7 +1093,7 @@ export function synthesizeEvidenceBoundQA(
     };
   }
 
-  const relevantEvidence = findRelevantSelectedEvidence(question, context.selectedEvidence);
+  const relevantEvidence = findAnswerableSelectedEvidence(question, context.selectedEvidence);
   const matchedPolicy = QUESTION_TERMS.find((group) =>
     group.terms.some((term) => normalized.includes(term.toLowerCase())),
   );
