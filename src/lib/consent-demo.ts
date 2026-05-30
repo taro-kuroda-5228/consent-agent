@@ -177,20 +177,26 @@ const evidenceCards: EvidenceCard[] = [
     title: "Sex-based outcomes in surgical repair of acute type A aortic dissection: meta-analysis",
     sourceType: "Review",
     claim:
-      "The PubMed abstract lists postoperative stroke, renal failure requiring dialysis, and reoperation for bleeding as major postoperative outcomes after surgical repair.",
+      "The PubMed abstract compares sex-based postoperative outcomes after surgical repair for acute type A aortic dissection: female sex was not associated with increased short-term mortality, stroke, or dialysis-requiring renal failure, while male sex was associated with greater postoperative bleeding reoperation risk.",
     displayForFamily:
-      "PubMed掲載のメタ解析では、急性A型大動脈解離の手術後アウトカムとして、術後脳卒中、透析を要する腎不全、出血による再手術が評価されています。",
+      "PubMed掲載の性差メタ解析では、急性A型大動脈解離の手術後アウトカムについて、女性は短期死亡・術後脳卒中・透析を要する腎不全のリスク増加とは関連せず、男性では術後出血による再手術リスクが高いと報告されています。",
     confidence: "moderate",
     citation: "Carino D, et al. J Thorac Cardiovasc Surg. 2024;167:1382-1395.e7. PMID: 35331557",
     pmid: "35331557",
     origin: "medevidence-rag",
     sourceUrl: "https://pubmed.ncbi.nlm.nih.gov/35331557/",
     retrievalStatus: "pubmed-verified",
-    quotedSpan: "postoperative stroke, renal failure requiring dialysis, and reoperation for bleeding",
+    quotedSpan:
+      "female sex was not associated with increased risk of short-term mortality, postoperative stroke, or dialysis-requiring renal failure; male sex was associated with greater postoperative bleeding/reoperation risk",
     clinicalScope: "急性A型大動脈解離の外科治療 / ATAAD surgical repair",
-    clinicianSummary: "急性A型大動脈解離手術の性差メタ解析。死亡だけでなく、術後脳卒中、透析を要する腎不全、出血再手術を説明に含める根拠。",
-    keyFindings: ["主要アウトカムは院内/30日死亡", "副次アウトカムに術後脳卒中、透析を要する腎不全、出血再手術を含む"],
-    outcomeTags: ["mortality", "stroke", "renal-failure", "bleeding"],
+    clinicianSummary: "急性A型大動脈解離手術の性差メタ解析。女性は短期死亡・術後脳卒中・透析を要する腎不全の増加とは関連せず、男性では術後出血再手術リスクが高いという性差を説明する根拠。",
+    keyFindings: [
+      "9研究、女性3,338例・男性5,979例を統合した性差メタ解析",
+      "術後脳卒中、透析を要する腎不全、出血による再手術が評価されています",
+      "女性は院内/30日死亡、術後脳卒中、透析を要する腎不全のリスク増加とは関連しないと報告",
+      "男性では術後出血による再手術リスクが高いと報告",
+    ],
+    outcomeTags: ["mortality", "stroke", "renal-failure", "bleeding", "sex-difference", "female", "male"],
   },
   {
     evidenceId: "AAD-003",
@@ -684,6 +690,7 @@ export type EvidenceBoundQAResult = {
 };
 
 const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResult["safetyLabel"]; requiresDoctorReview: boolean }> = [
+  { terms: ["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "female", "male", "women", "men"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["死亡率", "死亡", "院内死亡", "mortality", "death"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["脳梗塞", "脳卒中", "stroke", "後遺症"], safetyLabel: "doctor-review", requiresDoctorReview: true },
@@ -709,6 +716,9 @@ function findMatchingFacilityTemplate(question: string, templates: FacilityAnswe
 
 function getQuestionTerms(question: string): string[] {
   const normalized = question.toLowerCase();
+  if (["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) => normalized.includes(term.toLowerCase()))) {
+    return ["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "sex-difference", "female sex", "male sex", "female", "male", "women", "men", "女性", "男性"];
+  }
   if (["対麻痺", "脊髄障害", "脊髄", "spinal", "paraplegia"].some((term) => normalized.includes(term.toLowerCase()))) {
     return ["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia"];
   }
@@ -807,6 +817,39 @@ function isEmergencySurgeryNeedQuestion(question: string): boolean {
   const asksSurgery = ["手術", "治療", "オペ", "surgery"].some((term) => normalized.includes(term.toLowerCase()));
   return asksWhy && asksUrgentTiming && asksSurgery;
 }
+function isSexDifferenceQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  return ["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) =>
+    normalized.includes(term.toLowerCase()),
+  );
+}
+
+function summarizeSexDifferenceFromEvidence(evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
+  const source = evidence.find((item) =>
+    [
+      item.title,
+      item.displayForFamily,
+      item.claim,
+      item.quotedSpan,
+      item.clinicianSummary,
+      ...(item.keyFindings ?? []),
+      ...(item.outcomeTags ?? []),
+    ]
+      .join(" ")
+      .toLowerCase()
+      .match(/男女差|性差|sex-based|sex difference|sex-difference|female|male|女性|男性/),
+  );
+
+  if (!source) return undefined;
+
+  const sexSpecificFindings = source.keyFindings?.filter((finding) => /女性|男性|性差|男女|female|male|sex/i.test(finding)) ?? [];
+  const answer = sexSpecificFindings.length > 0
+    ? sexSpecificFindings.map(cleanFamilyAnswerSpan).join("。")
+    : cleanFamilyAnswerSpan(source.displayForFamily);
+  const normalizedAnswer = answer.endsWith("。") ? answer : `${answer}。`;
+  return { answer: normalizedAnswer.length <= 260 ? normalizedAnswer : `${normalizedAnswer.slice(0, 257)}...`, source };
+}
+
 function isLongTermPrognosisQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
   return ["長期", "長期的", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance", "follow-up"].some((term) =>
@@ -919,7 +962,7 @@ function summarizeStrokeRiskFromEvidence(question: string, evidence: EvidenceCar
     splitEvidenceSpans(item).some((span) => ["脳卒中", "脳梗塞", "stroke"].some((term) => span.toLowerCase().includes(term.toLowerCase()))),
   );
   const descriptiveSpan = descriptiveSource
-    ? [descriptiveSource.displayForFamily, ...(descriptiveSource.keyFindings ?? []), descriptiveSource.quotedSpan, descriptiveSource.claim, descriptiveSource.clinicianSummary]
+    ? [...(descriptiveSource.keyFindings ?? []), descriptiveSource.displayForFamily, descriptiveSource.quotedSpan, descriptiveSource.claim, descriptiveSource.clinicianSummary]
         .filter((span): span is string => Boolean(span))
         .find((span) => ["脳卒中", "脳梗塞", "stroke"].some((term) => span.toLowerCase().includes(term.toLowerCase())))
     : undefined;
@@ -998,6 +1041,11 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
   const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
   if (strokeRisk) return strokeRisk.answer;
 
+  if (isSexDifferenceQuestion(question)) {
+    const sexDifference = summarizeSexDifferenceFromEvidence(evidence);
+    if (sexDifference) return sexDifference.answer;
+  }
+
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return numericRisk.answer;
 
@@ -1024,6 +1072,11 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
 function getAnswerEvidence(question: string, evidence: EvidenceCard[]): EvidenceCard[] {
   const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
   if (strokeRisk) return [strokeRisk.source];
+
+  if (isSexDifferenceQuestion(question)) {
+    const sexDifference = summarizeSexDifferenceFromEvidence(evidence);
+    if (sexDifference) return [sexDifference.source];
+  }
 
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return [numericRisk.source];

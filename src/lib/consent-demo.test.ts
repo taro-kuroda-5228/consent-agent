@@ -106,6 +106,25 @@ describe("consent demo utilities", () => {
     expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual(["AAD-002"]);
   });
 
+  it("answers sex-difference questions from the selected sex-based outcomes meta-analysis", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("男女差はあるの？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["死亡", "脳梗塞", "出血", "腎不全", "再手術"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("女性");
+    expect(result.answer).toContain("男性");
+    expect(result.answer).toContain("出血");
+    expect(result.evidenceReferences).toEqual(["AAD-002"]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual(["AAD-002"]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("answers what aortic dissection is with a plain disease definition when selected references contain it", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
     const result = synthesizeEvidenceBoundQA("大動脈解離とはどのような病気ですか？", {
