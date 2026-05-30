@@ -263,6 +263,57 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("answers an unknown uploaded English paper through generic bilingual concept expansion", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Unknown postoperative recovery cohort",
+      fileName: "unknown-recovery-cohort.pdf",
+      extractedText:
+        "In this cohort, postoperative cognitive dysfunction at discharge was observed in 18% of patients, and delirium was associated with longer ICU stay.",
+      keyFindings: [
+        "Postoperative cognitive dysfunction at discharge was observed in 18% of patients.",
+        "Delirium was associated with longer ICU stay.",
+      ],
+    });
+
+    const result = synthesizeEvidenceBoundQA("退院時の認知機能の問題は何%？", {
+      diagnosis: "術後回復",
+      plannedSurgery: "未指定の手術",
+      risks: ["認知機能", "せん妄"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).toMatch(/postoperative cognitive dysfunction at discharge/i);
+    expect(result.answer).toContain("18%");
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual([uploaded.evidenceId]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
+  it("keeps the no-direct-answer guardrail for unknown papers when generic expansion still finds no supporting span", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Unknown anticoagulation note",
+      fileName: "unknown-anticoagulation.pdf",
+      extractedText: "The selected paper discusses postoperative anticoagulation and reports major bleeding in 4% of patients.",
+      keyFindings: ["Major bleeding was reported in 4% of patients."],
+    });
+
+    const result = synthesizeEvidenceBoundQA("将来の妊娠への影響は書いてある？", {
+      diagnosis: "術後管理",
+      plannedSurgery: "未指定の手術",
+      risks: ["出血"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).toContain("選択済み参考資料内には、この質問に直接答えられる記載が見つかりません");
+    expect(result.answer).not.toContain("major bleeding");
+    expect(result.evidenceReferences).toEqual([]);
+    expect(result.retrievedEvidence).toEqual([]);
+    expect(result.requiresDoctorReview).toBe(true);
+  });
+
   it("answers published mortality-rate questions from selected evidence when the numeric span is present", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), ["AAD-005"]);
     const result = synthesizeEvidenceBoundQA("この参考文献で院内死亡率は何%？", {

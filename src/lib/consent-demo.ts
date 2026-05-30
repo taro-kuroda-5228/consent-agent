@@ -454,6 +454,15 @@ function inferOutcomeTags(text: string): string[] {
     ["bleeding", ["出血", "輸血", "bleeding"]],
     ["spinal-cord-injury", ["脊髄", "対麻痺", "spinal"]],
     ["reoperation", ["再手術", "reoperation"]],
+    ["cognitive-dysfunction", ["認知機能", "認知", "cognitive", "cognition", "neurocognitive"]],
+    ["delirium", ["せん妄", "delirium", "confusion"]],
+    ["icu-stay", ["集中治療", "icu", "intensive care"]],
+    ["length-of-stay", ["入院期間", "在院", "length of stay", "hospital stay"]],
+    ["infection", ["感染", "infection", "sepsis"]],
+    ["fertility-pregnancy", ["妊娠", "妊孕", "fertility", "pregnancy", "reproductive"]],
+    ["quality-of-life", ["生活の質", "qol", "quality of life", "adl"]],
+    ["pain", ["痛み", "疼痛", "pain"]],
+    ["readmission", ["再入院", "readmission", "rehospitalization"]],
     ["guideline", ["ガイドライン", "guideline"]],
     ["emergency-surgery", ["緊急手術", "emergency surgery", "迅速"]],
   ];
@@ -702,6 +711,19 @@ const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResul
   { terms: ["病気", "大動脈解離", "解離", "dissection"], safetyLabel: "general", requiresDoctorReview: false },
 ];
 
+const GENERIC_MEDICAL_CONCEPT_TERMS: string[][] = [
+  ["認知機能", "認知", "もの忘れ", "記憶", "cognitive", "cognition", "cognitive dysfunction", "postoperative cognitive dysfunction", "neurocognitive", "cognitive-dysfunction"],
+  ["せん妄", "意識混乱", "混乱", "delirium", "confusion"],
+  ["退院", "退院時", "退院後", "discharge", "at discharge", "post-discharge", "after discharge"],
+  ["集中治療", "icu", "intensive care", "critical care", "icu-stay"],
+  ["入院", "在院", "入院期間", "length of stay", "hospital stay", "hospitalization", "length-of-stay"],
+  ["感染", "感染症", "infection", "sepsis"],
+  ["妊娠", "妊孕性", "不妊", "fertility", "pregnancy", "reproductive", "fertility-pregnancy"],
+  ["生活の質", "qol", "quality of life", "adl", "日常生活", "quality-of-life"],
+  ["痛み", "疼痛", "pain"],
+  ["再入院", "readmission", "rehospitalization"],
+];
+
 function isMortalityRateQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
   return ["死亡率", "院内死亡", "死亡", "mortality", "death", "助かる確率"].some((term) => normalized.includes(term.toLowerCase()));
@@ -714,22 +736,31 @@ function findMatchingFacilityTemplate(question: string, templates: FacilityAnswe
   );
 }
 
+function expandGenericMedicalTerms(question: string): string[] {
+  const normalized = question.toLowerCase();
+  return GENERIC_MEDICAL_CONCEPT_TERMS
+    .filter((group) => group.some((term) => normalized.includes(term.toLowerCase())))
+    .flat();
+}
+
 function getQuestionTerms(question: string): string[] {
   const normalized = question.toLowerCase();
+  const genericTerms = expandGenericMedicalTerms(question);
   if (["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) => normalized.includes(term.toLowerCase()))) {
-    return ["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "sex-difference", "female sex", "male sex", "female", "male", "women", "men", "女性", "男性"];
+    return Array.from(new Set(["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "sex-difference", "female sex", "male sex", "female", "male", "women", "men", "女性", "男性", ...genericTerms]));
   }
   if (["対麻痺", "脊髄障害", "脊髄", "spinal", "paraplegia"].some((term) => normalized.includes(term.toLowerCase()))) {
-    return ["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia"];
+    return Array.from(new Set(["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia", ...genericTerms]));
   }
   if (["長期", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance"].some((term) => normalized.includes(term.toLowerCase()))) {
-    return ["長期", "長期的", "予後", "遠隔期", "遠隔", "晩期", "再手術", "大動脈再手術", "経過", "フォロー", "サーベイランス", "late mortality", "late", "long-term", "surveillance", "follow-up", "aortic re-operation", "reoperation", "late-survival"];
+    return Array.from(new Set(["長期", "長期的", "予後", "遠隔期", "遠隔", "晩期", "再手術", "大動脈再手術", "経過", "フォロー", "サーベイランス", "late mortality", "late", "long-term", "surveillance", "follow-up", "aortic re-operation", "reoperation", "late-survival", ...genericTerms]));
   }
   const matchedGroups = QUESTION_TERMS.filter((group) =>
     group.terms.some((term) => normalized.includes(term.toLowerCase())),
   );
-  const matched = matchedGroups.flatMap((group) => group.terms);
-  return matched.length ? matched : normalized.split(/[\s、。・？?]+/).filter((term) => term.length >= 2);
+  const matched = [...matchedGroups.flatMap((group) => group.terms), ...genericTerms];
+  const fallbackTokens = normalized.split(/[\s、。・？?]+/).filter((term) => term.length >= 2);
+  return Array.from(new Set([...(matched.length ? matched : fallbackTokens), ...fallbackTokens]));
 }
 
 function findRelevantSelectedEvidence(question: string, selectedEvidence: EvidenceCard[]): EvidenceCard[] {
