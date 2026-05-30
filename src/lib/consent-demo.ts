@@ -675,7 +675,7 @@ export function suggestEvidenceCandidates(context: {
 
 export type EvidenceBoundQAResult = {
   answer: string;
-  safetyLabel: "general" | "doctor-review" | "individual-prognosis" | "consent-guidance";
+  safetyLabel: "general" | "doctor-review" | "individual-prognosis" | "consent-guidance" | "facility-template";
   requiresDoctorReview: boolean;
   retrievalMode: "physician-curated-only";
   evidenceReferences: string[];
@@ -981,8 +981,8 @@ export function synthesizeEvidenceBoundQA(
   if (facilityTemplate) {
     return {
       answer: facilityTemplate.answer,
-      safetyLabel: "doctor-review",
-      requiresDoctorReview: true,
+      safetyLabel: "facility-template",
+      requiresDoctorReview: false,
       retrievalMode: "physician-curated-only",
       evidenceReferences: [facilityTemplate.templateId],
       retrievedEvidence: [],

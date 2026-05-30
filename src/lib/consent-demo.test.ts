@@ -258,6 +258,8 @@ describe("consent demo utilities", () => {
     expect(result.answer).toContain("死亡率はおおよそ10%前後");
     expect(result.answer).toContain("担当医が補足");
     expect(result.evidenceReferences).toEqual(["FAC-TPL-AAD-MORTALITY"]);
+    expect(result.safetyLabel).toBe("facility-template");
+    expect(result.requiresDoctorReview).toBe(false);
     expect(result.templateReferences?.[0]?.templateId).toBe("FAC-TPL-AAD-MORTALITY");
     expect(result.retrievedEvidence).toEqual([]);
   });

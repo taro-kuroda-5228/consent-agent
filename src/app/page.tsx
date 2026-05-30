@@ -42,6 +42,7 @@ interface QAResult {
 
 const SAFETY_LABEL_MAP: Record<string, { label: string; color: string }> = {
   general: { label: "一般説明", color: "bg-green-100 text-green-800" },
+  "facility-template": { label: "施設確認済み", color: "bg-violet-100 text-violet-900" },
   "doctor-review": { label: "医師確認が必要", color: "bg-red-100 text-red-800" },
   "individual-prognosis": { label: "個別予後は断定不可", color: "bg-orange-100 text-orange-800" },
   "consent-guidance": { label: "同意誘導禁止", color: "bg-purple-100 text-purple-800" },
@@ -121,6 +122,10 @@ export default function ConsentAgent() {
   const [uploadMessage, setUploadMessage] = useState("");
   const [facilityTemplates, setFacilityTemplates] = useState<FacilityAnswerTemplate[]>(defaultFacilityTemplates);
   const [enabledFacilityTemplateIds, setEnabledFacilityTemplateIds] = useState<string[]>(defaultFacilityTemplates.map((item) => item.templateId));
+  const [newFacilityTemplateLabel, setNewFacilityTemplateLabel] = useState("当院標準: A型大動脈解離 合併症リスク");
+  const [newFacilityTemplatePatterns, setNewFacilityTemplatePatterns] = useState("脳梗塞, 出血, 腎不全");
+  const [newFacilityTemplateAnswer, setNewFacilityTemplateAnswer] = useState("当院では、脳梗塞・出血・腎不全などの主な合併症リスクを、患者さんの状態に合わせて担当医が説明します。");
+  const [facilityTemplateMessage, setFacilityTemplateMessage] = useState("");
   const selectedFacilityTemplates = facilityTemplates.filter((item) => enabledFacilityTemplateIds.includes(item.templateId));
   const [age, setAge] = useState("");
   const [sex, setSex] = useState("");
@@ -241,6 +246,51 @@ export default function ConsentAgent() {
           : item,
       ),
     );
+  };
+
+
+  const addFacilityTemplate = () => {
+    const label = newFacilityTemplateLabel.trim();
+    const answer = newFacilityTemplateAnswer.trim();
+    const questionPatterns = newFacilityTemplatePatterns
+      .split(/[、,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    if (!label || !answer || questionPatterns.length === 0) {
+      setFacilityTemplateMessage("見出し・反応する質問・回答本文を入力してください。");
+      return;
+    }
+
+    const slug = label
+      .toUpperCase()
+      .replace(/[^A-Z0-9一-龠ぁ-んァ-ン]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 24) || "CUSTOM";
+    const baseId = `FAC-TPL-${slug}`;
+    let templateId = baseId;
+    let suffix = 2;
+    while (facilityTemplates.some((item) => item.templateId === templateId)) {
+      templateId = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+
+    const template: FacilityAnswerTemplate = {
+      templateId,
+      label,
+      questionPatterns,
+      answer,
+      scope: "この画面で追加された施設別テンプレ回答。医師が内容を確認済みとして患者Q&Aで優先使用します。",
+      doctorBurden: "physician-edited",
+      lastReviewedLabel: "この画面で追加済み",
+    };
+
+    setFacilityTemplates((prev) => [...prev, template]);
+    setEnabledFacilityTemplateIds((prev) => Array.from(new Set([...prev, templateId])));
+    setFacilityTemplateMessage(`追加しました: ${templateId}`);
+    setNewFacilityTemplateLabel("");
+    setNewFacilityTemplatePatterns("");
+    setNewFacilityTemplateAnswer("");
   };
 
   const handleEvidenceFileUpload = async (file?: File) => {
@@ -736,6 +786,36 @@ export default function ConsentAgent() {
           <p className="mt-2 text-[11px] leading-relaxed text-violet-800">
             死亡率など頻出質問は、文献検索ではなく施設標準の短い回答を優先します。初期値は自動登録され、医師は違う場合だけ編集・OFFにできます。
           </p>
+          <div className="mt-3 rounded-xl border border-dashed border-violet-300 bg-white p-3">
+            <p className="text-xs font-black text-violet-950">新しい施設テンプレ回答を追加</p>
+            <div className="mt-2 grid gap-2">
+              <Input
+                value={newFacilityTemplateLabel}
+                onChange={(e) => setNewFacilityTemplateLabel(e.target.value)}
+                placeholder="見出し（例: 当院標準: 合併症リスク）"
+                className="bg-white text-xs"
+              />
+              <Input
+                value={newFacilityTemplatePatterns}
+                onChange={(e) => setNewFacilityTemplatePatterns(e.target.value)}
+                placeholder="反応する質問（カンマ区切り: 脳梗塞, 出血, 腎不全）"
+                className="bg-white text-xs"
+              />
+              <Textarea
+                value={newFacilityTemplateAnswer}
+                onChange={(e) => setNewFacilityTemplateAnswer(e.target.value)}
+                rows={3}
+                placeholder="患者さんに返す施設標準回答"
+                className="bg-white text-xs leading-relaxed"
+              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" onClick={addFacilityTemplate} className="bg-violet-700 text-white hover:bg-violet-800">
+                  施設テンプレ回答を追加
+                </Button>
+                {facilityTemplateMessage && <span className="text-[11px] font-bold text-violet-800">{facilityTemplateMessage}</span>}
+              </div>
+            </div>
+          </div>
           <div className="mt-3 space-y-3">
             {facilityTemplates.map((template) => {
               const enabled = enabledFacilityTemplateIds.includes(template.templateId);
@@ -917,9 +997,12 @@ export default function ConsentAgent() {
                 ) : (
                   <Badge className="bg-slate-100 text-slate-700 text-base">医師選択根拠のみ</Badge>
                 )}
-                {freeAnswer.requiresDoctorReview && (
+                {freeAnswer.requiresDoctorReview && !freeAnswer.templateReferences?.length && (
                   <Badge className="bg-transparent px-0 text-xl font-black text-rose-700 shadow-none hover:bg-transparent">⚠️ 医師確認が必要です</Badge>
                 )}
+                {!freeAnswer.requiresDoctorReview && freeAnswer.templateReferences?.length ? (
+                  <Badge className="bg-transparent px-0 text-base font-black text-violet-900 shadow-none hover:bg-transparent">✅ 施設テンプレ確認済み</Badge>
+                ) : null}
               </div>
               {freeAnswer.evidenceReferences && freeAnswer.evidenceReferences.length > 0 && (
                 <p className="text-sm font-black text-slate-600">

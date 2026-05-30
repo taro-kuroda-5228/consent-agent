@@ -117,7 +117,7 @@ export async function generateQA(
   }
 ): Promise<{
   answer: string;
-  safetyLabel: "general" | "doctor-review" | "individual-prognosis" | "consent-guidance";
+  safetyLabel: "general" | "doctor-review" | "individual-prognosis" | "consent-guidance" | "facility-template";
   requiresDoctorReview: boolean;
   retrievalMode?: "physician-curated-only";
   evidenceReferences?: string[];

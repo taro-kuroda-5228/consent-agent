@@ -45,6 +45,14 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("judge sample");
   });
 
+  it("lets physicians add facility templates and avoids doctor-review warnings for template answers", () => {
+    expect(pageSource).toContain("新しい施設テンプレ回答を追加");
+    expect(pageSource).toContain("施設テンプレ回答を追加");
+    expect(pageSource).toContain("setFacilityTemplates((prev) => [...prev, template])");
+    expect(pageSource).toContain("✅ 施設テンプレ確認済み");
+    expect(pageSource).toContain("freeAnswer.requiresDoctorReview && !freeAnswer.templateReferences?.length");
+  });
+
   it("explains that the physician summary export includes understanding, questions, and evidence IDs", () => {
     expect(pageSource).toContain("医師サマリー export");
     expect(pageSource).toContain("家族が理解できたこと");
