@@ -731,7 +731,7 @@ const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResul
 
 const GENERIC_MEDICAL_CONCEPT_TERMS: string[][] = [
   ["認知機能", "認知", "もの忘れ", "記憶", "cognitive", "cognition", "cognitive dysfunction", "postoperative cognitive dysfunction", "neurocognitive", "cognitive-dysfunction"],
-  ["せん妄", "意識混乱", "混乱", "delirium", "confusion"],
+  ["せん妄", "意識混乱", "混乱", "頭がぼーっと", "ぼーっと", "delirium", "confusion"],
   ["退院", "退院時", "退院後", "discharge", "at discharge", "post-discharge", "after discharge"],
   ["集中治療", "icu", "intensive care", "critical care", "icu-stay"],
   ["入院", "在院", "入院期間", "length of stay", "hospital stay", "hospitalization", "length-of-stay"],

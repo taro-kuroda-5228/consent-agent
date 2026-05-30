@@ -292,6 +292,28 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("keeps a safe deterministic fallback for family wording like head fog when selected evidence contains delirium", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Unknown postoperative neurocognitive cohort",
+      fileName: "unknown-neurocognitive-cohort.pdf",
+      extractedText: "Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery.",
+      keyFindings: ["Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery."],
+      outcomeTags: ["delirium"],
+    });
+
+    const result = synthesizeEvidenceBoundQA("術後に頭がぼーっとすることはどれくらいありますか？", {
+      diagnosis: "術後回復",
+      plannedSurgery: "未指定の手術",
+      risks: ["せん妄"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).toContain("22%");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("uses source-bounded agentic extraction to answer when dictionary matching would miss the family's wording", () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "Unknown postoperative neurocognitive cohort",
