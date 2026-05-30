@@ -143,7 +143,6 @@ export default function ConsentAgent() {
   // Screen 2 state
   const [explanation, setExplanation] = useState<ExplanationCard[]>([]);
   const [aiSource, setAiSource] = useState<"idle" | "gemini" | "fallback">("idle");
-  const [omniExplanationComplete, setOmniExplanationComplete] = useState(false);
 
   // Screen 3 state
   const [freeQuestion, setFreeQuestion] = useState("");
@@ -401,7 +400,6 @@ export default function ConsentAgent() {
       applyQuickCase(startCase);
     }
 
-    setOmniExplanationComplete(false);
     setFreeAnswer(null);
     setFreeQuestion("");
     setLoading1(true);
@@ -933,7 +931,7 @@ export default function ConsentAgent() {
         </div>
         <div>
           <h2 className="text-3xl font-black tracking-tight text-slate-950">Gemini Omni説明</h2>
-          <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-600">画像・動画・音声で説明してから、質問タイムへ進みます。</p>
+          <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-600">画像・動画・音声で説明してから、理解確認へ進みます。</p>
         </div>
       </div>
 
@@ -993,106 +991,9 @@ export default function ConsentAgent() {
         </details>
       )}
 
-      {!omniExplanationComplete ? (
-        <Button onClick={() => setOmniExplanationComplete(true)} className="w-full rounded-full bg-sky-600 py-7 text-xl font-black text-white hover:bg-sky-700">
-          説明を聞いたので質問へ進む
-        </Button>
-      ) : (
-        <section className="space-y-4">
-          <div>
-            <h3 className="text-3xl font-black text-slate-950">質問する</h3>
-            <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-600">施設テンプレ回答を優先し、足りない場合だけ医師選択済み根拠を参照します。</p>
-          </div>
-          <div className="flex gap-3">
-            <Input
-              placeholder="気になることを入力..."
-              value={freeQuestion}
-              onChange={(e) => setFreeQuestion(e.target.value)}
-              className="h-16 rounded-3xl border-slate-300 bg-slate-50 px-5 text-xl"
-            />
-            <Button
-              onClick={() => handleFreeQuestion()}
-              className="h-16 rounded-3xl bg-sky-500 px-7 text-xl font-black text-white hover:bg-sky-600 disabled:bg-sky-200 disabled:text-slate-600 disabled:opacity-100"
-              disabled={!freeQuestion.trim() || loading3}
-            >
-              {loading3 ? "準備中" : "質問"}
-            </Button>
-          </div>
-
-          {freeAnswer && (
-            <div className={`rounded-3xl border p-6 space-y-4 ${freeAnswer.requiresDoctorReview ? "border-rose-200 bg-rose-50" : "border-sky-100 bg-sky-50"}`}>
-              <p className="whitespace-pre-line text-2xl leading-relaxed text-slate-950">{freeAnswer.answer}</p>
-              <div className="flex flex-wrap gap-2">
-                {freeAnswer.safetyLabel && freeAnswer.safetyLabel !== "general" && (
-                  <Badge className={`text-base ${SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.color || "bg-gray-100"}`}>
-                    {SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.label}
-                  </Badge>
-                )}
-                {freeAnswer.templateReferences && freeAnswer.templateReferences.length > 0 ? (
-                  <Badge className="bg-violet-100 text-violet-900 text-base">施設テンプレ回答</Badge>
-                ) : (
-                  <Badge className="bg-slate-100 text-slate-700 text-base">医師選択根拠のみ</Badge>
-                )}
-                {freeAnswer.requiresDoctorReview && !freeAnswer.templateReferences?.length && (
-                  <Badge className="bg-transparent px-0 text-xl font-black text-rose-700 shadow-none hover:bg-transparent">⚠️ 医師確認が必要です</Badge>
-                )}
-                {!freeAnswer.requiresDoctorReview && freeAnswer.templateReferences?.length ? (
-                  <Badge className="bg-transparent px-0 text-base font-black text-violet-900 shadow-none hover:bg-transparent">✅ 施設テンプレ確認済み</Badge>
-                ) : null}
-              </div>
-              {freeAnswer.evidenceReferences && freeAnswer.evidenceReferences.length > 0 && (
-                <p className="text-sm font-black text-slate-600">
-                  参照ID: {freeAnswer.evidenceReferences.join(" / ")}
-                </p>
-              )}
-              {freeAnswer.templateReferences && freeAnswer.templateReferences.length > 0 && (
-                <details className="rounded-2xl border border-violet-100 bg-white/80 p-4">
-                  <summary className="cursor-pointer text-sm font-black text-violet-900">使用した施設テンプレ</summary>
-                  <div className="mt-3 space-y-2">
-                    {freeAnswer.templateReferences.map((template) => (
-                      <div key={template.templateId} className="text-sm leading-relaxed text-slate-700">
-                        <p className="font-black text-violet-900">{template.templateId}: {template.label}</p>
-                        <p className="mt-1">{template.scope}</p>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
-              {freeAnswer.retrievedEvidence && freeAnswer.retrievedEvidence.length > 0 && (
-                <details className="rounded-2xl border border-slate-200 bg-white/80 p-4">
-                  <summary className="cursor-pointer text-sm font-black text-slate-700">引用に使った参考資料</summary>
-                  <div className="mt-3 space-y-3">
-                    {freeAnswer.retrievedEvidence.map((item) => (
-                      <div key={item.evidenceId} className="rounded-2xl bg-slate-50 p-3 text-sm leading-relaxed text-slate-700">
-                        <p className="font-black text-slate-900">{item.evidenceId}: {item.title}</p>
-                        <p className="mt-1">{item.displayForFamily}</p>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
-            </div>
-          )}
-
-          <div className="space-y-4">
-            <h3 className="text-3xl font-black text-slate-950">よくある家族の質問</h3>
-            {FAQ.map((item, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleFreeQuestion(item.question)}
-                className="w-full rounded-full border border-slate-300 bg-slate-50 px-5 py-4 text-left text-xl font-black leading-snug text-slate-950 transition-colors hover:border-sky-300 hover:bg-sky-50"
-                disabled={loading3}
-              >
-                {item.question}
-              </button>
-            ))}
-          </div>
-
-          <Button onClick={() => setStep(3)} className="w-full rounded-full bg-slate-950 py-7 text-xl font-black text-white hover:bg-slate-800">
-            理解確認へ進む
-          </Button>
-        </section>
-      )}
+      <Button onClick={() => setStep(3)} className="w-full rounded-full bg-slate-950 py-7 text-xl font-black text-white hover:bg-slate-800">
+        説明を聞いたので理解確認へ進む
+      </Button>
     </div>
   );
 
@@ -1143,15 +1044,35 @@ export default function ConsentAgent() {
                     {SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.label}
                   </Badge>
                 )}
-                <Badge className="bg-slate-100 text-slate-700 text-xs">医師選択根拠のみ</Badge>
-                {freeAnswer.requiresDoctorReview && (
+                {freeAnswer.templateReferences && freeAnswer.templateReferences.length > 0 ? (
+                  <Badge className="bg-violet-100 text-violet-900 text-xs">施設テンプレ回答</Badge>
+                ) : (
+                  <Badge className="bg-slate-100 text-slate-700 text-xs">医師選択根拠のみ</Badge>
+                )}
+                {freeAnswer.requiresDoctorReview && !freeAnswer.templateReferences?.length && (
                   <Badge className="bg-red-600 text-white text-xs">🔴 医師確認</Badge>
                 )}
+                {!freeAnswer.requiresDoctorReview && freeAnswer.templateReferences?.length ? (
+                  <Badge className="bg-transparent px-0 text-xs font-black text-violet-900 shadow-none hover:bg-transparent">✅ 施設テンプレ確認済み</Badge>
+                ) : null}
               </div>
               {freeAnswer.evidenceReferences && freeAnswer.evidenceReferences.length > 0 && (
                 <p className="text-xs font-semibold text-blue-800">
                   参照: {freeAnswer.evidenceReferences.join(" / ")}
                 </p>
+              )}
+              {freeAnswer.templateReferences && freeAnswer.templateReferences.length > 0 && (
+                <details className="rounded-lg border border-violet-100 bg-white/70 p-2">
+                  <summary className="cursor-pointer text-xs font-semibold text-violet-900">使用した施設テンプレ</summary>
+                  <div className="mt-2 space-y-1.5">
+                    {freeAnswer.templateReferences.map((template) => (
+                      <div key={template.templateId} className="text-xs leading-relaxed text-gray-700">
+                        <p className="font-bold text-violet-900">{template.templateId}: {template.label}</p>
+                        <p className="mt-1">{template.scope}</p>
+                      </div>
+                    ))}
+                  </div>
+                </details>
               )}
               {freeAnswer.retrievedEvidence && freeAnswer.retrievedEvidence.length > 0 && (
                 <details className="rounded-lg border border-blue-100 bg-white/70 p-2">

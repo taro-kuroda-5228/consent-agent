@@ -4,6 +4,10 @@ import { describe, expect, it } from "vitest";
 
 const readSource = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 const pageSource = readSource("src/app/page.tsx");
+const renderScreen2Source = pageSource.slice(
+  pageSource.indexOf("const renderScreen2 = () =>"),
+  pageSource.indexOf("const renderScreen3 = () =>"),
+);
 const visibleAppSources = [
   pageSource,
   readSource("src/app/family/[caseId]/qa/page.tsx"),
@@ -43,6 +47,14 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).toContain("どの質問も医師選択済み根拠だけで回答します");
     expect(pageSource).not.toContain("サンプル質問");
     expect(pageSource).not.toContain("judge sample");
+  });
+
+  it("keeps patient AI Q&A only in the understanding check section, not in Gemini Omni explanation", () => {
+    expect(renderScreen2Source).not.toContain("<h3 className=\"text-3xl font-black text-slate-950\">質問する</h3>");
+    expect(renderScreen2Source).not.toContain("よくある家族の質問");
+    expect(renderScreen2Source).not.toContain("handleFreeQuestion");
+    expect(renderScreen2Source).toContain("説明を聞いたので理解確認へ進む");
+    expect(pageSource).toContain("<CardTitle className=\"text-sm\">✏️ 自由に質問する");
   });
 
   it("lets physicians add and delete facility templates and avoids doctor-review warnings for template answers", () => {
