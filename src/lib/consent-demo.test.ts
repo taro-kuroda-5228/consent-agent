@@ -7,6 +7,7 @@ import {
   filterEvidenceByIds,
   generateExplanationCards,
   getDefaultCase,
+  getDefaultFacilityAnswerTemplates,
   getDefaultSelectedEvidenceIds,
   getEvidenceCatalog,
   retrieveMockEvidence,
@@ -239,6 +240,39 @@ describe("consent demo utilities", () => {
     expect(result.answer).not.toContain("95%CI");
     expect(result.answer).not.toMatch(/^参考資料では、/);
     expect(result.answer).not.toContain("担当医の確認が必要");
+    expect(result.evidenceReferences).toEqual(["AAD-005"]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
+
+  it("answers expected mortality questions from a facility template before literature retrieval", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), ["AAD-002", "AAD-003", "AAD-004", "AAD-005"]);
+    const result = synthesizeEvidenceBoundQA("死亡率は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["死亡"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: getDefaultFacilityAnswerTemplates(),
+    });
+
+    expect(result.answer).toContain("死亡率はおおよそ10%前後");
+    expect(result.answer).toContain("担当医が補足");
+    expect(result.evidenceReferences).toEqual(["FAC-TPL-AAD-MORTALITY"]);
+    expect(result.templateReferences?.[0]?.templateId).toBe("FAC-TPL-AAD-MORTALITY");
+    expect(result.retrievedEvidence).toEqual([]);
+  });
+
+  it("answers short mortality-rate questions directly from selected numeric evidence when no facility template is enabled", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), ["AAD-005"]);
+    const result = synthesizeEvidenceBoundQA("死亡率は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "全弓部置換術 + frozen elephant trunk",
+      risks: ["死亡"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).toContain("院内死亡7%（95%信頼区間5〜9%）");
     expect(result.evidenceReferences).toEqual(["AAD-005"]);
     expect(result.requiresDoctorReview).toBe(false);
   });

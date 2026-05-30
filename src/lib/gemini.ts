@@ -4,6 +4,7 @@ import {
   resolveEvidenceSelectionForRequest,
   synthesizeEvidenceBoundQA,
   type EvidenceCard,
+  type FacilityAnswerTemplate,
 } from "./consent-demo";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
@@ -112,6 +113,7 @@ export async function generateQA(
     plannedSurgery: string;
     risks: string[];
     selectedEvidence?: EvidenceCard[];
+    facilityAnswerTemplates?: FacilityAnswerTemplate[];
   }
 ): Promise<{
   answer: string;
@@ -120,6 +122,7 @@ export async function generateQA(
   retrievalMode?: "physician-curated-only";
   evidenceReferences?: string[];
   retrievedEvidence?: EvidenceCard[];
+  templateReferences?: FacilityAnswerTemplate[];
 }> {
   const selectedEvidence = context.selectedEvidence !== undefined
     ? context.selectedEvidence

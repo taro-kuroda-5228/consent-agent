@@ -9,7 +9,7 @@ import {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { question, diagnosis, plannedSurgery, risks, selectedEvidenceIds, customEvidence } = body;
+    const { question, diagnosis, plannedSurgery, risks, selectedEvidenceIds, customEvidence, facilityAnswerTemplates } = body;
 
     if (!question || !question.trim()) {
       return NextResponse.json(
@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       plannedSurgery: plannedSurgery || "",
       risks: risks || [],
       selectedEvidence,
+      facilityAnswerTemplates: Array.isArray(facilityAnswerTemplates) ? facilityAnswerTemplates : [],
     });
 
     return NextResponse.json(result);

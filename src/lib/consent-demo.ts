@@ -32,6 +32,16 @@ export type EvidenceCard = {
   uploadedFileName?: string;
 };
 
+export type FacilityAnswerTemplate = {
+  templateId: string;
+  label: string;
+  questionPatterns: string[];
+  answer: string;
+  scope: string;
+  doctorBurden: "auto-seeded-review-only" | "physician-edited";
+  lastReviewedLabel: string;
+};
+
 export type ExplanationCard = {
   id: string;
   title: string;
@@ -247,6 +257,23 @@ const evidenceCards: EvidenceCard[] = [
     outcomeTags: ["mortality", "stroke", "spinal-cord-injury", "bleeding", "neurologic-dysfunction"],
   },
 ];
+
+const facilityAnswerTemplates: FacilityAnswerTemplate[] = [
+  {
+    templateId: "FAC-TPL-AAD-MORTALITY",
+    label: "当院標準: A型大動脈解離 手術死亡率",
+    questionPatterns: ["死亡率", "死亡", "院内死亡", "mortality", "助かる確率"],
+    answer:
+      "当院の急性A型大動脈解離手術では、死亡率はおおよそ10%前後として説明しています。ただし、年齢、解離の範囲、ショックや臓器血流障害の有無で個別の危険度は変わるため、最終的な見込みは担当医が補足します。",
+    scope: "急性A型大動脈解離 / 緊急人工血管置換術の家族説明",
+    doctorBurden: "auto-seeded-review-only",
+    lastReviewedLabel: "デモ標準値・医師は必要時だけ修正",
+  },
+];
+
+export function getDefaultFacilityAnswerTemplates(): FacilityAnswerTemplate[] {
+  return facilityAnswerTemplates.map((item) => ({ ...item }));
+}
 
 export function getDefaultCase(): DemoCase {
   return {
@@ -653,6 +680,7 @@ export type EvidenceBoundQAResult = {
   retrievalMode: "physician-curated-only";
   evidenceReferences: string[];
   retrievedEvidence: EvidenceCard[];
+  templateReferences?: FacilityAnswerTemplate[];
 };
 
 const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResult["safetyLabel"]; requiresDoctorReview: boolean }> = [
@@ -665,6 +693,18 @@ const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResul
   { terms: ["手術", "なぜ", "必要", "緊急", "しない", "破裂", "心タンポナーデ"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["病気", "大動脈解離", "解離", "dissection"], safetyLabel: "general", requiresDoctorReview: false },
 ];
+
+function isMortalityRateQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  return ["死亡率", "院内死亡", "死亡", "mortality", "death", "助かる確率"].some((term) => normalized.includes(term.toLowerCase()));
+}
+
+function findMatchingFacilityTemplate(question: string, templates: FacilityAnswerTemplate[] = []): FacilityAnswerTemplate | undefined {
+  const normalized = question.toLowerCase();
+  return templates.find((template) =>
+    template.questionPatterns.some((pattern) => normalized.includes(pattern.toLowerCase())),
+  );
+}
 
 function getQuestionTerms(question: string): string[] {
   const normalized = question.toLowerCase();
@@ -836,6 +876,7 @@ function splitEvidenceSpans(item: EvidenceCard): string[] {
 
 function isNumericRiskQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
+  if (isMortalityRateQuestion(question)) return true;
   const asksExplicitNumber = ["何%", "何％", "%", "％", "確率", "割合", "rate", "incidence"].some((term) =>
     normalized.includes(term.toLowerCase()),
   );
@@ -931,9 +972,23 @@ export function synthesizeEvidenceBoundQA(
     plannedSurgery: string;
     risks: string[];
     selectedEvidence: EvidenceCard[];
+    facilityAnswerTemplates?: FacilityAnswerTemplate[];
   },
 ): EvidenceBoundQAResult {
   const normalized = question.toLowerCase();
+
+  const facilityTemplate = findMatchingFacilityTemplate(question, context.facilityAnswerTemplates);
+  if (facilityTemplate) {
+    return {
+      answer: facilityTemplate.answer,
+      safetyLabel: "doctor-review",
+      requiresDoctorReview: true,
+      retrievalMode: "physician-curated-only",
+      evidenceReferences: [facilityTemplate.templateId],
+      retrievedEvidence: [],
+      templateReferences: [facilityTemplate],
+    };
+  }
 
   if (normalized.includes("成功率") || normalized.includes("助か")) {
     return {
