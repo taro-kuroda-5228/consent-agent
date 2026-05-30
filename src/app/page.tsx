@@ -154,10 +154,8 @@ export default function ConsentAgent() {
 
   // Screen 4 state
   const [summary, setSummary] = useState<{
-    understood: string[];
-    notUnderstood: string[];
     concerns: string[];
-    doctorQuestions: string[];
+    familyQuestions: { question: string; answer: string; needsDoctorFollowUp: boolean }[];
   } | null>(null);
   const [consentSent, setConsentSent] = useState(false);
   const [recorded, setRecorded] = useState(false);
@@ -495,15 +493,13 @@ export default function ConsentAgent() {
   };
 
   const submitToDoctor = async () => {
-    // Build summary from collected data
-    const correctAnswers = UNDERSTANDING_QUESTIONS.filter((q) => understandingAnswers[q.id] === q.correctIndex);
-    const wrongAnswers = UNDERSTANDING_QUESTIONS.filter((q) => understandingAnswers[q.id] !== q.correctIndex);
-    
     setSummary({
-      understood: correctAnswers.map((q) => q.question),
-      notUnderstood: wrongAnswers.map((q) => q.question),
-      concerns: concerns ? [concerns] : [],
-      doctorQuestions: qaLog.filter((q) => q.safetyLabel === "doctor-review" || q.safetyLabel === "individual-prognosis").map((q) => q.question),
+      concerns: concerns.trim() ? [concerns.trim()] : [],
+      familyQuestions: qaLog.map((q) => ({
+        question: q.question,
+        answer: q.answer,
+        needsDoctorFollowUp: q.safetyLabel === "doctor-review" || q.safetyLabel === "individual-prognosis",
+      })),
     });
     setStep(4);
   };
@@ -1152,101 +1148,61 @@ export default function ConsentAgent() {
   );
 
   const renderScreen4 = () => (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <h2 className="text-lg font-bold">医師用サマリー</h2>
-          <p className="text-xs text-gray-500">62歳男性 / Stanford A型</p>
-        </div>
-        <Badge className="bg-red-100 text-red-800 text-xs">🔴 医師確認：必須</Badge>
+    <div className="space-y-4">
+      <div className="mb-2">
+        <h2 className="text-2xl font-black text-slate-950">医師サマリー</h2>
+        <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-500">患者・家族が残した不安と質問だけを確認します。</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Card className="border-l-4 border-l-green-500">
-          <CardHeader className="pb-1 pt-2 px-3">
-            <CardTitle className="text-xs text-green-800">✅ 理解済み</CardTitle>
-          </CardHeader>
-          <CardContent className="px-3 pb-2 space-y-0.5">
-            {summary?.understood.map((item, i) => (
-              <p key={i} className="text-xs text-gray-700">✅ {item}</p>
-            ))}
-            {(!summary || summary.understood.length === 0) && <p className="text-xs text-gray-400">なし</p>}
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-yellow-500">
-          <CardHeader className="pb-1 pt-2 px-3">
-            <CardTitle className="text-xs text-yellow-800">⚠️ 未理解</CardTitle>
-          </CardHeader>
-          <CardContent className="px-3 pb-2 space-y-0.5">
-            {summary?.notUnderstood.map((item, i) => (
-              <p key={i} className="text-xs text-gray-700">⚠️ {item}</p>
-            ))}
-            {(!summary || summary.notUnderstood.length === 0) && <p className="text-xs text-gray-400">なし</p>}
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-orange-500">
-          <CardHeader className="pb-1 pt-2 px-3">
-            <CardTitle className="text-xs text-orange-800">😰 家族の不安</CardTitle>
-          </CardHeader>
-          <CardContent className="px-3 pb-2 space-y-0.5">
-            {summary?.concerns.map((item, i) => (
-              <p key={i} className="text-xs text-gray-700">😰 {item}</p>
-            ))}
-            {(!summary || summary.concerns.length === 0) && <p className="text-xs text-gray-400">なし</p>}
-          </CardContent>
-        </Card>
-
-        <Card className="border-l-4 border-l-red-500">
-          <CardHeader className="pb-1 pt-2 px-3">
-            <CardTitle className="text-xs text-red-800">🔴 医師が直接答えるべき質問</CardTitle>
-          </CardHeader>
-          <CardContent className="px-3 pb-2 space-y-0.5">
-            {summary?.doctorQuestions.map((item, i) => (
-              <p key={i} className="text-xs text-gray-700">🔴 {item}</p>
-            ))}
-            {(!summary || summary.doctorQuestions.length === 0) && <p className="text-xs text-gray-400">なし</p>}
-          </CardContent>
-        </Card>
-      </div>
-
-      <Separator />
-
-      <Card className="border-slate-200 bg-slate-50">
-        <CardHeader className="pb-1 pt-2 px-3">
-          <CardTitle className="text-xs text-slate-900">医師サマリー export</CardTitle>
+      <Card className="border-orange-100 bg-white shadow-sm">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-base text-orange-900">😰 患者・家族の不安</CardTitle>
         </CardHeader>
-        <CardContent className="px-3 pb-3 text-[11px] leading-relaxed text-slate-600">
-          <p>FHIR Consent-like JSONには、家族が理解できたこと、追加説明が必要なこと、家族から出た質問、回答に使った根拠IDを含めます。</p>
-          <p className="mt-1 font-semibold text-slate-700">医師はこの export artifact を確認し、最終説明・同意確認を記録します。</p>
+        <CardContent className="px-4 pb-4 space-y-2">
+          {summary?.concerns.length ? (
+            summary.concerns.map((item, i) => (
+              <div key={i} className="rounded-2xl border border-orange-100 bg-orange-50 p-3 text-sm font-semibold leading-relaxed text-orange-950">
+                {item}
+              </div>
+            ))
+          ) : (
+            <p className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-sm font-semibold text-slate-500">未入力</p>
+          )}
         </CardContent>
       </Card>
 
-      {/* eConsent */}
-      <Card>
-        <CardHeader className="pb-1 pt-2 px-3">
-          <CardTitle className="text-xs">📋 eConsent ハンドオフ</CardTitle>
+      <Card className="border-blue-100 bg-white shadow-sm">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-base text-blue-950">💬 患者・家族からの質問</CardTitle>
+          <p className="text-xs font-semibold leading-relaxed text-slate-500">回答内容を見て、必要なものだけ診察室で補足してください。</p>
         </CardHeader>
-        <CardContent className="px-3 pb-2 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-gray-50 rounded p-2 text-center">
-              <p className="text-xs text-gray-500">FHIR JSON</p>
-              <p className="text-sm font-bold text-green-600">準備完了 ✅</p>
-            </div>
-            <div className="bg-gray-50 rounded p-2 text-center">
-              <p className="text-xs text-gray-500">医師確認</p>
-              <p className="text-sm font-bold text-red-600">必須</p>
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Button onClick={() => {}} variant="outline" className="flex-1 border-slate-300 bg-white text-sm font-bold text-slate-900 hover:bg-slate-100">📋 JSONコピー</Button>
-            <Button onClick={() => setConsentSent(true)} className="flex-1 bg-blue-600 text-sm font-bold text-white hover:bg-blue-700 disabled:bg-blue-100 disabled:text-blue-800 disabled:opacity-100" disabled={consentSent}>
-              {consentSent ? "✅ 送信完了" : "📤 eConsent送信"}
-            </Button>
-          </div>
-          <Button onClick={() => setRecorded(true)} className="w-full bg-green-600 text-sm font-bold text-white hover:bg-green-700 disabled:bg-green-100 disabled:text-green-800 disabled:opacity-100" disabled={recorded}>
-            {recorded ? "✅ 記録完了" : "📝 説明完了として記録"}
+        <CardContent className="px-4 pb-4 space-y-3">
+          {summary?.familyQuestions.length ? (
+            summary.familyQuestions.map((item, i) => (
+              <div key={i} className="rounded-2xl border border-blue-100 bg-blue-50 p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-black leading-relaxed text-blue-950">Q. {item.question}</p>
+                  {item.needsDoctorFollowUp && <Badge className="shrink-0 bg-red-600 text-white text-xs">医師補足</Badge>}
+                </div>
+                <p className="text-sm font-semibold leading-relaxed text-slate-700">{item.answer}</p>
+              </div>
+            ))
+          ) : (
+            <p className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-sm font-semibold text-slate-500">質問はありません</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="border-slate-200 bg-white shadow-sm">
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-base text-slate-950">eConsent</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-2">
+          <Button onClick={() => setConsentSent(true)} className="w-full bg-blue-600 py-5 text-sm font-bold text-white hover:bg-blue-700 disabled:bg-blue-100 disabled:text-blue-800 disabled:opacity-100" disabled={consentSent}>
+            {consentSent ? "✅ 送信完了" : "📤 eConsent送信"}
+          </Button>
+          <Button onClick={() => setRecorded(true)} className="w-full bg-green-600 py-5 text-sm font-bold text-white hover:bg-green-700 disabled:bg-green-100 disabled:text-green-800 disabled:opacity-100" disabled={recorded}>
+            {recorded ? "✅ 説明完了を記録しました" : "📝 説明完了として記録"}
           </Button>
         </CardContent>
       </Card>

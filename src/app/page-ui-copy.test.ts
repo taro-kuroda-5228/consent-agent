@@ -23,14 +23,14 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("回答生成中");
   });
 
-  it("keeps bottom handoff CTAs readable on mobile by pinning text colors", () => {
-    expect(pageSource).toContain("📋 JSONコピー");
+  it("keeps physician handoff CTAs simple and readable on mobile", () => {
     expect(pageSource).toContain("📤 eConsent送信");
     expect(pageSource).toContain("📝 説明完了として記録");
-    expect(pageSource).toContain("border-slate-300 bg-white text-sm font-bold text-slate-900");
-    expect(pageSource).toContain("bg-blue-600 text-sm font-bold text-white");
-    expect(pageSource).toContain("bg-green-600 text-sm font-bold text-white");
+    expect(pageSource).toContain("bg-blue-600 py-5 text-sm font-bold text-white");
+    expect(pageSource).toContain("bg-green-600 py-5 text-sm font-bold text-white");
     expect(pageSource).toContain("disabled:opacity-100");
+    expect(pageSource).not.toContain("📋 JSONコピー");
+    expect(pageSource).not.toContain("FHIR JSON");
   });
 
   it("shows evidence sufficiency and override warning copy before family explanation", () => {
@@ -74,11 +74,14 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).toContain("setSelectedEvidenceIds((prev) => prev.filter((id) => id !== evidenceId))");
   });
 
-  it("explains that the physician summary export includes understanding, questions, and evidence IDs", () => {
-    expect(pageSource).toContain("医師サマリー export");
-    expect(pageSource).toContain("家族が理解できたこと");
-    expect(pageSource).toContain("追加説明が必要なこと");
-    expect(pageSource).toContain("家族から出た質問");
-    expect(pageSource).toContain("回答に使った根拠ID");
+  it("shows a physician summary focused on patient/family worries and questions", () => {
+    expect(pageSource).toContain("患者・家族が残した不安と質問だけを確認します。");
+    expect(pageSource).toContain("😰 患者・家族の不安");
+    expect(pageSource).toContain("💬 患者・家族からの質問");
+    expect(pageSource).toContain("医師補足");
+    expect(pageSource).not.toContain("医師サマリー export");
+    expect(pageSource).not.toContain("家族が理解できたこと");
+    expect(pageSource).not.toContain("追加説明が必要なこと");
+    expect(pageSource).not.toContain("回答に使った根拠ID");
   });
 });
