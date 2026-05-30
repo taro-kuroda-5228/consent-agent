@@ -200,6 +200,18 @@ JSONのみを返してください。
   return parseSupportingSpanExtraction(result.response.text());
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 export async function generateQA(
   question: string,
   context: QAContext,
@@ -226,7 +238,7 @@ export async function generateQA(
   }
 
   try {
-    const extraction = await spanExtractor(question, resolvedContext);
+    const extraction = await withTimeout(spanExtractor(question, resolvedContext), 7000, "Source-bounded extraction");
     const agenticResult = synthesizeEvidenceBoundQAFromSupportingSpans(question, resolvedContext, extraction);
     if (agenticResult.evidenceReferences.length > 0 || agenticResult.safetyLabel !== "doctor-review") {
       return agenticResult;
