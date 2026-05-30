@@ -238,7 +238,7 @@ export async function generateQA(
   }
 
   try {
-    const extraction = await withTimeout(spanExtractor(question, resolvedContext), 7000, "Source-bounded extraction");
+    const extraction = await withTimeout(spanExtractor(question, resolvedContext), 18000, "Source-bounded extraction");
     const agenticResult = synthesizeEvidenceBoundQAFromSupportingSpans(question, resolvedContext, extraction);
     if (agenticResult.evidenceReferences.length > 0 || agenticResult.safetyLabel !== "doctor-review") {
       return agenticResult;
