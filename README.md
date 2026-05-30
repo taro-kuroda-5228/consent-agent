@@ -29,6 +29,24 @@ npm run lint
 npm run build
 ```
 
+## Judge demo path
+
+1. Open http://localhost:3000
+2. Click the acute type A dissection quick case.
+3. Review the physician-selected evidence cards.
+4. Start the family explanation.
+5. Ask: `脳梗塞のリスクについて、もっと教えてください`.
+6. Confirm the answer cites selected evidence ID `AAD-005` and does not invent unsupported risk estimates.
+7. Complete the understanding check and view the physician summary.
+
+## Why this matters
+
+Emergency consent conversations are high-stakes, time-constrained, and emotionally difficult. MedEvidence Consent Agent reduces physician explanation burden while preserving physician control, evidence traceability, and patient-family comprehension.
+
+## Safety boundary
+
+The system organizes explanation, physician-selected evidence, family Q&A, understanding checks, and documentation handoff. AI does not obtain final consent, decide surgical indication, or replace physician judgment.
+
 ## What is real in Phase 1
 
 - Runnable Next.js / React / TypeScript UI

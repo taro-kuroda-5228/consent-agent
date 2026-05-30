@@ -128,7 +128,7 @@ export default function QAPage() {
             <CardTitle className="text-sm">
               ✏️ 自由に質問する
               {aiSource === "gemini" && (
-                <Badge className="ml-2 bg-green-600 text-white text-xs">Gemini</Badge>
+                <Badge className="ml-2 bg-green-600 text-white text-xs">根拠確認済み</Badge>
               )}
             </CardTitle>
           </CardHeader>
@@ -147,9 +147,9 @@ export default function QAPage() {
               {loading ? "⏳ 回答生成中..." : "質問する"}
             </Button>
             {freeAnswer && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+              <div className={`border rounded-lg p-3 space-y-2 ${freeAnswer.requiresDoctorReview ? "bg-blue-50 border-blue-200" : "bg-sky-50 border-sky-100"}`}>
                 <p className="text-sm text-blue-800">{freeAnswer.answer}</p>
-                {freeAnswer.safetyLabel && (
+                {freeAnswer.safetyLabel && freeAnswer.safetyLabel !== "general" && (
                   <Badge className={`text-xs ${SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.color || "bg-gray-100 text-gray-800"}`}>
                     {SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.label || freeAnswer.safetyLabel}
                   </Badge>

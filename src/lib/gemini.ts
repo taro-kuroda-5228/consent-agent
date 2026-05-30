@@ -1,4 +1,10 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import {
+  retrieveMockEvidence,
+  resolveEvidenceSelectionForRequest,
+  synthesizeEvidenceBoundQA,
+  type EvidenceCard,
+} from "./consent-demo";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -11,7 +17,17 @@ export async function generateExplanation(context: {
   cardiopulmonaryBypass: boolean;
   transfusion: string;
   notes: string;
+  selectedEvidence?: EvidenceCard[];
 }) {
+  const selectedEvidence = context.selectedEvidence !== undefined
+    ? context.selectedEvidence
+    : resolveEvidenceSelectionForRequest(retrieveMockEvidence(context.diagnosis), undefined);
+  const evidenceText = selectedEvidence
+    .map(
+      (item) =>
+        `- ${item.evidenceId}: ${item.title}\n  種別: ${item.sourceType}\n  引用: ${item.citation}\n  家族向け要点: ${item.displayForFamily}\n  制限: ${item.origin === "facility-document" ? "施設説明資料であり、論文エビデンスではない" : "デモ用に選択された根拠"}`,
+    )
+    .join("\n");
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const prompt = `あなたは急性大動脈解離の緊急手術前に、家族向け説明文を作成するAIアシスタントです。
@@ -24,6 +40,12 @@ export async function generateExplanation(context: {
 - 治療しない場合の一般的リスクを説明する
 - 個別予後や成功率は断定しない
 - 医師レビュー前提のドラフトであることを明示する
+- 以下の【医師が選択した根拠】に含まれる文献・施設資料だけを根拠として使う
+- 選択されていない文献、一般RAG検索、推測した論文は引用しない
+- 各カードの最後に「参照: AAD-001」のように該当IDを短く入れる
+
+【医師が選択した根拠】
+${evidenceText}
 
 【症例情報】
 - 診断: ${context.diagnosis}
@@ -89,57 +111,21 @@ export async function generateQA(
     diagnosis: string;
     plannedSurgery: string;
     risks: string[];
+    selectedEvidence?: EvidenceCard[];
   }
 ): Promise<{
   answer: string;
   safetyLabel: "general" | "doctor-review" | "individual-prognosis" | "consent-guidance";
   requiresDoctorReview: boolean;
+  retrievalMode?: "physician-curated-only";
+  evidenceReferences?: string[];
+  retrievedEvidence?: EvidenceCard[];
 }> {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const selectedEvidence = context.selectedEvidence !== undefined
+    ? context.selectedEvidence
+    : resolveEvidenceSelectionForRequest(retrieveMockEvidence(context.diagnosis), undefined);
 
-  const prompt = `あなたは急性大動脈解離の緊急手術に関する家族からの質問に答えるAIアシスタントです。
-
-【ルール】
-- 中学生にもわかる日本語で答える
-- 不安を煽らない
-- 重大リスクは省略しない
-- 個別予後や成功率は断定しない
-- 「手術を受けるべきですか」「同意しないといけませんか」には同意誘導せず、医師判断であることを明記
-- 個別の死亡率・リスク率を断定しない
-- 一般的な医学情報として回答する
-
-【症例情報】
-- 診断: ${context.diagnosis}
-- 予定手術: ${context.plannedSurgery}
-- 主なリスク: ${context.risks.join("、")}
-
-【家族からの質問】
-${question}
-
-【出力形式】
-以下のJSONのみを返してください。
-
-{
-  "answer": "回答文（200文字以内）",
-  "safetyLabel": "general | doctor-review | individual-prognosis | consent-guidance",
-  "requiresDoctorReview": true | false
-}
-
-safetyLabel:
-- "general": 一般的な医学情報
-- "doctor-review": 医師の直接説明が必要（個別リスク、成功率等）
-- "individual-prognosis": 個別予後に関する質問（断定不可）
-- "consent-guidance": 同意に関する誘導的質問（注意が必要）`;
-
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
-
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("Failed to parse Gemini Q&A response as JSON");
-  }
-
-  return JSON.parse(jsonMatch[0]);
+  return synthesizeEvidenceBoundQA(question, { ...context, selectedEvidence });
 }
 
 export async function generateDoctorSummary(data: {

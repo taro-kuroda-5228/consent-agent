@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateQA } from "@/lib/gemini";
+import {
+  resolveEvidenceSelectionForRequest,
+  retrieveMockEvidence,
+  type EvidenceCard,
+} from "@/lib/consent-demo";
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { question, diagnosis, plannedSurgery, risks } = body;
+    const { question, diagnosis, plannedSurgery, risks, selectedEvidenceIds, customEvidence } = body;
 
     if (!question || !question.trim()) {
       return NextResponse.json(
@@ -13,10 +18,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const physicianUploadedEvidence: EvidenceCard[] = Array.isArray(customEvidence)
+      ? customEvidence.filter((item) => item?.origin === "physician-upload" && item?.evidenceId && item?.displayForFamily)
+      : [];
+    const selectedEvidence = resolveEvidenceSelectionForRequest(
+      [...retrieveMockEvidence(diagnosis || ""), ...physicianUploadedEvidence],
+      selectedEvidenceIds,
+    );
+
     const result = await generateQA(question, {
       diagnosis: diagnosis || "",
       plannedSurgery: plannedSurgery || "",
       risks: risks || [],
+      selectedEvidence,
     });
 
     return NextResponse.json(result);

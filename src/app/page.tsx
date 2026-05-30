@@ -8,7 +8,16 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import demoCase from "@/data/demo-case.json";
+import {
+  createPhysicianUploadedEvidence,
+  evaluateEvidenceSufficiency,
+  getDefaultSelectedEvidenceIds,
+  getEvidenceCatalog,
+  type EvidenceCandidateSuggestion,
+  type EvidenceCard,
+  type EvidenceSufficiencyTopic,
+} from "@/lib/consent-demo";
+import { PHYSICIAN_QUICK_CASES, resolveExplanationStartCase, type PhysicianQuickCase } from "@/lib/physician-intake";
 import type { ReactNode } from "react";
 
 // ---- Types ----
@@ -23,6 +32,9 @@ interface QAResult {
   answer: string;
   safetyLabel: string;
   requiresDoctorReview: boolean;
+  retrievalMode?: string;
+  evidenceReferences?: string[];
+  retrievedEvidence?: EvidenceCard[];
 }
 
 const SAFETY_LABEL_MAP: Record<string, { label: string; color: string }> = {
@@ -33,9 +45,10 @@ const SAFETY_LABEL_MAP: Record<string, { label: string; color: string }> = {
 };
 
 const FAQ = [
-  { question: "手術しないとどうなりますか？", answer: "放置すると大動脈が破裂し、命に関わる可能性があります。詳細は担当医が説明します。", requiresDoctorReview: false },
-  { question: "成功率はどれくらいですか？", answer: "個別の成功率は患者さんの状態によって異なるため、担当医が直接ご説明します。", requiresDoctorReview: true },
-  { question: "後遺症は残りますか？", answer: "脳梗塞や腎不全などの合併症の可能性があります。個別の見通しは担当医にお尋ねください。", requiresDoctorReview: true },
+  { question: "大動脈解離とはどのような病気ですか？", answer: "大動脈の壁が裂け、血液が壁の中に入り込む病気です。破裂や臓器血流低下につながることがあります。", requiresDoctorReview: false },
+  { question: "急いで同意しないといけませんか？", answer: "急性A型大動脈解離では、破裂や心タンポナーデなどで急に命に関わるため、短時間で治療方針を確認する必要があります。", requiresDoctorReview: true },
+  { question: "なぜすぐに手術が必要なのですか？", answer: "Stanford A型では心臓に近い大動脈が裂けており、破裂や心タンポナーデなどで急に命に関わるためです。", requiresDoctorReview: false },
+  { question: "脳梗塞のリスクについて、もう少し詳しく教えてください。", answer: "手術中や解離そのものの影響で脳への血流が悪くなる可能性があります。個別のリスクは担当医が直接説明します。", requiresDoctorReview: true },
 ];
 
 const UNDERSTANDING_QUESTIONS = [
@@ -45,6 +58,14 @@ const UNDERSTANDING_QUESTIONS = [
   { id: "q4", question: "最終的な判断は誰がしますか？", options: ["AI", "家族", "担当医師", "看護師"], correctIndex: 2 },
 ];
 
+const EVIDENCE_TOPIC_LABELS: Record<EvidenceSufficiencyTopic, string> = {
+  "disease-definition": "疾患説明",
+  "emergency-need": "緊急性",
+  "procedure-purpose": "手術目的",
+  "major-complications": "主要合併症",
+  "physician-ai-boundary": "医師/AI境界",
+};
+
 type Step = 1 | 2 | 3 | 4;
 
 // ---- Main Component ----
@@ -52,6 +73,23 @@ export default function ConsentAgent() {
   const [step, setStep] = useState<Step>(1);
 
   // Screen 1 state
+  const baseEvidenceCatalog = getEvidenceCatalog();
+  const [uploadedEvidence, setUploadedEvidence] = useState<EvidenceCard[]>([]);
+  const evidenceCatalog = [...baseEvidenceCatalog, ...uploadedEvidence];
+  const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>(getDefaultSelectedEvidenceIds());
+  const selectedEvidence = evidenceCatalog.filter((item) => selectedEvidenceIds.includes(item.evidenceId));
+  const evidenceSufficiency = evaluateEvidenceSufficiency(selectedEvidence);
+  const evidenceCoverageReady = evidenceSufficiency.status === "ready";
+  const [evidenceSuggestion, setEvidenceSuggestion] = useState<EvidenceCandidateSuggestion | null>(null);
+  const [loadingEvidenceSuggestion, setLoadingEvidenceSuggestion] = useState(false);
+  const [uploadingEvidence, setUploadingEvidence] = useState(false);
+  const [uploadTitle, setUploadTitle] = useState("日本のガイドライン / 非PubMed論文PDF");
+  const [uploadSourceUrl, setUploadSourceUrl] = useState("");
+  const [uploadClinicalScope, setUploadClinicalScope] = useState("急性A型大動脈解離 / ATAAD physician-uploaded source");
+  const [uploadSummary, setUploadSummary] = useState("");
+  const [uploadText, setUploadText] = useState("");
+  const [uploadFileName, setUploadFileName] = useState("uploaded-evidence.pdf");
+  const [uploadMessage, setUploadMessage] = useState("");
   const [age, setAge] = useState("");
   const [sex, setSex] = useState("");
   const [diagnosis, setDiagnosis] = useState("");
@@ -67,10 +105,8 @@ export default function ConsentAgent() {
   // Screen 2 state
   const [explanation, setExplanation] = useState<ExplanationCard[]>([]);
   const [aiSource, setAiSource] = useState<"idle" | "gemini" | "fallback">("idle");
-  const [evidenceReady, setEvidenceReady] = useState(false);
 
   // Screen 3 state
-  const [expandedFAQ, setExpandedFAQ] = useState<number | null>(null);
   const [freeQuestion, setFreeQuestion] = useState("");
   const [freeAnswer, setFreeAnswer] = useState<QAResult | null>(null);
   const [loading3, setLoading3] = useState(false);
@@ -90,37 +126,182 @@ export default function ConsentAgent() {
 
   const AVAILABLE_RISKS = ["死亡", "脳梗塞", "出血", "腎不全", "再手術", "感染", "麻痺", "心不全"];
 
+  const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs = 5000) => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      window.clearTimeout(timer);
+    }
+  };
+
   // ---- Handlers ----
-  const loadDemo = () => {
-    setAge(String(demoCase.age));
-    setSex(demoCase.sex);
-    setDiagnosis(demoCase.diagnosis);
-    setUrgency(demoCase.urgency);
-    setPlannedSurgery(demoCase.plannedSurgery);
-    setPurpose(demoCase.purpose);
-    setCardiopulmonaryBypass(demoCase.cardiopulmonaryBypass);
-    setTransfusion(demoCase.transfusion);
-    setRisks(demoCase.risks);
-    setNotes(demoCase.notes);
+  const applyQuickCase = (quickCase: PhysicianQuickCase) => {
+    setAge(quickCase.age);
+    setSex(quickCase.sex);
+    setDiagnosis(quickCase.diagnosis);
+    setUrgency(quickCase.urgency);
+    setPlannedSurgery(quickCase.plannedSurgery);
+    setPurpose(quickCase.purpose);
+    setCardiopulmonaryBypass(quickCase.cardiopulmonaryBypass);
+    setTransfusion(quickCase.transfusion);
+    setRisks(quickCase.risks);
+    setNotes(quickCase.notes);
+    setSelectedEvidenceIds(evidenceCatalog.map((item) => item.evidenceId));
+    setEvidenceSuggestion(null);
+  };
+
+  const suggestEvidence = async () => {
+    if (!diagnosis || !plannedSurgery) return;
+    setLoadingEvidenceSuggestion(true);
+    try {
+      const res = await fetchWithTimeout("/api/evidence/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ diagnosis, plannedSurgery, risks }),
+      }, 5000);
+      if (!res.ok) throw new Error("API error");
+      const data: EvidenceCandidateSuggestion = await res.json();
+      setEvidenceSuggestion(data);
+      setSelectedEvidenceIds(data.suggestedEvidence.map((item) => item.evidenceId));
+    } catch {
+      setEvidenceSuggestion({
+        mode: "medevidence-ai-candidate-suggestion",
+        retrievalMode: "medevidence-rag-plus-facility-candidate",
+        sourcePolicy: "候補抽出に失敗したため、デフォルト根拠を医師確認用に提示しています。引用可否は医師が最終選択します。",
+        suggestedEvidence: selectedEvidence,
+        rationaleByEvidenceId: Object.fromEntries(
+          selectedEvidence.map((item) => [item.evidenceId, "デフォルト選択根拠です。医師が引用可否を確認してください。"]),
+        ),
+        searchTrace: ["候補抽出API失敗", "デフォルト根拠を維持"],
+      });
+    }
+    setLoadingEvidenceSuggestion(false);
   };
 
   const toggleRisk = (risk: string) => {
     setRisks((prev) => prev.includes(risk) ? prev.filter((r) => r !== risk) : [...prev, risk]);
   };
 
+  const toggleEvidence = (evidenceId: string) => {
+    setSelectedEvidenceIds((prev) =>
+      prev.includes(evidenceId)
+        ? prev.filter((id) => id !== evidenceId)
+        : [...prev, evidenceId],
+    );
+  };
+
+  const handleEvidenceFileUpload = async (file?: File) => {
+    if (!file) return;
+    setUploadingEvidence(true);
+    setUploadMessage("PDF本文を抽出中です。抽出後に医師が内容を確認してください。");
+    setUploadFileName(file.name);
+    if (uploadTitle === "日本のガイドライン / 非PubMed論文PDF") {
+      setUploadTitle(file.name.replace(/\.pdf$/i, ""));
+    }
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetchWithTimeout("/api/evidence/upload", { method: "POST", body: form }, 15000);
+      if (!res.ok) throw new Error("upload failed");
+      const data: { extractedText?: string; warning?: string; privacyNote?: string } = await res.json();
+      setUploadText(data.extractedText || "");
+      setUploadMessage(data.warning || data.privacyNote || "抽出しました。医師が要約・本文・出典リンクを確認してから根拠に追加してください。");
+    } catch {
+      setUploadMessage("PDF抽出に失敗しました。本文または要約を貼り付けて、医師確認済み根拠として追加してください。");
+    }
+    setUploadingEvidence(false);
+  };
+
+  const handleEvidenceUrlImport = async () => {
+    if (!uploadSourceUrl.trim()) return;
+    setUploadingEvidence(true);
+    setUploadMessage("URLから参考資料を取り込み、根拠カードの下書きを作成中です。医師は採用/不採用だけ確認してください。");
+    try {
+      const form = new FormData();
+      form.append("sourceUrl", uploadSourceUrl.trim());
+      const res = await fetchWithTimeout("/api/evidence/upload", { method: "POST", body: form }, 30000);
+      if (!res.ok) throw new Error("url import failed");
+      const data: { fileName?: string; extractedText?: string; warning?: string; privacyNote?: string; evidenceCard?: EvidenceCard } = await res.json();
+      if (data.evidenceCard) {
+        setUploadedEvidence((prev) => [...prev.filter((item) => item.evidenceId !== data.evidenceCard?.evidenceId), data.evidenceCard as EvidenceCard]);
+        setSelectedEvidenceIds((prev) => Array.from(new Set([...prev, data.evidenceCard!.evidenceId])));
+        setUploadTitle(data.evidenceCard.title);
+        setUploadClinicalScope(data.evidenceCard.clinicalScope || uploadClinicalScope);
+        setUploadSummary(data.evidenceCard.clinicianSummary || "");
+        setUploadText(data.evidenceCard.displayForFamily || "");
+        setUploadMessage("根拠カードの下書きを作成し、選択済みにしました。医師はカードを見て、不要ならチェックを外すだけです。");
+        setUploadingEvidence(false);
+        return;
+      }
+      if (data.fileName) {
+        setUploadFileName(data.fileName);
+        if (uploadTitle === "日本のガイドライン / 非PubMed論文PDF") {
+          setUploadTitle(data.fileName.replace(/\.pdf$/i, ""));
+        }
+      }
+      setUploadText(data.extractedText || "");
+      setUploadMessage(data.warning || data.privacyNote || "URLから抽出しました。根拠カード作成に失敗した場合のみ、本文/要約を最小限補足してください。");
+    } catch {
+      setUploadMessage("URLからのPDF抽出に失敗しました。PDFをダウンロードしてアップロードするか、本文/要約を貼り付けてください。");
+    }
+    setUploadingEvidence(false);
+  };
+
+  const addUploadedEvidence = () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: uploadTitle,
+      fileName: uploadFileName,
+      sourceUrl: uploadSourceUrl,
+      extractedText: uploadText || uploadSummary,
+      clinicianSummary: uploadSummary,
+      clinicalScope: uploadClinicalScope,
+    });
+    setUploadedEvidence((prev) => [...prev.filter((item) => item.evidenceId !== uploaded.evidenceId), uploaded]);
+    setSelectedEvidenceIds((prev) => Array.from(new Set([...prev, uploaded.evidenceId])));
+    setUploadMessage(`追加しました: ${uploaded.evidenceId}。家族説明/Q&Aでは医師が選択した場合のみ引用されます。`);
+  };
+
   const startExplanation = async () => {
+    const startCase = resolveExplanationStartCase({
+      age,
+      sex,
+      diagnosis,
+      urgency,
+      plannedSurgery,
+      purpose,
+      cardiopulmonaryBypass,
+      transfusion,
+      risks,
+      notes,
+    });
+    if (startCase.usedFallbackPreset) {
+      applyQuickCase(startCase);
+    }
+
     setLoading1(true);
     try {
-      const res = await fetch("/api/explain", {
+      const res = await fetchWithTimeout("/api/explain", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ diagnosis, plannedSurgery, risks, urgency, purpose, cardiopulmonaryBypass, transfusion, notes }),
-      });
+        body: JSON.stringify({
+          diagnosis: startCase.diagnosis,
+          plannedSurgery: startCase.plannedSurgery,
+          risks: startCase.risks,
+          urgency: startCase.urgency,
+          purpose: startCase.purpose,
+          cardiopulmonaryBypass: startCase.cardiopulmonaryBypass,
+          transfusion: startCase.transfusion,
+          notes: startCase.notes,
+          selectedEvidenceIds,
+          customEvidence: uploadedEvidence,
+        }),
+      }, 5000);
       if (res.ok) {
         const data = await res.json();
         setExplanation(data.explanation);
         setAiSource("gemini");
-        setEvidenceReady(true);
       } else {
         throw new Error("API error");
       }
@@ -128,32 +309,40 @@ export default function ConsentAgent() {
       const { default: mock } = await import("@/data/mock-explanation.json");
       setExplanation(mock);
       setAiSource("fallback");
-      setEvidenceReady(false);
     }
     setLoading1(false);
     setStep(2);
   };
 
-  const handleFreeQuestion = async () => {
-    if (!freeQuestion.trim()) return;
+  const handleFreeQuestion = async (questionOverride?: string) => {
+    const askedQuestion = (questionOverride ?? freeQuestion).trim();
+    if (!askedQuestion) return;
+    setFreeQuestion(askedQuestion);
     setLoading3(true);
     try {
-      const res = await fetch("/api/qa", {
+      const res = await fetchWithTimeout("/api/qa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: freeQuestion, diagnosis, plannedSurgery, risks }),
-      });
+        body: JSON.stringify({ question: askedQuestion, diagnosis, plannedSurgery, risks, selectedEvidenceIds, customEvidence: uploadedEvidence }),
+      }, 5000);
       if (res.ok) {
         const data = await res.json();
         setFreeAnswer(data);
-        setQaLog((prev) => [...prev, { question: freeQuestion, answer: data.answer, safetyLabel: data.safetyLabel }]);
+        setQaLog((prev) => [...prev, { question: askedQuestion, answer: data.answer, safetyLabel: data.safetyLabel }]);
       } else {
         throw new Error("API error");
       }
     } catch {
-      const fallback = { answer: "ご質問ありがとうございます。こちらの内容は担当医師が直接ご説明いたします。", safetyLabel: "doctor-review", requiresDoctorReview: true };
+      const fallback = {
+        answer: "選択済み参考資料内には、この質問に直接答えられる記載が見つかりません。",
+        safetyLabel: "doctor-review",
+        requiresDoctorReview: true,
+        retrievalMode: "physician-curated-only",
+        evidenceReferences: [],
+        retrievedEvidence: [],
+      };
       setFreeAnswer(fallback);
-      setQaLog((prev) => [...prev, { question: freeQuestion, answer: fallback.answer, safetyLabel: fallback.safetyLabel }]);
+      setQaLog((prev) => [...prev, { question: askedQuestion, answer: fallback.answer, safetyLabel: fallback.safetyLabel }]);
     }
     setLoading3(false);
   };
@@ -163,6 +352,16 @@ export default function ConsentAgent() {
   };
 
   const allAnswered = UNDERSTANDING_QUESTIONS.every((q) => understandingAnswers[q.id] !== undefined);
+
+  const goToStep = (target: Step) => {
+    if (target === 1 || target <= step) {
+      setStep(target);
+      return;
+    }
+    if (target === 2) {
+      void startExplanation();
+    }
+  };
 
   const submitToDoctor = async () => {
     // Build summary from collected data
@@ -186,108 +385,479 @@ export default function ConsentAgent() {
     <div className="space-y-4">
       <div className="text-center space-y-1 mb-2">
         <h2 className="text-lg font-bold">医師入力</h2>
-        <p className="text-xs text-gray-500">個人情報を含まないデモ症例です。</p>
+        <p className="text-xs text-gray-500">まずプリセットを選ぶだけ。個人情報は入れないデモ症例です。</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <Label className="text-sm">年齢</Label>
-          <Input type="number" placeholder="62" value={age} onChange={(e) => setAge(e.target.value)} />
+      <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 shadow-sm">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-sm font-bold text-blue-950">最短30秒</p>
+            <p className="text-[11px] leading-relaxed text-blue-800">症例プリセット → 根拠確認 → 家族説明開始</p>
+          </div>
+          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-blue-700">医師は必要時だけ修正</span>
         </div>
-        <div className="space-y-1">
-          <Label className="text-sm">性別</Label>
-          <Input placeholder="男性" value={sex} onChange={(e) => setSex(e.target.value)} />
-        </div>
-      </div>
-
-      <div className="space-y-1">
-        <Label className="text-sm">診断</Label>
-        <Input placeholder="Stanford A型急性大動脈解離" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} />
-      </div>
-
-      <div className="space-y-1">
-        <Label className="text-sm">緊急度</Label>
-        <Input placeholder="ただちに緊急手術が必要" value={urgency} onChange={(e) => setUrgency(e.target.value)} />
-      </div>
-
-      <div className="space-y-1">
-        <Label className="text-sm">予定手術</Label>
-        <Input placeholder="緊急上行大動脈人工血管置換術 ± ヘミアーチ置換術" value={plannedSurgery} onChange={(e) => setPlannedSurgery(e.target.value)} />
-      </div>
-
-      <div className="space-y-1">
-        <Label className="text-sm">主なリスク</Label>
-        <div className="flex flex-wrap gap-1.5">
-          {AVAILABLE_RISKS.map((risk) => (
+        <div className="mt-3 grid gap-2">
+          {PHYSICIAN_QUICK_CASES.map((quickCase) => (
             <button
-              key={risk}
+              key={quickCase.id}
               type="button"
-              onClick={() => toggleRisk(risk)}
-              className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-                risks.includes(risk) ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700"
+              onClick={() => applyQuickCase(quickCase)}
+              className={`rounded-xl border px-3 py-3 text-left transition-colors ${
+                diagnosis === quickCase.diagnosis && plannedSurgery === quickCase.plannedSurgery
+                  ? "border-blue-600 bg-white shadow-sm"
+                  : "border-blue-100 bg-white/80 hover:border-blue-400"
               }`}
             >
-              {risk}
+              <span className="block text-sm font-bold text-slate-950">{quickCase.label}</span>
+              <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-600">{quickCase.description}</span>
             </button>
           ))}
         </div>
       </div>
 
-      <div className="space-y-1">
-        <Label className="text-sm">説明上の注意</Label>
-        <Textarea placeholder="ご家族の不安が強いため、短く平易な説明を優先する。" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+      {diagnosis || plannedSurgery ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0">
+              <p className="font-bold text-slate-950">今回の説明</p>
+              <p className="mt-1 leading-relaxed text-slate-700">{diagnosis || "診断未選択"} / {plannedSurgery || "術式未選択"}</p>
+              <p className="mt-1 text-[11px] font-medium text-slate-500">主なリスク: {risks.length ? risks.join("・") : "未選択"}</p>
+            </div>
+            <Badge className="shrink-0 bg-red-100 text-red-800">{urgency || "緊急度未選択"}</Badge>
+          </div>
+        </div>
+      ) : null}
+
+      <details className="rounded-xl border border-slate-200 bg-white p-3">
+        <summary className="cursor-pointer text-sm font-bold text-slate-900">詳細を編集する（必要時のみ）</summary>
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-sm">年齢</Label>
+              <Input type="number" placeholder="62" value={age} onChange={(e) => setAge(e.target.value)} />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-sm">性別</Label>
+              <Input placeholder="男性" value={sex} onChange={(e) => setSex(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-sm">診断</Label>
+            <Input placeholder="Stanford A型急性大動脈解離" value={diagnosis} onChange={(e) => setDiagnosis(e.target.value)} />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-sm">緊急度</Label>
+            <Input placeholder="ただちに緊急手術が必要" value={urgency} onChange={(e) => setUrgency(e.target.value)} />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-sm">予定手術</Label>
+            <Input placeholder="緊急上行大動脈人工血管置換術 ± ヘミアーチ置換術" value={plannedSurgery} onChange={(e) => setPlannedSurgery(e.target.value)} />
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-sm">主なリスク</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {AVAILABLE_RISKS.map((risk) => (
+                <button
+                  key={risk}
+                  type="button"
+                  onClick={() => toggleRisk(risk)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
+                    risks.includes(risk) ? "bg-red-600 text-white" : "bg-gray-100 text-gray-700"
+                  }`}
+                >
+                  {risk}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <Label className="text-sm">説明上の注意</Label>
+            <Textarea placeholder="ご家族の不安が強いため、短く平易な説明を優先する。" value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} />
+          </div>
+        </div>
+      </details>
+
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <Label className="text-sm">家族説明で引用する根拠</Label>
+          <span className="text-[11px] text-blue-700 font-medium">医師選択のみ引用</span>
+        </div>
+        <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-indigo-900">MedEvidence根拠候補</p>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-7 shrink-0 border-indigo-200 bg-white px-2 text-[11px] text-indigo-800 hover:bg-indigo-100"
+              onClick={suggestEvidence}
+              disabled={loadingEvidenceSuggestion || !diagnosis || !plannedSurgery}
+            >
+              {loadingEvidenceSuggestion ? "候補確認中" : "根拠候補"}
+            </Button>
+          </div>
+          {evidenceSuggestion ? (
+            <div className="mt-1 text-[11px] leading-relaxed text-indigo-700">
+              候補: {evidenceSuggestion.suggestedEvidence.map((item) => item.evidenceId).join(" / ") || "なし"}
+              <details className="mt-1">
+                <summary className="cursor-pointer font-semibold text-gray-700">理由</summary>
+                <div className="mt-1 space-y-1 text-gray-600">
+                  {evidenceSuggestion.suggestedEvidence.map((item) => (
+                    <p key={item.evidenceId}>
+                      <span className="font-bold text-indigo-800">{item.evidenceId}</span>: {evidenceSuggestion.rationaleByEvidenceId[item.evidenceId]}
+                    </p>
+                  ))}
+                </div>
+              </details>
+            </div>
+          ) : (
+            <p className="mt-1 text-[11px] leading-relaxed text-indigo-700">
+              診断・術式・リスクから候補を出し、医師が最終選択します。
+            </p>
+          )}
+        </div>
+
+        <details className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <summary className="cursor-pointer text-xs font-bold text-amber-900">
+            日本のガイドライン・非PubMed資料URLを追加
+          </summary>
+          <div className="mt-3 space-y-2">
+            <p className="text-[11px] leading-relaxed text-amber-800">
+            URLを貼るだけで要約・主要所見・outcomeタグの下書きを作成します。医師は作成されたカードを見て、使わない場合だけチェックを外してください。PHI/PIIを含む資料は使わないでください。
+            </p>
+            <Input
+              type="file"
+              accept="application/pdf,text/plain,.pdf,.txt"
+              onChange={(e) => handleEvidenceFileUpload(e.target.files?.[0])}
+              disabled={uploadingEvidence}
+              className="bg-white text-xs"
+            />
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+              <Input placeholder="資料タイトル" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} className="bg-white text-xs" />
+              <div className="flex gap-2">
+                <Input placeholder="出典元URL（任意: 学会/出版社/院内文書URL）" value={uploadSourceUrl} onChange={(e) => setUploadSourceUrl(e.target.value)} className="bg-white text-xs" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 shrink-0 border-amber-300 bg-white px-2 text-[11px] font-bold text-amber-900 hover:bg-amber-100"
+                  onClick={handleEvidenceUrlImport}
+                  disabled={uploadingEvidence || !uploadSourceUrl.trim()}
+                >
+                  URLで自動作成
+                </Button>
+              </div>
+            </div>
+            <Input placeholder="対象スコープ" value={uploadClinicalScope} onChange={(e) => setUploadClinicalScope(e.target.value)} className="bg-white text-xs" />
+            <Textarea
+              placeholder="医師向け要約: ぱっと見で分かる内容を入力"
+              value={uploadSummary}
+              onChange={(e) => setUploadSummary(e.target.value)}
+              rows={2}
+              className="bg-white text-xs"
+            />
+            <Textarea
+              placeholder="PDFから抽出された本文、または医師が貼り付けた引用可能な本文"
+              value={uploadText}
+              onChange={(e) => setUploadText(e.target.value)}
+              rows={4}
+              className="bg-white text-xs"
+            />
+            {uploadMessage && <p className="text-[11px] leading-relaxed text-amber-800">{uploadMessage}</p>}
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 border-amber-300 bg-white text-xs font-bold text-amber-900 hover:bg-amber-100"
+              onClick={addUploadedEvidence}
+              disabled={uploadingEvidence || (!uploadText.trim() && !uploadSummary.trim())}
+            >
+              {uploadingEvidence ? "抽出中" : "医師確認済み根拠として追加"}
+            </Button>
+          </div>
+        </details>
+
+        <details className="rounded-xl border border-slate-200 bg-white p-3">
+          <summary className="cursor-pointer text-sm font-bold text-slate-900">
+            選択中の根拠 {selectedEvidenceIds.length}件を確認・変更
+          </summary>
+          <div className="mt-3 space-y-2">
+            {evidenceCatalog.map((item) => {
+              const selected = selectedEvidenceIds.includes(item.evidenceId);
+              return (
+                <div
+                  key={item.evidenceId}
+                  className={`w-full rounded-xl border p-3 transition-colors ${
+                    selected ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
+                  }`}
+                >
+                  <div className="flex items-start gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleEvidence(item.evidenceId)}
+                      aria-label={`${item.evidenceId}を家族説明で引用する根拠に${selected ? "含めない" : "含める"}`}
+                      className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border text-xs ${
+                        selected ? "bg-blue-600 border-blue-600 text-white" : "border-gray-300 text-transparent"
+                      }`}
+                    >
+                      ✓
+                    </button>
+                    <div className="min-w-0 space-y-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge className="bg-slate-900 text-white text-[10px]">{item.evidenceId}</Badge>
+                        <Badge className="bg-slate-100 text-slate-700 text-[10px]">{item.sourceType}</Badge>
+                        {item.retrievalStatus === "pubmed-verified" && (
+                          <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>
+                        )}
+                        {evidenceSuggestion?.suggestedEvidence.some((candidate) => candidate.evidenceId === item.evidenceId) && (
+                          <Badge className="bg-indigo-100 text-indigo-800 text-[10px]">候補</Badge>
+                        )}
+                      </div>
+                      <p className="text-xs font-semibold text-gray-900">{item.title}</p>
+                      {item.clinicalScope && (
+                        <Badge className="bg-amber-100 text-amber-900 text-[10px]">対象: {item.clinicalScope}</Badge>
+                      )}
+                      {item.clinicianSummary && (
+                        <p className="rounded-lg bg-white/80 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-gray-800">
+                          医師向け要約: {item.clinicianSummary}
+                        </p>
+                      )}
+                      {item.outcomeTags && item.outcomeTags.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {item.outcomeTags.map((tag) => (
+                            <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {item.keyFindings && item.keyFindings.length > 0 && (
+                        <ul className="list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-gray-600">
+                          {item.keyFindings.map((finding) => (
+                            <li key={finding}>{finding}</li>
+                          ))}
+                        </ul>
+                      )}
+                      <p className="text-[11px] leading-relaxed text-gray-600">家族向け: {item.displayForFamily}</p>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
+                        <span>{item.citation}</span>
+                        {item.sourceUrl && (
+                          <a
+                            href={item.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-700 underline underline-offset-2"
+                          >
+                            出典元リンクでfact check
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </details>
+        <p className="text-[11px] text-gray-500">
+          家族画面の回答は、ここで選んだ施設資料・論文・ガイドラインだけから引用します。
+        </p>
+
+        <div className={`rounded-xl border p-3 ${evidenceCoverageReady ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className={`text-sm font-bold ${evidenceCoverageReady ? "text-emerald-900" : "text-amber-950"}`}>
+                {evidenceCoverageReady ? "根拠カバレッジ: 説明開始可能" : "根拠カバレッジ: 不足あり"}
+              </p>
+              <p className={`mt-1 text-[11px] leading-relaxed ${evidenceCoverageReady ? "text-emerald-800" : "text-amber-900"}`}>
+                {evidenceCoverageReady
+                  ? "疾患・緊急性・手術目的・主要合併症・医師責任境界が選択根拠内で確認できます。"
+                  : "不足がある場合も医師overrideで開始できますが、家族向け回答は選択済み根拠の範囲に限定されます。"}
+              </p>
+            </div>
+            <Badge className={evidenceCoverageReady ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}>
+              {evidenceSufficiency.coveredTopics.length}/5
+            </Badge>
+          </div>
+          {evidenceSufficiency.missingTopics.length > 0 && (
+            <p className="mt-2 text-[11px] font-semibold text-amber-950">
+              不足トピック: {evidenceSufficiency.missingTopics.map((topic) => EVIDENCE_TOPIC_LABELS[topic]).join(" / ")}
+            </p>
+          )}
+          {evidenceSufficiency.majorComplicationCategories.length > 0 && (
+            <p className="mt-1 text-[11px] font-medium text-slate-600">
+              合併症カテゴリ: {evidenceSufficiency.majorComplicationCategories.join(" / ")}
+            </p>
+          )}
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 pt-2">
-        <Button onClick={loadDemo} variant="outline" className="w-full">デモ症例を読み込む</Button>
-        <Button onClick={startExplanation} className="w-full bg-blue-600 hover:bg-blue-700" disabled={loading1 || !diagnosis}>
-          {loading1 ? "⏳ Gemini生成中..." : "家族説明を開始"}
+      <div className="pt-2">
+        <Button onClick={startExplanation} className="w-full bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300 disabled:text-white disabled:opacity-100" disabled={loading1}>
+          {loading1 ? "説明を準備中..." : !evidenceCoverageReady ? "医師overrideで開始" : diagnosis ? "家族説明を開始" : "デモ症例で家族説明を開始"}
         </Button>
       </div>
     </div>
   );
 
   const renderScreen2 = () => (
-    <div className="space-y-3">
-      <div className="text-center space-y-1 mb-2">
-        <h2 className="text-lg font-bold">家族向けご説明</h2>
-        <p className="text-xs text-gray-500">※ 担当医師の説明を補助するものです</p>
-      </div>
-
-      {aiSource === "gemini" && (
-        <div className="bg-green-50 border border-green-200 rounded-lg p-2 text-center">
-          <p className="text-xs text-green-700">🤖 Gemini によるリアルタイム生成</p>
+    <div className="rounded-[28px] bg-white px-5 py-6 shadow-sm ring-1 ring-slate-200 space-y-7">
+      <div className="flex items-center gap-4">
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-slate-950 text-2xl font-black text-white">
+          根
         </div>
-      )}
-      {aiSource === "fallback" && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-2 text-center">
-          <p className="text-xs text-gray-600">📋 フォールバック（テンプレート）</p>
+        <h2 className="text-3xl font-black tracking-tight text-slate-950">根拠と質問</h2>
+      </div>
+
+      <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-slate-950">
+        <div className="flex items-end gap-3">
+          <span className="text-6xl font-black leading-none">{selectedEvidence.length}</span>
+          <span className="pb-2 text-2xl font-black text-slate-500">件　根拠を確認済み</span>
         </div>
+        <details className="mt-5 text-xl font-black text-slate-700">
+          <summary className="cursor-pointer">内訳</summary>
+          <div className="mt-3 space-y-2 text-sm font-medium leading-relaxed text-slate-600">
+            {selectedEvidence.map((item) => (
+              <div key={item.evidenceId} className="rounded-2xl bg-white p-3">
+                <p>
+                  <span className="font-black text-slate-950">{item.evidenceId}</span> {item.clinicianSummary || item.displayForFamily}
+                </p>
+                {item.outcomeTags && item.outcomeTags.length > 0 && (
+                  <p className="mt-1 text-xs text-slate-500">outcome: {item.outcomeTags.join(" / ")}</p>
+                )}
+                {item.clinicalScope && (
+                  <p className="mt-1 text-xs font-semibold text-amber-700">対象: {item.clinicalScope}</p>
+                )}
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  {item.citation}
+                  {item.sourceUrl && (
+                    <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="ml-2 text-blue-700 underline underline-offset-2">
+                      出典元リンク
+                    </a>
+                  )}
+                </p>
+              </div>
+            ))}
+          </div>
+        </details>
+      </div>
+
+      {explanation.length > 0 && (
+        <details className="rounded-3xl border border-slate-200 bg-white p-4">
+          <summary className="cursor-pointer text-xl font-black text-slate-900">説明内容を確認</summary>
+          <div className="mt-4 space-y-3">
+            {explanation.map((card) => (
+              <div key={card.id} className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-base font-black text-slate-900">{card.icon} {card.title}</p>
+                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">{card.content}</p>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-center">
-        <p className="text-xs text-blue-700">
-          📊 <strong>IRADレジストリ</strong>・<strong>JACC 2024ガイドライン</strong>に基づく情報
-        </p>
-      </div>
+      <section className="space-y-4">
+        <h3 className="text-3xl font-black text-slate-950">質問する</h3>
+        <div className="flex gap-3">
+          <Input
+            placeholder="気になることを入力..."
+            value={freeQuestion}
+            onChange={(e) => setFreeQuestion(e.target.value)}
+            className="h-16 rounded-3xl border-slate-300 bg-slate-50 px-5 text-xl"
+          />
+          <Button
+            onClick={() => handleFreeQuestion()}
+            className="h-16 rounded-3xl bg-sky-500 px-7 text-xl font-black text-white hover:bg-sky-600 disabled:bg-sky-200 disabled:text-slate-600 disabled:opacity-100"
+            disabled={!freeQuestion.trim() || loading3}
+          >
+            {loading3 ? "準備中" : "質問"}
+          </Button>
+        </div>
 
-      {explanation.map((card, idx) => (
-        <Card key={card.id} className="border-l-4 border-l-blue-400">
-          <CardContent className="py-3 px-4">
-            <p className="text-sm font-medium">{card.icon} {card.title}</p>
-            <p className="text-xs text-gray-700 mt-1 whitespace-pre-line leading-relaxed">{card.content}</p>
-          </CardContent>
-        </Card>
-      ))}
+        {freeAnswer && (
+          <div className={`rounded-3xl border p-6 space-y-4 ${freeAnswer.requiresDoctorReview ? "border-rose-200 bg-rose-50" : "border-sky-100 bg-sky-50"}`}>
+            <p className="whitespace-pre-line text-2xl leading-relaxed text-slate-950">{freeAnswer.answer}</p>
+            <div className="flex flex-wrap gap-2">
+              {freeAnswer.safetyLabel && freeAnswer.safetyLabel !== "general" && (
+                <Badge className={`text-base ${SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.color || "bg-gray-100"}`}>
+                  {SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.label}
+                </Badge>
+              )}
+              <Badge className="bg-slate-100 text-slate-700 text-base">医師選択根拠のみ</Badge>
+              {freeAnswer.requiresDoctorReview && (
+                <Badge className="bg-transparent px-0 text-xl font-black text-rose-700 shadow-none hover:bg-transparent">⚠️ 医師確認が必要です</Badge>
+              )}
+            </div>
+            {freeAnswer.evidenceReferences && freeAnswer.evidenceReferences.length > 0 && (
+              <p className="text-sm font-black text-slate-600">
+                参照ID: {freeAnswer.evidenceReferences.join(" / ")}
+              </p>
+            )}
+            {freeAnswer.retrievedEvidence && freeAnswer.retrievedEvidence.length > 0 && (
+              <details className="rounded-2xl border border-slate-200 bg-white/80 p-4">
+                <summary className="cursor-pointer text-sm font-black text-slate-700">引用に使った参考資料</summary>
+                <div className="mt-3 space-y-3">
+                  {freeAnswer.retrievedEvidence.map((item) => (
+                    <div key={item.evidenceId} className="rounded-2xl bg-slate-50 p-3 text-sm leading-relaxed text-slate-700">
+                      <p className="font-black text-slate-900">{item.evidenceId}: {item.title}</p>
+                      <p className="mt-1">{item.displayForFamily}</p>
+                      {item.outcomeTags && item.outcomeTags.length > 0 && (
+                        <p className="mt-1 text-xs text-slate-500">outcome: {item.outcomeTags.join(" / ")}</p>
+                      )}
+                      <p className="mt-1 text-xs font-semibold text-slate-500">
+                        {item.citation}
+                        {item.sourceUrl && (
+                          <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="ml-2 text-blue-700 underline underline-offset-2">
+                            出典元リンクでfact check
+                          </a>
+                        )}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
 
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-2">
-        <p className="text-xs text-amber-800">
-          💡 <strong>ご注意:</strong> この説明は一般的な情報です。個別の状況については担当医師にお尋ねください。
-        </p>
-      </div>
+        {qaLog.length > 0 && (
+          <details className="text-xl font-black text-slate-700">
+            <summary className="cursor-pointer">質問履歴 ({qaLog.length}件)</summary>
+            <div className="mt-3 space-y-2 text-sm font-medium text-slate-600">
+              {qaLog.map((item, idx) => (
+                <p key={`${item.question}-${idx}`}>Q: {item.question}</p>
+              ))}
+            </div>
+          </details>
+        )}
+      </section>
 
-      <Button onClick={() => setStep(3)} className="w-full bg-blue-600 hover:bg-blue-700 py-5">
-        ❓ 質問・理解確認へ進む
+      <section className="space-y-4">
+        <div>
+          <h3 className="text-3xl font-black text-slate-950">よくある家族の質問</h3>
+          <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-600">
+            どの質問も医師選択済み根拠だけで回答します。個別判断や同意の最終確認は医師に戻します。
+          </p>
+        </div>
+        <div className="space-y-4">
+          {FAQ.map((item, idx) => (
+            <div key={idx}>
+              <button
+                onClick={() => handleFreeQuestion(item.question)}
+                className="w-full rounded-full border border-slate-300 bg-slate-50 px-5 py-4 text-left text-xl font-black leading-snug text-slate-950 transition-colors hover:border-sky-300 hover:bg-sky-50"
+                disabled={loading3}
+              >
+                {item.question}
+              </button>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <Button onClick={() => setStep(3)} className="w-full rounded-full bg-slate-950 py-7 text-xl font-black text-white hover:bg-slate-800">
+        理解確認へ進む
       </Button>
     </div>
   );
@@ -301,27 +871,20 @@ export default function ConsentAgent() {
       {/* FAQ */}
       <Card>
         <CardHeader className="pb-1 pt-3 px-4">
-          <CardTitle className="text-sm">❓ よくある質問</CardTitle>
+          <CardTitle className="text-sm">❓ よくある家族の質問</CardTitle>
+          <p className="text-xs font-semibold leading-relaxed text-slate-500">どの質問も医師選択済み根拠だけで回答します。</p>
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-1.5">
           {FAQ.map((item, idx) => (
             <div key={idx} className="border rounded-lg overflow-hidden">
               <button
-                onClick={() => setExpandedFAQ(expandedFAQ === idx ? null : idx)}
+                onClick={() => handleFreeQuestion(item.question)}
                 className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex justify-between items-center"
+                disabled={loading3}
               >
                 <span>Q: {item.question}</span>
-                <span className="text-gray-400">{expandedFAQ === idx ? "▾" : "▸"}</span>
+                <span className="text-gray-400">質問する</span>
               </button>
-              {expandedFAQ === idx && (
-                <div className="px-3 pb-2 text-sm text-gray-700">
-                  <Separator className="mb-1.5" />
-                  <p>A: {item.answer}</p>
-                  {item.requiresDoctorReview && (
-                    <Badge className="mt-1.5 bg-red-600 text-white text-xs">🔴 担当医が直接説明します</Badge>
-                  )}
-                </div>
-              )}
             </div>
           ))}
         </CardContent>
@@ -330,26 +893,52 @@ export default function ConsentAgent() {
       {/* Free Q&A */}
       <Card>
         <CardHeader className="pb-1 pt-3 px-4">
-          <CardTitle className="text-sm">✏️ 自由に質問する {aiSource === "gemini" && <Badge className="ml-1 bg-green-600 text-white text-xs">Gemini</Badge>}</CardTitle>
+          <CardTitle className="text-sm">✏️ 自由に質問する {aiSource === "gemini" && <Badge className="ml-1 bg-green-600 text-white text-xs">根拠確認済み</Badge>}</CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-3 space-y-2">
           <Textarea placeholder="気になることを入力..." value={freeQuestion} onChange={(e) => setFreeQuestion(e.target.value)} rows={2} />
-          <Button onClick={handleFreeQuestion} className="w-full bg-blue-600 hover:bg-blue-700" disabled={!freeQuestion.trim() || loading3}>
-            {loading3 ? "⏳ 回答生成中..." : "質問する"}
+          <Button onClick={() => handleFreeQuestion()} className="w-full bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-200 disabled:text-slate-600 disabled:opacity-100" disabled={!freeQuestion.trim() || loading3}>
+            {loading3 ? "⏳ 回答を準備中..." : "質問する"}
           </Button>
           {freeAnswer && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 space-y-1.5">
-              <p className="text-sm text-blue-800">{freeAnswer.answer}</p>
-              <div className="flex gap-1.5">
-                {freeAnswer.safetyLabel && (
+            <div className={`border rounded-lg p-3 space-y-2 ${freeAnswer.requiresDoctorReview ? "bg-blue-50 border-blue-200" : "bg-sky-50 border-sky-100"}`}>
+              <p className="text-base font-semibold leading-relaxed text-blue-950">{freeAnswer.answer}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {freeAnswer.safetyLabel && freeAnswer.safetyLabel !== "general" && (
                   <Badge className={`text-xs ${SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.color || "bg-gray-100"}`}>
                     {SAFETY_LABEL_MAP[freeAnswer.safetyLabel]?.label}
                   </Badge>
                 )}
+                <Badge className="bg-slate-100 text-slate-700 text-xs">医師選択根拠のみ</Badge>
                 {freeAnswer.requiresDoctorReview && (
                   <Badge className="bg-red-600 text-white text-xs">🔴 医師確認</Badge>
                 )}
               </div>
+              {freeAnswer.evidenceReferences && freeAnswer.evidenceReferences.length > 0 && (
+                <p className="text-xs font-semibold text-blue-800">
+                  参照: {freeAnswer.evidenceReferences.join(" / ")}
+                </p>
+              )}
+              {freeAnswer.retrievedEvidence && freeAnswer.retrievedEvidence.length > 0 && (
+                <details className="rounded-lg border border-blue-100 bg-white/70 p-2">
+                  <summary className="cursor-pointer text-xs font-semibold text-gray-700">引用に使った根拠</summary>
+                  <div className="mt-2 space-y-1.5">
+                    {freeAnswer.retrievedEvidence.map((item) => (
+                      <div key={item.evidenceId} className="text-xs leading-relaxed text-gray-700">
+                        <p><span className="font-bold text-blue-800">{item.evidenceId}</span>: {item.displayForFamily}</p>
+                        <p className="mt-1 font-semibold text-gray-500">
+                          {item.citation}
+                          {item.sourceUrl && (
+                            <a href={item.sourceUrl} target="_blank" rel="noreferrer" className="ml-2 text-blue-700 underline underline-offset-2">
+                              出典元リンク
+                            </a>
+                          )}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
             </div>
           )}
         </CardContent>
@@ -398,7 +987,7 @@ export default function ConsentAgent() {
 
       <Button
         onClick={submitToDoctor}
-        className="w-full bg-green-600 hover:bg-green-700 py-5"
+        className="w-full bg-green-600 py-5 text-white hover:bg-green-700 disabled:bg-slate-200 disabled:text-slate-600 disabled:opacity-100"
         disabled={!allAnswered}
       >
         📤 医師に回答を送信
@@ -469,6 +1058,16 @@ export default function ConsentAgent() {
 
       <Separator />
 
+      <Card className="border-slate-200 bg-slate-50">
+        <CardHeader className="pb-1 pt-2 px-3">
+          <CardTitle className="text-xs text-slate-900">医師サマリー export</CardTitle>
+        </CardHeader>
+        <CardContent className="px-3 pb-3 text-[11px] leading-relaxed text-slate-600">
+          <p>FHIR Consent-like JSONには、家族が理解できたこと、追加説明が必要なこと、家族から出た質問、回答に使った根拠IDを含めます。</p>
+          <p className="mt-1 font-semibold text-slate-700">医師はこの export artifact を確認し、最終説明・同意確認を記録します。</p>
+        </CardContent>
+      </Card>
+
       {/* eConsent */}
       <Card>
         <CardHeader className="pb-1 pt-2 px-3">
@@ -486,12 +1085,12 @@ export default function ConsentAgent() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button onClick={() => {}} variant="outline" className="flex-1 text-sm">📋 JSONコピー</Button>
-            <Button onClick={() => setConsentSent(true)} className="flex-1 bg-blue-600 hover:bg-blue-700 text-sm" disabled={consentSent}>
+            <Button onClick={() => {}} variant="outline" className="flex-1 border-slate-300 bg-white text-sm font-bold text-slate-900 hover:bg-slate-100">📋 JSONコピー</Button>
+            <Button onClick={() => setConsentSent(true)} className="flex-1 bg-blue-600 text-sm font-bold text-white hover:bg-blue-700 disabled:bg-blue-100 disabled:text-blue-800 disabled:opacity-100" disabled={consentSent}>
               {consentSent ? "✅ 送信完了" : "📤 eConsent送信"}
             </Button>
           </div>
-          <Button onClick={() => setRecorded(true)} className="w-full bg-green-600 hover:bg-green-700 text-sm" disabled={recorded}>
+          <Button onClick={() => setRecorded(true)} className="w-full bg-green-600 text-sm font-bold text-white hover:bg-green-700 disabled:bg-green-100 disabled:text-green-800 disabled:opacity-100" disabled={recorded}>
             {recorded ? "✅ 記録完了" : "📝 説明完了として記録"}
           </Button>
         </CardContent>
@@ -507,57 +1106,38 @@ export default function ConsentAgent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      {/* Header */}
-      <header className="bg-white border-b px-5 py-4 text-center space-y-1">
-        <p className="text-xs text-gray-500">緊急手術の同意説明支援デモ</p>
-        <h1 className="text-lg font-bold text-gray-900">大動脈解離 同意説明エージェント</h1>
-        <p className="text-xs text-gray-500">急性A型大動脈解離の緊急手術前に、家族説明・質問対応・理解確認・医師サマリーを4画面で支援します。</p>
-        <div className="flex items-center justify-center gap-3 pt-1">
-          <Badge className="bg-red-600 text-white text-xs animate-pulse">🚨 緊急モード</Badge>
-          {aiSource === "gemini" && <Badge className="bg-green-600 text-white text-xs">Gemini Live</Badge>}
-          {aiSource === "fallback" && <Badge className="bg-gray-500 text-white text-xs">フォールバック</Badge>}
-          <Badge className="bg-amber-100 text-amber-800 text-xs">医師確認必須</Badge>
-        </div>
-      </header>
-
-      {/* Step Navigation */}
-      <nav className="bg-white border-b px-4 py-2">
-        <div className="flex items-center justify-center gap-1 max-w-md mx-auto">
+    <div className="min-h-screen bg-slate-100 text-slate-900">
+      <div className="mx-auto max-w-lg px-3 py-5">
+        {/* Step Navigation */}
+        <nav className="grid grid-cols-2 gap-3 rounded-t-[28px] bg-slate-100 pb-5">
           {([1, 2, 3, 4] as Step[]).map((s) => (
             <button
               key={s}
-              onClick={() => s < step || (s === step) ? setStep(s) : null}
-              className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              onClick={() => goToStep(s)}
+              className={`rounded-[28px] border px-4 py-5 text-center text-2xl font-black shadow-sm transition-colors ${
                 s === step
-                  ? "bg-blue-600 text-white"
+                  ? "border-slate-950 bg-slate-950 text-white"
                   : s < step
-                  ? "bg-blue-100 text-blue-700 cursor-pointer"
-                  : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                  ? "border-slate-200 bg-white text-slate-800"
+                  : "border-slate-200 bg-white text-slate-400"
               }`}
             >
-              <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
-                s < step ? "bg-blue-600 text-white" : s === step ? "bg-white text-blue-600" : "bg-gray-300 text-white"
-              }`}>
-                {s < step ? "✓" : s}
-              </span>
-              <span className="hidden sm:inline">{stepLabels[s - 1]}</span>
+              {stepLabels[s - 1]}
             </button>
           ))}
-        </div>
-      </nav>
+        </nav>
 
-      {/* Content */}
-      <main className="max-w-lg mx-auto p-4 pb-8">
-        {screens[step]()}
-      </main>
+        {/* Content */}
+        <main className="pb-8">
+          {screens[step]()}
+        </main>
 
-      {/* Footer */}
-      <footer className="bg-white border-t px-4 py-3 text-center">
-        <p className="text-xs text-gray-500">
-          デモデータのみ。実在患者の個人情報・医療情報は使用していません。最終説明・治療判断・同意確認は資格を持つ医師が行います。
-        </p>
-      </footer>
+        <footer className="px-2 pb-4 text-center">
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            デモデータのみ。実在患者の個人情報・医療情報は使用していません。最終説明・治療判断・同意確認は資格を持つ医師が行います。
+          </p>
+        </footer>
+      </div>
     </div>
   );
 }

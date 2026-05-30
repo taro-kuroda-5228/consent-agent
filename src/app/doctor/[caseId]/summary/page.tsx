@@ -37,7 +37,7 @@ export default function DoctorSummary() {
           説明同意エージェント
         </h1>
         <p className="text-xs text-gray-500">
-          MedEvidence × Gemini
+          MedEvidence evidence-bound summary
         </p>
       </header>
 
