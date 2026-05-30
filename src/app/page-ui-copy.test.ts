@@ -45,12 +45,21 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("judge sample");
   });
 
-  it("lets physicians add facility templates and avoids doctor-review warnings for template answers", () => {
+  it("lets physicians add and delete facility templates and avoids doctor-review warnings for template answers", () => {
     expect(pageSource).toContain("新しい施設テンプレ回答を追加");
     expect(pageSource).toContain("施設テンプレ回答を追加");
     expect(pageSource).toContain("setFacilityTemplates((prev) => [...prev, template])");
+    expect(pageSource).toContain("deleteFacilityTemplate");
+    expect(pageSource).toContain("を施設テンプレ回答から削除");
     expect(pageSource).toContain("✅ 施設テンプレ確認済み");
     expect(pageSource).toContain("freeAnswer.requiresDoctorReview && !freeAnswer.templateReferences?.length");
+  });
+
+  it("lets physicians remove selected evidence from the evidence list, not just untick it", () => {
+    expect(pageSource).toContain("deletedEvidenceIds");
+    expect(pageSource).toContain("deleteEvidence");
+    expect(pageSource).toContain("を根拠一覧から削除");
+    expect(pageSource).toContain("setSelectedEvidenceIds((prev) => prev.filter((id) => id !== evidenceId))");
   });
 
   it("explains that the physician summary export includes understanding, questions, and evidence IDs", () => {

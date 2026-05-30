@@ -105,7 +105,8 @@ export default function ConsentAgent() {
   const baseEvidenceCatalog = getEvidenceCatalog();
   const defaultFacilityTemplates = getDefaultFacilityAnswerTemplates();
   const [uploadedEvidence, setUploadedEvidence] = useState<EvidenceCard[]>([]);
-  const evidenceCatalog = [...baseEvidenceCatalog, ...uploadedEvidence];
+  const [deletedEvidenceIds, setDeletedEvidenceIds] = useState<string[]>([]);
+  const evidenceCatalog = [...baseEvidenceCatalog, ...uploadedEvidence].filter((item) => !deletedEvidenceIds.includes(item.evidenceId));
   const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>(getDefaultSelectedEvidenceIds());
   const selectedEvidence = evidenceCatalog.filter((item) => selectedEvidenceIds.includes(item.evidenceId));
   const evidenceSufficiency = evaluateEvidenceSufficiency(selectedEvidence);
@@ -230,6 +231,19 @@ export default function ConsentAgent() {
     );
   };
 
+  const deleteEvidence = (evidenceId: string) => {
+    setSelectedEvidenceIds((prev) => prev.filter((id) => id !== evidenceId));
+    setUploadedEvidence((prev) => prev.filter((item) => item.evidenceId !== evidenceId));
+    setDeletedEvidenceIds((prev) => Array.from(new Set([...prev, evidenceId])));
+    setEvidenceSuggestion((prev) => prev ? {
+      ...prev,
+      suggestedEvidence: prev.suggestedEvidence.filter((item) => item.evidenceId !== evidenceId),
+      rationaleByEvidenceId: Object.fromEntries(
+        Object.entries(prev.rationaleByEvidenceId).filter(([id]) => id !== evidenceId),
+      ),
+    } : prev);
+  };
+
   const toggleFacilityTemplate = (templateId: string) => {
     setEnabledFacilityTemplateIds((prev) =>
       prev.includes(templateId)
@@ -246,6 +260,12 @@ export default function ConsentAgent() {
           : item,
       ),
     );
+  };
+
+  const deleteFacilityTemplate = (templateId: string) => {
+    setFacilityTemplates((prev) => prev.filter((item) => item.templateId !== templateId));
+    setEnabledFacilityTemplateIds((prev) => prev.filter((id) => id !== templateId));
+    setFacilityTemplateMessage(`削除しました: ${templateId}`);
   };
 
 
@@ -727,6 +747,14 @@ export default function ConsentAgent() {
                         {evidenceSuggestion?.suggestedEvidence.some((candidate) => candidate.evidenceId === item.evidenceId) && (
                           <Badge className="bg-indigo-100 text-indigo-800 text-[10px]">候補</Badge>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => deleteEvidence(item.evidenceId)}
+                          aria-label={`${item.evidenceId}を根拠一覧から削除`}
+                          className="rounded-full border border-red-200 bg-white px-2 py-0.5 text-[10px] font-black text-red-700 hover:bg-red-50"
+                        >
+                          削除
+                        </button>
                       </div>
                       <p className="text-xs font-semibold text-gray-900">{item.title}</p>
                       {item.clinicalScope && (
@@ -836,6 +864,14 @@ export default function ConsentAgent() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Badge className="bg-violet-100 text-violet-900 text-[10px]">{template.templateId}</Badge>
                         <Badge className="bg-white text-violet-700 text-[10px]">{template.lastReviewedLabel}</Badge>
+                        <button
+                          type="button"
+                          onClick={() => deleteFacilityTemplate(template.templateId)}
+                          aria-label={`${template.templateId}を施設テンプレ回答から削除`}
+                          className="rounded-full border border-red-200 bg-white px-2 py-0.5 text-[10px] font-black text-red-700 hover:bg-red-50"
+                        >
+                          削除
+                        </button>
                       </div>
                       <p className="text-xs font-bold text-slate-950">{template.label}</p>
                       <Textarea
