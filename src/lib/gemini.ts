@@ -116,24 +116,116 @@ type QAContext = {
   facilityAnswerTemplates?: FacilityAnswerTemplate[];
 };
 
-type SourceBoundedSpanExtractor = (question: string, context: QAContext & { selectedEvidence: EvidenceCard[] }) => Promise<SupportingSpanExtraction>;
+export type SourceBoundedSearchPlan = {
+  strategy: "source-bounded-agentic-search";
+  boundary: "physician-selected-evidence-only";
+  queries: Array<{ query: string; intent: "direct-answer" | "comparative" | "general"; targetTerms: string[] }>;
+  candidateChunks: Array<{
+    evidenceId: string;
+    chunkId: string;
+    title: string;
+    sourceType: EvidenceCard["sourceType"];
+    priority: "facility-or-physician-upload-first" | "selected-literature";
+    text: string;
+    score: number;
+  }>;
+};
 
-function serializeEvidenceForSpanExtraction(selectedEvidence: EvidenceCard[]): string {
-  return selectedEvidence
-    .map((item) => {
-      const spans = [
-        ...(item.keyFindings ?? []),
-        item.quotedSpan,
-        item.displayForFamily,
-        item.claim,
-        item.clinicianSummary,
-      ]
-        .filter((span): span is string => Boolean(span))
-        .map((span, index) => `  - chunk-${index + 1}: ${span.replace(/\s+/g, " ").trim()}`)
-        .join("\n");
+type SourceBoundedSpanExtractor = (
+  question: string,
+  context: QAContext & { selectedEvidence: EvidenceCard[] },
+  plan: SourceBoundedSearchPlan,
+) => Promise<SupportingSpanExtraction>;
 
-      return `SOURCE ${item.evidenceId}\nTitle: ${item.title}\nType: ${item.sourceType}\nPriority: ${item.origin === "facility-document" || item.origin === "physician-upload" ? "facility-or-physician-upload-first" : "selected-literature"}\nChunks:\n${spans}`;
-    })
+function normalizeChunkText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function splitQuestionTokens(question: string): string[] {
+  const normalized = question.toLowerCase();
+  return Array.from(new Set([
+    ...(normalized.match(/[a-z0-9]+(?:[-\s][a-z0-9]+)*/g) ?? []),
+    ...normalized.split(/[\s、。・？?（）()]+/),
+  ].map((token) => token.trim()).filter((token) => token.length >= 2)));
+}
+
+function expandQuestionTargets(question: string): string[] {
+  const normalized = question.toLowerCase();
+  const targets = new Set(splitQuestionTokens(question));
+  const add = (terms: string[]) => terms.forEach((term) => targets.add(term.toLowerCase()));
+
+  if (/長期|長期的|予後|遠隔|late|long[-\s]?term|survival|follow/.test(normalized)) {
+    add(["長期", "長期予後", "遠隔期", "long-term", "late mortality", "late survival", "survival", "follow-up", "reoperation"]);
+  }
+  if (/差|違い|比較|どちら|vs|versus|compared|than/.test(normalized)) {
+    add(["比較", "差", "vs", "compared", "than", "higher", "lower", "better", "worse"]);
+  }
+  if (/ヘミアーチ|半弓部|hemi/.test(normalized)) add(["hemiarch", "hemi-arch", "ヘミアーチ", "半弓部"]);
+  if (/トータルアーチ|全弓部|total\s*arch/.test(normalized)) add(["total arch", "total-arch", "全弓部", "トータルアーチ"]);
+  if (/死亡|mortality|death/.test(normalized)) add(["死亡", "死亡率", "mortality", "death"]);
+  if (/脳梗塞|脳卒中|stroke/.test(normalized)) add(["脳梗塞", "脳卒中", "stroke"]);
+  if (/せん妄|ぼーっと|混乱|delirium|confusion/.test(normalized)) add(["せん妄", "ぼーっと", "delirium", "confusion"]);
+
+  return Array.from(targets).filter((term) => term.length >= 2).slice(0, 24);
+}
+
+function inferQueryIntent(question: string): "direct-answer" | "comparative" | "general" {
+  const normalized = question.toLowerCase();
+  if (/差|違い|比較|どちら|vs|versus|compared|than/.test(normalized)) return "comparative";
+  if (/何%|何％|どれくらい|どのくらい|死亡率|発生率|率|mortality|incidence|rate/.test(normalized)) return "direct-answer";
+  return "general";
+}
+
+function buildSourceBoundedSearchPlan(question: string, selectedEvidence: EvidenceCard[]): SourceBoundedSearchPlan {
+  const targetTerms = expandQuestionTargets(question);
+  const intent = inferQueryIntent(question);
+  const queryCore = targetTerms.slice(0, 8).join(" ");
+  const queries = [
+    { query: queryCore || question, intent, targetTerms },
+    { query: `${question} ${targetTerms.filter((term) => /long-term|late mortality|survival|follow-up|reoperation/.test(term)).join(" ")}`.trim(), intent, targetTerms },
+    { query: targetTerms.filter((term) => /hemiarch|total arch|compared|than|higher|lower|better|worse|late mortality/.test(term)).join(" ") || queryCore || question, intent, targetTerms },
+  ].filter((item, index, items) => item.query && items.findIndex((other) => other.query === item.query) === index);
+
+  const candidateChunks = selectedEvidence.flatMap((item, evidenceIndex) => {
+    const priority = item.origin === "facility-document" || item.origin === "physician-upload" ? "facility-or-physician-upload-first" as const : "selected-literature" as const;
+    const spans = [
+      ...(item.keyFindings ?? []),
+      item.quotedSpan,
+      item.displayForFamily,
+      item.claim,
+      item.clinicianSummary,
+    ].filter((span): span is string => Boolean(span)).map(normalizeChunkText);
+
+    return spans.map((text, spanIndex) => {
+      const normalizedText = text.toLowerCase();
+      const termHits = targetTerms.filter((term) => normalizedText.includes(term.toLowerCase())).length;
+      const comparisonBoost = intent === "comparative" && /差|違い|比較|高|低|良好|不良|higher|lower|better|worse|than|compared/i.test(text) ? 20 : 0;
+      const directAnswerBoost = intent === "direct-answer" && /\d+(?:\.\d+)?\s*[％%]|mortality|死亡率|発生率|incidence|rate/i.test(text) ? 16 : 0;
+      const sourceBoost = priority === "facility-or-physician-upload-first" ? 6 : 0;
+      const score = termHits * 8 + comparisonBoost + directAnswerBoost + sourceBoost - evidenceIndex * 0.01 - spanIndex * 0.001;
+      return {
+        evidenceId: item.evidenceId,
+        chunkId: `chunk-${spanIndex + 1}`,
+        title: item.title,
+        sourceType: item.sourceType,
+        priority,
+        text,
+        score,
+      };
+    });
+  }).sort((a, b) => b.score - a.score).slice(0, 12);
+
+  return {
+    strategy: "source-bounded-agentic-search",
+    boundary: "physician-selected-evidence-only",
+    queries,
+    candidateChunks,
+  };
+}
+
+function serializeEvidenceForSpanExtraction(plan: SourceBoundedSearchPlan): string {
+  return plan.candidateChunks
+    .map((chunk) => `SOURCE ${chunk.evidenceId}\nTitle: ${chunk.title}\nType: ${chunk.sourceType}\nPriority: ${chunk.priority}\n${chunk.chunkId}: ${chunk.text}`)
     .join("\n\n");
 }
 
@@ -159,9 +251,13 @@ function parseSupportingSpanExtraction(text: string): SupportingSpanExtraction {
 export async function extractSupportingSpansWithGemini(
   question: string,
   context: QAContext & { selectedEvidence: EvidenceCard[] },
+  plan: SourceBoundedSearchPlan = buildSourceBoundedSearchPlan(question, context.selectedEvidence),
 ): Promise<SupportingSpanExtraction> {
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const evidenceText = serializeEvidenceForSpanExtraction(context.selectedEvidence);
+  const evidenceText = serializeEvidenceForSpanExtraction(plan);
+  const queryText = plan.queries
+    .map((query, index) => `${index + 1}. [${query.intent}] ${query.query}`)
+    .join("\n");
   const prompt = `あなたはMedEvidence Consent AgentのSource-bounded Retrieval担当です。
 医師が選択したソースだけを読み、家族の質問に直接答えられる根拠スパンを抽出してください。
 
@@ -180,6 +276,9 @@ export async function extractSupportingSpansWithGemini(
 
 【家族の質問】
 ${question}
+
+【Agentic Search Plan】
+${queryText || "（検索計画なし）"}
 
 【医師が選択したソース】
 ${evidenceText || "（選択済みソースなし）"}
@@ -232,13 +331,14 @@ export async function generateQA(
     : resolveEvidenceSelectionForRequest(retrieveMockEvidence(context.diagnosis), undefined);
 
   const resolvedContext = { ...context, selectedEvidence };
+  const searchPlan = buildSourceBoundedSearchPlan(question, selectedEvidence);
 
   if (!process.env.GEMINI_API_KEY && spanExtractor === extractSupportingSpansWithGemini) {
     return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
   }
 
   try {
-    const extraction = await withTimeout(spanExtractor(question, resolvedContext), 18000, "Source-bounded extraction");
+    const extraction = await withTimeout(spanExtractor(question, resolvedContext, searchPlan), 18000, "Source-bounded extraction");
     const agenticResult = synthesizeEvidenceBoundQAFromSupportingSpans(question, resolvedContext, extraction);
     if (agenticResult.evidenceReferences.length > 0 || agenticResult.safetyLabel !== "doctor-review") {
       return agenticResult;

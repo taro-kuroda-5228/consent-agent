@@ -54,4 +54,55 @@ describe("Gemini adapter evidence guardrails", () => {
     expect(result.supportingSpans?.[0]?.text).toContain("Postoperative delirium");
     expect(result.extractionMode).toBe("agentic-source-bounded");
   });
+
+  it("passes a MedEvidence-style source-bounded search plan into the agentic extractor", async () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Outcomes of hemi- vs. total arch replacement in acute type A aortic dissection",
+      fileName: "arch-comparison.pdf",
+      extractedText: "In this study, hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement.",
+      keyFindings: ["In this study, hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement."],
+      outcomeTags: ["arch-strategy", "late-mortality", "comparative-outcomes"],
+    });
+
+    let capturedPlan: unknown;
+    const result = await generateQA(
+      "ヘミアーチとトータルアーチの長期予後の差は？",
+      {
+        diagnosis: "Stanford A型急性大動脈解離",
+        plannedSurgery: "弓部置換術",
+        risks: ["死亡"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      },
+      async (_question, _context, plan) => {
+        capturedPlan = plan;
+        return {
+          answerable: true,
+          confidence: "moderate",
+          reason: "The selected paper directly compares late mortality between hemiarch and total arch replacement.",
+          supportingSpans: [
+            {
+              evidenceId: uploaded.evidenceId,
+              chunkId: "chunk-1",
+              span: "In this study, hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement.",
+            },
+          ],
+        };
+      },
+    );
+
+    expect(result.answer).toContain("higher late mortality rate");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(capturedPlan).toMatchObject({
+      strategy: "source-bounded-agentic-search",
+      boundary: "physician-selected-evidence-only",
+      queries: expect.arrayContaining([
+        expect.objectContaining({ query: expect.stringContaining("long-term") }),
+        expect.objectContaining({ query: expect.stringContaining("late mortality") }),
+      ]),
+      candidateChunks: expect.arrayContaining([
+        expect.objectContaining({ evidenceId: uploaded.evidenceId, chunkId: "chunk-1" }),
+      ]),
+    });
+  });
 });
