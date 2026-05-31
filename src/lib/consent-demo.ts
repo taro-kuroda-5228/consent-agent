@@ -223,20 +223,24 @@ const evidenceCards: EvidenceCard[] = [
     title: "Outcomes of hemi- vs. total arch replacement in acute type A aortic dissection",
     sourceType: "Review",
     claim:
-      "This PubMed-indexed meta-analysis compared hemiarch and total arch replacement, reporting early mortality, permanent neurological dysfunction, renal failure/dialysis, late mortality, bleeding reoperation, aortic reoperation, and pneumonia.",
+      "This PubMed-indexed meta-analysis compared hemiarch and total arch replacement, reporting that hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement.",
     displayForFamily:
-      "PubMed掲載のメタ解析では、ヘミアーチ置換と全弓部置換を比較し、早期死亡、永続的神経障害、腎不全・透析、遠隔期死亡、出血再手術などを評価しています。",
+      "PubMed掲載のメタ解析では、ヘミアーチ置換は全弓部置換より早期成績は良好でしたが、遠隔期死亡率は全弓部置換より高いと報告されています。",
     confidence: "moderate",
     citation: "Yuan X, et al. Front Cardiovasc Med. 2022;9:973949. PMID: 36237909",
     pmid: "36237909",
     origin: "medevidence-rag",
     sourceUrl: "https://pubmed.ncbi.nlm.nih.gov/36237909/",
     retrievalStatus: "pubmed-verified",
-    quotedSpan: "early mortality, postoperative permanent neurological dysfunction, renal failure and dialysis, late mortality, re-operation for bleeding, aortic re-operation, postoperative pneumonia",
+    quotedSpan: "In this study, hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement.",
     clinicalScope: "急性A型大動脈解離の弓部術式比較 / ATAAD arch strategy",
-    clinicianSummary: "ヘミアーチ vs 全弓部置換のメタ解析。術式選択時に、早期死亡・神経障害・腎不全/透析・遠隔期死亡など複数outcomeを俯瞰できる。",
-    keyFindings: ["23観察研究・4,576例を統合", "早期死亡、永続的神経障害、腎不全/透析、遠隔期死亡などを比較"],
-    outcomeTags: ["mortality", "neurologic-dysfunction", "renal-failure", "bleeding", "late-survival", "pneumonia", "reoperation"],
+    clinicianSummary: "ヘミアーチ vs 全弓部置換のメタ解析。術式選択時に、ヘミアーチは早期成績が良好だが遠隔期死亡率が高いという長期予後差を説明できる根拠。",
+    keyFindings: [
+      "23観察研究・4,576例を統合",
+      "In this study, hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement.",
+      "ヘミアーチ置換は早期成績は良好だが、全弓部置換より遠隔期死亡率が高いと報告",
+    ],
+    outcomeTags: ["mortality", "neurologic-dysfunction", "renal-failure", "bleeding", "late-survival", "pneumonia", "reoperation", "hemiarch", "total-arch", "arch-strategy"],
   },
   {
     evidenceId: "AAD-005",
@@ -764,6 +768,9 @@ function expandGenericMedicalTerms(question: string): string[] {
 function getQuestionTerms(question: string): string[] {
   const normalized = question.toLowerCase();
   const genericTerms = expandGenericMedicalTerms(question);
+  if (isArchStrategyComparisonQuestion(question)) {
+    return Array.from(new Set(["ヘミアーチ", "半弓部", "全弓部", "トータルアーチ", "hemiarch", "total arch", "arch replacement", "arch strategy", "late mortality", "遠隔期死亡", "長期", "予後", "早期成績", "early outcomes", ...genericTerms]));
+  }
   if (["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) => normalized.includes(term.toLowerCase()))) {
     return Array.from(new Set(["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "sex-difference", "female sex", "male sex", "female", "male", "women", "men", "女性", "男性", ...genericTerms]));
   }
@@ -904,6 +911,32 @@ function isLongTermPrognosisQuestion(question: string): boolean {
   return ["長期", "長期的", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance", "follow-up"].some((term) =>
     normalized.includes(term.toLowerCase()),
   );
+}
+
+function isArchStrategyComparisonQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  const mentionsHemiarch = ["ヘミアーチ", "半弓部", "hemiarch", "hemi-arch"].some((term) => normalized.includes(term.toLowerCase()));
+  const mentionsTotalArch = ["トータルアーチ", "全弓部", "total arch", "total-arch"].some((term) => normalized.includes(term.toLowerCase()));
+  const asksComparison = ["差", "違い", "比較", "vs", "versus"].some((term) => normalized.includes(term.toLowerCase()));
+  return mentionsHemiarch && mentionsTotalArch && asksComparison;
+}
+
+function summarizeArchStrategyComparisonFromEvidence(evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
+  const candidate = evidence
+    .flatMap((item) => splitEvidenceSpans(item).map((span) => ({ item, span, normalizedSpan: span.toLowerCase() })))
+    .find(
+      ({ normalizedSpan }) =>
+        ["hemiarch", "ヘミアーチ", "半弓部"].some((term) => normalizedSpan.includes(term.toLowerCase())) &&
+        ["total arch", "全弓部", "トータルアーチ"].some((term) => normalizedSpan.includes(term.toLowerCase())) &&
+        ["late mortality", "遠隔期死亡", "長期", "早期成績", "early outcomes"].some((term) => normalizedSpan.includes(term.toLowerCase())),
+    );
+
+  if (!candidate) return undefined;
+
+  const answer = /hemiarch|total arch/i.test(candidate.span)
+    ? "このメタ解析では、ヘミアーチ置換は全弓部置換より早期成績は良好でしたが、遠隔期死亡率は全弓部置換より高いと報告されています。"
+    : cleanFamilyAnswerSpan(candidate.span);
+  return { answer, source: candidate.item };
 }
 
 function summarizeLongTermPrognosisFromEvidence(evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
@@ -1087,6 +1120,11 @@ function summarizeNumericRiskFromEvidence(question: string, evidence: EvidenceCa
 }
 
 function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): string {
+  if (isArchStrategyComparisonQuestion(question)) {
+    const archComparison = summarizeArchStrategyComparisonFromEvidence(evidence);
+    if (archComparison) return archComparison.answer;
+  }
+
   const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
   if (strokeRisk) return strokeRisk.answer;
 
@@ -1119,6 +1157,11 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
 }
 
 function getAnswerEvidence(question: string, evidence: EvidenceCard[]): EvidenceCard[] {
+  if (isArchStrategyComparisonQuestion(question)) {
+    const archComparison = summarizeArchStrategyComparisonFromEvidence(evidence);
+    if (archComparison) return [archComparison.source];
+  }
+
   const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
   if (strokeRisk) return [strokeRisk.source];
 

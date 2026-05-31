@@ -264,6 +264,26 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("answers hemiarch versus total arch long-term prognosis from the selected arch meta-analysis", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("ヘミアーチとトータルアーチの長期予後の差は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "全弓部置換術 + frozen elephant trunk",
+      risks: ["死亡", "再手術"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("ヘミアーチ置換");
+    expect(result.answer).toContain("早期成績");
+    expect(result.answer).toContain("遠隔期死亡率");
+    expect(result.answer).toContain("全弓部置換");
+    expect(result.evidenceReferences).toEqual(["AAD-004"]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual(["AAD-004"]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("answers an unknown uploaded English paper through generic bilingual concept expansion", () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "Unknown postoperative recovery cohort",
