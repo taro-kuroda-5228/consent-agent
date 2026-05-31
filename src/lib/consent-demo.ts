@@ -913,6 +913,51 @@ function isLongTermPrognosisQuestion(question: string): boolean {
   );
 }
 
+function isComparativeQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  return ["差", "違い", "比較", "どちら", "vs", "versus", "than", "compared"].some((term) => normalized.includes(term.toLowerCase()));
+}
+
+function extractQuestionSearchTokens(question: string): string[] {
+  const normalized = question.toLowerCase();
+  const latinTokens = normalized.match(/[a-z0-9]+/g) ?? [];
+  const latinPhrases = normalized.match(/[a-z]+\s*[a-z0-9]+/g) ?? [];
+  const japaneseTokens = normalized
+    .split(/[\s、。・？?（）()]+/)
+    .flatMap((token) => token.split(/[とや]|(?:vs)/i))
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2 && !/[？?。]/.test(token));
+
+  return Array.from(new Set([...latinPhrases, ...latinTokens, ...japaneseTokens, ...getQuestionTerms(question)].filter((token) => token.length >= 2)));
+}
+
+function scoreSpanForQuestion(question: string, span: string, sourcePriority = 0): number {
+  const normalizedSpan = span.toLowerCase();
+  const tokens = extractQuestionSearchTokens(question);
+  const directHits = tokens.filter((token) => normalizedSpan.includes(token.toLowerCase())).length;
+  const comparisonBoost = isComparativeQuestion(question) && /差|違い|比較|高|低|良好|不良|higher|lower|better|worse|more|less|than|compared/i.test(span) ? 40 : 0;
+  const longTermBoost = isLongTermPrognosisQuestion(question) && /長期|遠隔|晩期|予後|サーベイランス|late|long-term|survival|mortality|reoperation/i.test(span) ? 30 : 0;
+  const numericBoost = containsNumericRisk(span) ? 10 : 0;
+  return directHits * 12 + comparisonBoost + longTermBoost + numericBoost + sourcePriority;
+}
+
+function summarizeMostRelevantSourceSpan(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
+  const candidates = evidence.flatMap((item, evidenceIndex) => {
+    const sourcePriority = item.origin === "facility-document" || item.origin === "physician-upload" ? 10 : 0;
+    return splitEvidenceSpans(item).map((span, spanIndex) => ({
+      item,
+      span,
+      score: scoreSpanForQuestion(question, span, sourcePriority) - evidenceIndex * 0.01 - spanIndex * 0.001,
+    }));
+  });
+
+  const best = candidates.sort((a, b) => b.score - a.score)[0];
+  if (!best || best.score < 45) return undefined;
+
+  const answer = cleanFamilyAnswerSpan(best.span);
+  return { answer: answer.length <= 260 ? answer : `${answer.slice(0, 257)}...`, source: best.item };
+}
+
 function isArchStrategyComparisonQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
   const mentionsHemiarch = ["ヘミアーチ", "半弓部", "hemiarch", "hemi-arch"].some((term) => normalized.includes(term.toLowerCase()));
@@ -1125,13 +1170,18 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
     if (archComparison) return archComparison.answer;
   }
 
-  const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
-  if (strokeRisk) return strokeRisk.answer;
-
   if (isSexDifferenceQuestion(question)) {
     const sexDifference = summarizeSexDifferenceFromEvidence(evidence);
     if (sexDifference) return sexDifference.answer;
   }
+
+  if (isComparativeQuestion(question)) {
+    const mostRelevantSpan = summarizeMostRelevantSourceSpan(question, evidence);
+    if (mostRelevantSpan) return mostRelevantSpan.answer;
+  }
+
+  const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
+  if (strokeRisk) return strokeRisk.answer;
 
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return numericRisk.answer;
@@ -1162,13 +1212,18 @@ function getAnswerEvidence(question: string, evidence: EvidenceCard[]): Evidence
     if (archComparison) return [archComparison.source];
   }
 
-  const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
-  if (strokeRisk) return [strokeRisk.source];
-
   if (isSexDifferenceQuestion(question)) {
     const sexDifference = summarizeSexDifferenceFromEvidence(evidence);
     if (sexDifference) return [sexDifference.source];
   }
+
+  if (isComparativeQuestion(question)) {
+    const mostRelevantSpan = summarizeMostRelevantSourceSpan(question, evidence);
+    if (mostRelevantSpan) return [mostRelevantSpan.source];
+  }
+
+  const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
+  if (strokeRisk) return [strokeRisk.source];
 
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return [numericRisk.source];

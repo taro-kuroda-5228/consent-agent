@@ -264,6 +264,39 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("answers comparative long-term prognosis from the most relevant selected source span rather than the first long-term source", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Generic procedure comparison cohort",
+      fileName: "generic-procedure-comparison.pdf",
+      extractedText:
+        "In this cohort, Procedure A had lower early complications but higher late mortality than Procedure B. Procedure B had more early complications but lower late mortality.",
+      keyFindings: [
+        "In this cohort, Procedure A had lower early complications but higher late mortality than Procedure B.",
+        "Procedure B had more early complications but lower late mortality.",
+      ],
+      outcomeTags: ["mortality", "late-survival", "procedure-comparison"],
+    });
+
+    const result = synthesizeEvidenceBoundQA("Procedure AとProcedure Bの長期予後の差は？", {
+      diagnosis: "術式比較",
+      plannedSurgery: "Procedure A or Procedure B",
+      risks: ["死亡"],
+      selectedEvidence: [
+        ...filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds()),
+        uploaded,
+      ],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("Procedure A");
+    expect(result.answer).toContain("higher late mortality");
+    expect(result.answer).toContain("Procedure B");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual([uploaded.evidenceId]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("answers hemiarch versus total arch long-term prognosis from the selected arch meta-analysis", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
     const result = synthesizeEvidenceBoundQA("ヘミアーチとトータルアーチの長期予後の差は？", {
