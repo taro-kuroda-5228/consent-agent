@@ -1295,6 +1295,19 @@ function verifySupportingSpanExtraction(
   return verified.slice(0, 3);
 }
 
+function isLowInformationSupportingSpan(span: string): boolean {
+  const normalized = span.toLowerCase();
+  const hasOutcomeSignal = /死亡|死亡率|予後|遠隔|合併症|発生|リスク|高|低|良好|不良|mortality|survival|outcome|risk|rate|incidence|higher|lower|better|worse|than|compared|%|％/.test(normalized);
+  const looksLikeTitleOrScope = /meta-analysis|systematic review|メタ解析|比較論文|review\.?$|study\.?$/.test(normalized);
+  return looksLikeTitleOrScope && !hasOutcomeSignal;
+}
+
+function chooseAnswerSupportingSpans(spans: Array<{ evidence: EvidenceCard; text: string }>): Array<{ evidence: EvidenceCard; text: string }> {
+  if (spans.length <= 1) return spans;
+  const informative = spans.filter((item) => !isLowInformationSupportingSpan(item.text));
+  return informative.length > 0 ? informative : spans;
+}
+
 function answerFromSupportingSpans(spans: Array<{ text: string }>): string {
   const answer = spans
     .map((item) => cleanFamilyAnswerSpan(item.text))
@@ -1348,7 +1361,7 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
     };
   }
 
-  const verifiedSpans = verifySupportingSpanExtraction(extraction, context.selectedEvidence);
+  const verifiedSpans = chooseAnswerSupportingSpans(verifySupportingSpanExtraction(extraction, context.selectedEvidence));
   if (verifiedSpans.length === 0) return noDirectAnswerResult(question);
 
   const evidenceById = new Map(verifiedSpans.map((item) => [item.evidence.evidenceId, item.evidence]));

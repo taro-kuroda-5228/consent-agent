@@ -410,6 +410,45 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("does not lead the final agentic answer with title-only supporting spans when a direct comparative span is verified", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Outcomes of Procedure A vs Procedure B",
+      fileName: "procedure-comparison.pdf",
+      extractedText:
+        "Procedure A vs Procedure B meta-analysis. Procedure A had better early outcomes but higher late mortality than Procedure B.",
+      keyFindings: [
+        "Procedure A vs Procedure B meta-analysis.",
+        "Procedure A had better early outcomes but higher late mortality than Procedure B.",
+      ],
+    });
+
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "Procedure AとProcedure Bの長期予後の差は？",
+      {
+        diagnosis: "比較デモ",
+        plannedSurgery: "Procedure A or B",
+        risks: ["死亡"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      },
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "The second span directly answers the long-term comparative prognosis question.",
+        supportingSpans: [
+          { evidenceId: uploaded.evidenceId, span: "Procedure A vs Procedure B meta-analysis." },
+          { evidenceId: uploaded.evidenceId, span: "Procedure A had better early outcomes but higher late mortality than Procedure B." },
+        ],
+      },
+    );
+
+    expect(result.answer).toContain("higher late mortality");
+    expect(result.answer).not.toMatch(/^Procedure A vs Procedure B meta-analysis/);
+    expect(result.supportingSpans?.map((item) => item.text)).toEqual([
+      "Procedure A had better early outcomes but higher late mortality than Procedure B.",
+    ]);
+  });
+
   it("rejects agentic extracted spans that are not present in physician-selected sources", () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "Unknown postoperative bleeding cohort",
