@@ -54,6 +54,9 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(renderScreen2Source).not.toContain("よくある家族の質問");
     expect(renderScreen2Source).not.toContain("handleFreeQuestion");
     expect(renderScreen2Source).toContain("説明を聞いたので理解確認へ進む");
+    expect(renderScreen2Source).toContain("Gemini Omni説明");
+    expect(renderScreen2Source).toContain("文字 + 動画 + 音声");
+    expect(renderScreen2Source).toContain("音声ナレーション");
     expect(pageSource).toContain("<CardTitle className=\"text-sm\">✏️ 自由に質問する");
   });
 
@@ -72,6 +75,16 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).toContain("deleteEvidence");
     expect(pageSource).toContain("を根拠一覧から削除");
     expect(pageSource).toContain("setSelectedEvidenceIds((prev) => prev.filter((id) => id !== evidenceId))");
+  });
+
+  it("lets physicians search PubMed by clinical content and add readable paper cards to selected evidence", () => {
+    expect(pageSource).toContain("PubMedを内容でAI検索");
+    expect(pageSource).toContain("大動脈解離の透析リスクについて言及している論文");
+    expect(pageSource).toContain("/api/evidence/pubmed-search");
+    expect(pageSource).toContain("addPubMedEvidenceCandidate");
+    expect(pageSource).toContain("患者説明用根拠に追加");
+    expect(pageSource).toContain("医師向け要約");
+    expect(pageSource).toContain("主要所見");
   });
 
   it("shows a physician summary focused on patient/family worries and questions", () => {

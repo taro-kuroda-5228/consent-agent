@@ -212,7 +212,7 @@ function sanitizeTextArray(values: string[]): string[] {
   return values.map(value => sanitizeClinicalFreeText(value));
 }
 
-function sanitizeClinicalFreeText(value: string): string {
+export function sanitizeClinicalFreeText(value: string): string {
   return value
     .replace(/MRN[-_\s]*\d+/gi, '[REDACTED]')
     .replace(/\b\d{6,}\b/g, '[REDACTED]')

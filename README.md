@@ -80,3 +80,41 @@ Connect the demo workflow to live services:
 - Do not commit API keys, service account JSON, real patient names, chart IDs, DICOM, consent forms, or raw clinical notes.
 - Use anonymous demo data only until Medical Horizon security/compliance review is complete.
 - AI supports explanation, organization, understanding check, and documentation. AI does not obtain final consent or replace physician judgment.
+
+
+## Supabase productization layer
+
+Supabase is the workflow backbone, not the medical reasoning engine. The hackathon demo keeps Gemini/Omni responsible for plain-language explanation, multimodal narration, understanding checks, and source-bounded family Q&A. Supabase adds the product evidence that this is more than a one-off demo:
+
+- Persisted consent sessions, selected evidence, family responses, understanding evaluations, physician reviews, and export audit events.
+- PostgreSQL RLS tenant isolation by institution via `profiles.institution_id` and `current_institution_id()`.
+- Realtime physician review queue for `session_events` and `understanding_evaluations`, with 5 second polling fallback.
+- Storage-ready evidence upload boundary for anonymous facility documents and future self-host/on-prem deployments.
+
+### Environment variables
+
+```bash
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
+GEMINI_API_KEY=
+```
+
+When Supabase variables are absent outside production, the app uses anonymous in-memory mock mode so judges can still run the demo locally. Production requires explicit Supabase public URL and anon key.
+
+### Supabase schema diagram
+
+```text
+institutions ─┬─ profiles
+              ├─ consent_cases ─ consent_sessions ─┬─ selected_evidence ─ evidence_sources
+              │                                     ├─ session_events
+              │                                     ├─ understanding_evaluations
+              │                                     └─ physician_reviews
+              └─ audit_events ───────────────────────┘
+```
+
+### Safety line
+
+- Anonymous demo only on Vercel/Supabase; no real patient PHI, names, MRNs, emails, phone numbers, signed consent forms, or raw clinical notes.
+- Patient/family Q&A uses physician-selected evidence only; conflicting request evidence is ignored when persisted selected evidence exists.
+- AI does not obtain final consent. Exported artifacts are not signed consent and always state physician review is required.

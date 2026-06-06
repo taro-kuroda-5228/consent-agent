@@ -8,8 +8,19 @@ import {
   type FacilityAnswerTemplate,
   type SupportingSpanExtraction,
 } from "./consent-demo";
+import { isConsentAgentDemoMode } from "./env";
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+
+type EnvLike = Record<string, string | undefined>;
+
+export function shouldUseLiveGemini(source: EnvLike = process.env): boolean {
+  return Boolean(source.GEMINI_API_KEY?.trim()) && !isConsentAgentDemoMode(source);
+}
+
+export const PATIENT_EXPLANATION_GEMINI_MODEL = "gemini-omni";
+export const PATIENT_QA_GEMINI_MODEL = "gemini-3.5-flash";
+export const DOCTOR_SUMMARY_GEMINI_MODEL = "gemini-2.5-flash";
 
 export async function generateExplanation(context: {
   diagnosis: string;
@@ -31,7 +42,10 @@ export async function generateExplanation(context: {
         `- ${item.evidenceId}: ${item.title}\n  種別: ${item.sourceType}\n  引用: ${item.citation}\n  家族向け要点: ${item.displayForFamily}\n  制限: ${item.origin === "facility-document" ? "施設説明資料であり、論文エビデンスではない" : "デモ用に選択された根拠"}`,
     )
     .join("\n");
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  if (!shouldUseLiveGemini()) {
+    return buildDeterministicOmniExplanationCards(context);
+  }
+  const model = genAI.getGenerativeModel({ model: PATIENT_EXPLANATION_GEMINI_MODEL });
 
   const prompt = `あなたは急性大動脈解離の緊急手術前に、家族向け説明文を作成するAIアシスタントです。
 以下の症例情報をもとに、家族向けの説明カードを5枚生成してください。
@@ -62,13 +76,21 @@ ${evidenceText}
 
 【出力形式】
 以下のJSON配列を返してください。他の説明文やマークダウンは一切含めず、純粋なJSONのみ返してください。
+Gemini Omni説明として、各カードは患者・家族向けに 文字・動画・音声 の3形式で使える内容にしてください。
+- content: 画面に表示する文字説明
+- videoStoryboard: 動画/アニメーションで見せる場面指示
+- audioNarration: 音声ナレーションとしてそのまま読み上げる短文
+- modalities: 必ず ["text", "video", "audio"]
 
 [
   {
     "id": "what-is-happening",
     "icon": "🔴",
     "title": "いま起きていること",
-    "content": "説明文（100〜150文字程度）"
+    "content": "説明文（100〜150文字程度）",
+    "modalities": ["text", "video", "audio"],
+    "videoStoryboard": "動画/アニメーション指示",
+    "audioNarration": "音声読み上げ文"
   },
   {
     "id": "why-emergency",
@@ -96,16 +118,76 @@ ${evidenceText}
   }
 ]`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text();
+  try {
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
 
-  // JSONを抽出
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    throw new Error("Failed to parse Gemini response as JSON");
+    // JSONを抽出
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      throw new Error("Failed to parse Gemini response as JSON");
+    }
+
+    return JSON.parse(jsonMatch[0]);
+  } catch (error) {
+    console.warn("Gemini Omni explanation generation fell back to deterministic multimodal cards:", error);
+    return buildDeterministicOmniExplanationCards(context);
   }
+}
 
-  return JSON.parse(jsonMatch[0]);
+function buildDeterministicOmniExplanationCards(context: {
+  diagnosis: string;
+  plannedSurgery: string;
+  risks: string[];
+}) {
+  const refs = "参照: 医師選択根拠";
+  return [
+    {
+      id: "what-is-happening",
+      icon: "🔴",
+      title: "いま起きていること",
+      content: `${context.diagnosis || "大動脈解離"}では、大動脈の壁が裂け、破裂や臓器への血流障害につながることがあります。${refs}`,
+      modalities: ["text", "video", "audio"],
+      videoStoryboard: "大動脈の断面を表示し、裂け目と血液が壁内へ入る流れを赤色で示す。",
+      audioNarration: "大動脈の壁が裂けており、破裂や血流障害を防ぐために急いで状況を共有します。",
+    },
+    {
+      id: "why-emergency",
+      icon: "⚡",
+      title: "なぜ今すぐ手術が必要か",
+      content: `時間経過で命に関わるリスクが高まるため、待機ではなく緊急治療が必要です。${refs}`,
+      modalities: ["text", "video", "audio"],
+      videoStoryboard: "時間経過とともに破裂リスクが上がるタイムラインを表示し、手術で危険部位を治療する流れを示す。",
+      audioNarration: "この病気は待つほど危険が増えるため、医師は緊急手術を勧めています。",
+    },
+    {
+      id: "surgery-content",
+      icon: "🏥",
+      title: "手術の内容",
+      content: `${context.plannedSurgery || "人工血管置換術"}で、裂けた重要部分を人工血管に置き換える方針です。${refs}`,
+      modalities: ["text", "video", "audio"],
+      videoStoryboard: "病変部をハイライトし、人工血管へ置き換わるアニメーションを表示する。",
+      audioNarration: "手術では、危険な部分を人工血管に置き換えて破裂や血流障害を防ぎます。",
+    },
+    {
+      id: "main-risks",
+      icon: "⚠️",
+      title: "主なリスク",
+      content: `主なリスクには${context.risks.length ? context.risks.join("、") : "出血、脳梗塞、腎不全、死亡など"}があります。個別の見込みは医師が確認します。${refs}`,
+      modalities: ["text", "video", "audio"],
+      videoStoryboard: "主な合併症をアイコンで並べ、個別リスクは医師確認が必要と表示する。",
+      audioNarration: "重大な合併症の可能性があります。患者さんごとの危険度は担当医が補足します。",
+    },
+    {
+      id: "no-surgery",
+      icon: "🚫",
+      title: "手術しない場合",
+      content: `手術しない場合、破裂や心タンポナーデ、臓器虚血など命に関わる経過が懸念されます。${refs}`,
+      modalities: ["text", "video", "audio"],
+      videoStoryboard: "未治療時の破裂・血流障害リスクを分岐図で示し、手術目的へ戻す。",
+      audioNarration: "治療しない場合には、命に関わる合併症が起こる可能性があります。",
+    },
+  ];
 }
 
 type QAContext = {
@@ -160,8 +242,8 @@ function expandQuestionTargets(question: string): string[] {
   if (/差|違い|比較|どちら|vs|versus|compared|than/.test(normalized)) {
     add(["比較", "差", "vs", "compared", "than", "higher", "lower", "better", "worse"]);
   }
-  if (/ヘミアーチ|半弓部|hemi/.test(normalized)) add(["hemiarch", "hemi-arch", "ヘミアーチ", "半弓部"]);
-  if (/トータルアーチ|全弓部|total\s*arch/.test(normalized)) add(["total arch", "total-arch", "全弓部", "トータルアーチ"]);
+  if (/\b(?:har|hemiarch|hemi-arch)\b|ヘミアーチ|半弓部/.test(normalized)) add(["HAR", "hemiarch", "hemi-arch", "hemi arch", "hemiarch replacement", "ヘミアーチ", "ヘミアーチ置換", "半弓部"]);
+  if (/\b(?:tar)\b|total\s*arch|トータルアーチ|全弓部/.test(normalized)) add(["TAR", "total arch", "total-arch", "total arch replacement", "全弓部", "全弓部置換", "トータルアーチ"]);
   if (/死亡|mortality|death/.test(normalized)) add(["死亡", "死亡率", "mortality", "death"]);
   if (/脳梗塞|脳卒中|stroke/.test(normalized)) add(["脳梗塞", "脳卒中", "stroke"]);
   if (/せん妄|ぼーっと|混乱|delirium|confusion/.test(normalized)) add(["せん妄", "ぼーっと", "delirium", "confusion"]);
@@ -253,7 +335,7 @@ export async function extractSupportingSpansWithGemini(
   context: QAContext & { selectedEvidence: EvidenceCard[] },
   plan: SourceBoundedSearchPlan = buildSourceBoundedSearchPlan(question, context.selectedEvidence),
 ): Promise<SupportingSpanExtraction> {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: PATIENT_QA_GEMINI_MODEL });
   const evidenceText = serializeEvidenceForSpanExtraction(plan);
   const queryText = plan.queries
     .map((query, index) => `${index + 1}. [${query.intent}] ${query.query}`)
@@ -333,7 +415,7 @@ export async function generateQA(
   const resolvedContext = { ...context, selectedEvidence };
   const searchPlan = buildSourceBoundedSearchPlan(question, selectedEvidence);
 
-  if (!process.env.GEMINI_API_KEY && spanExtractor === extractSupportingSpansWithGemini) {
+  if (!shouldUseLiveGemini() && spanExtractor === extractSupportingSpansWithGemini) {
     return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
   }
 
@@ -358,7 +440,7 @@ export async function generateDoctorSummary(data: {
   concerns: string;
   risks: string[];
 }) {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = genAI.getGenerativeModel({ model: DOCTOR_SUMMARY_GEMINI_MODEL });
 
   const prompt = `あなたは緊急手術前の家族説明セッションの結果を、担当医師向けに整理するAIアシスタントです。
 

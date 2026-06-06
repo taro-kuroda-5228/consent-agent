@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createRequire } from "module";
 import { pathToFileURL } from "url";
 import { createAutoPhysicianUrlEvidence } from "../../../../lib/consent-demo";
+import { inspectEvidenceUploadText } from "../../../../lib/storage/evidence-upload";
 
 export const runtime = "nodejs";
 
@@ -151,6 +152,17 @@ export async function POST(req: NextRequest) {
     const evidenceCard = sourceUrl && extractedText
       ? createAutoPhysicianUrlEvidence({ sourceUrl, fileName, extractedText })
       : undefined;
+
+    const phiInspection = inspectEvidenceUploadText(extractedText || fileName);
+    if (!phiInspection.allowed) {
+      return NextResponse.json({
+        error: "PHI-like content blocked for anonymous demo upload",
+        category: phiInspection.category,
+        risk: phiInspection.risk,
+        nextChoices: phiInspection.nextChoices,
+        sanitizedSample: phiInspection.sanitizedSample,
+      }, { status: 422 });
+    }
 
     return NextResponse.json({
       fileName,

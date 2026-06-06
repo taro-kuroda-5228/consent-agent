@@ -11,7 +11,12 @@ describe('mockGeminiOmniAdapter', () => {
     });
 
     expect(output.mode).toBe('mock');
+    expect(output.model).toBe('gemini-omni');
+    expect(output.modalities).toEqual(['text', 'video', 'audio']);
     expect(output.spokenText).toContain('大動脈');
+    expect(output.textSummary).toContain('大動脈');
+    expect(output.videoStoryboard).toContain('大動脈');
+    expect(output.audioNarration).toContain('大動脈');
     expect(output.visualCue).toContain('大動脈');
     expect(output.followUpPrompt).toContain('ご自身の言葉');
     expect(output.safetyNote).toContain('デモ用');

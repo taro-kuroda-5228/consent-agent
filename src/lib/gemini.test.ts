@@ -1,8 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { createPhysicianUploadedEvidence } from "./consent-demo";
-import { generateQA } from "./gemini";
+import { generateQA, PATIENT_EXPLANATION_GEMINI_MODEL, PATIENT_QA_GEMINI_MODEL, shouldUseLiveGemini } from "./gemini";
 
 describe("Gemini adapter evidence guardrails", () => {
+  it("uses Gemini 3.5 Flash for patient Q&A and Gemini Omni for patient explanation", () => {
+    expect(PATIENT_QA_GEMINI_MODEL).toBe("gemini-3.5-flash");
+    expect(PATIENT_EXPLANATION_GEMINI_MODEL).toBe("gemini-omni");
+  });
+
+  it("forces deterministic fallback in explicit anonymous demo mode even when a Gemini key is configured", () => {
+    expect(shouldUseLiveGemini({ GEMINI_API_KEY: "configured", CONSENT_AGENT_DEMO_MODE: "true" })).toBe(false);
+    expect(shouldUseLiveGemini({ GEMINI_API_KEY: "configured", CONSENT_AGENT_DEMO_MODE: "1" })).toBe(false);
+    expect(shouldUseLiveGemini({ GEMINI_API_KEY: "configured" })).toBe(true);
+    expect(shouldUseLiveGemini({})).toBe(false);
+  });
+
   it("does not fall back to default evidence when the physician explicitly selected no references", async () => {
     const result = await generateQA("脳梗塞のリスクについて教えてください。", {
       diagnosis: "Stanford A型急性大動脈解離",
@@ -91,7 +103,7 @@ describe("Gemini adapter evidence guardrails", () => {
       },
     );
 
-    expect(result.answer).toContain("higher late mortality rate");
+    expect(result.answer).toMatch(/higher late mortality rate|遠隔期死亡率.*高/);
     expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(capturedPlan).toMatchObject({
       strategy: "source-bounded-agentic-search",
@@ -104,5 +116,49 @@ describe("Gemini adapter evidence guardrails", () => {
         expect.objectContaining({ evidenceId: uploaded.evidenceId, chunkId: "chunk-1" }),
       ]),
     });
+  });
+
+  it("expands HAR/TAR abbreviations in the MedEvidence-style source-bounded search plan", async () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Outcomes of hemi- vs. total arch replacement in acute type A aortic dissection",
+      fileName: "arch-comparison.pdf",
+      extractedText: "In this study, hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement.",
+      keyFindings: ["In this study, hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement."],
+      outcomeTags: ["arch-strategy", "late-mortality", "comparative-outcomes"],
+    });
+
+    let capturedPlan: unknown;
+    await generateQA(
+      "HARとTARの予後の差は？",
+      {
+        diagnosis: "Stanford A型急性大動脈解離",
+        plannedSurgery: "弓部置換術",
+        risks: ["死亡"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      },
+      async (_question, _context, plan) => {
+        capturedPlan = plan;
+        return {
+          answerable: true,
+          confidence: "moderate",
+          reason: "The selected paper directly compares late mortality between hemiarch and total arch replacement.",
+          supportingSpans: [
+            {
+              evidenceId: uploaded.evidenceId,
+              chunkId: "chunk-1",
+              span: "In this study, hemiarch replacement had better early outcomes but a higher late mortality rate than total arch replacement.",
+            },
+          ],
+        };
+      },
+    );
+
+    const serializedPlan = JSON.stringify(capturedPlan);
+    expect(serializedPlan).toContain("HAR");
+    expect(serializedPlan).toContain("TAR");
+    expect(serializedPlan).toContain("hemiarch");
+    expect(serializedPlan).toContain("total arch");
+    expect(serializedPlan).toContain("late mortality");
   });
 });

@@ -40,6 +40,18 @@ interface QAResult {
   templateReferences?: FacilityAnswerTemplate[];
 }
 
+interface PubMedSearchResult {
+  mode: "pubmed-natural-language-evidence-search";
+  sourcePolicy: string;
+  plan: {
+    originalQuery: string;
+    pubmedTerm: string;
+    explainForDoctor: string;
+    outcomeTags: string[];
+  };
+  evidence: EvidenceCard[];
+}
+
 const SAFETY_LABEL_MAP: Record<string, { label: string; color: string }> = {
   general: { label: "一般説明", color: "bg-green-100 text-green-800" },
   "facility-template": { label: "施設確認済み", color: "bg-violet-100 text-violet-900" },
@@ -121,6 +133,10 @@ export default function ConsentAgent() {
   const [uploadText, setUploadText] = useState("");
   const [uploadFileName, setUploadFileName] = useState("uploaded-evidence.pdf");
   const [uploadMessage, setUploadMessage] = useState("");
+  const [pubMedQuery, setPubMedQuery] = useState("大動脈解離の透析リスクについて言及している論文");
+  const [pubMedResult, setPubMedResult] = useState<PubMedSearchResult | null>(null);
+  const [loadingPubMedSearch, setLoadingPubMedSearch] = useState(false);
+  const [pubMedSearchMessage, setPubMedSearchMessage] = useState("");
   const [facilityTemplates, setFacilityTemplates] = useState<FacilityAnswerTemplate[]>(defaultFacilityTemplates);
   const [enabledFacilityTemplateIds, setEnabledFacilityTemplateIds] = useState<string[]>(defaultFacilityTemplates.map((item) => item.templateId));
   const [newFacilityTemplateLabel, setNewFacilityTemplateLabel] = useState("当院標準: A型大動脈解離 合併症リスク");
@@ -379,6 +395,34 @@ export default function ConsentAgent() {
     setUploadedEvidence((prev) => [...prev.filter((item) => item.evidenceId !== uploaded.evidenceId), uploaded]);
     setSelectedEvidenceIds((prev) => Array.from(new Set([...prev, uploaded.evidenceId])));
     setUploadMessage(`追加しました: ${uploaded.evidenceId}。家族説明/Q&Aでは医師が選択した場合のみ引用されます。`);
+  };
+
+  const searchPubMedEvidence = async () => {
+    const query = pubMedQuery.trim();
+    if (!query) return;
+    setLoadingPubMedSearch(true);
+    setPubMedSearchMessage("PubMedを内容で検索し、医師向け要約・主要所見を抽出しています。");
+    try {
+      const res = await fetchWithTimeout("/api/evidence/pubmed-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query, retmax: 5 }),
+      }, 20000);
+      if (!res.ok) throw new Error("PubMed search API error");
+      const data: PubMedSearchResult = await res.json();
+      setPubMedResult(data);
+      setPubMedSearchMessage(data.evidence.length > 0 ? `${data.evidence.length}件のPubMed候補を表示しました。医師が内容を確認して追加してください。` : "PubMed候補が見つかりませんでした。検索語を変えて再検索してください。");
+    } catch {
+      setPubMedSearchMessage("PubMed検索に失敗しました。ネットワークまたはNCBI応答を確認し、検索語を変えて再試行してください。");
+    }
+    setLoadingPubMedSearch(false);
+  };
+
+  const addPubMedEvidenceCandidate = (candidate: EvidenceCard) => {
+    setUploadedEvidence((prev) => [...prev.filter((item) => item.evidenceId !== candidate.evidenceId), candidate]);
+    setDeletedEvidenceIds((prev) => prev.filter((id) => id !== candidate.evidenceId));
+    setSelectedEvidenceIds((prev) => Array.from(new Set([...prev, candidate.evidenceId])));
+    setPubMedSearchMessage(`追加しました: ${candidate.evidenceId}。患者説明用根拠として選択済みです。`);
   };
 
   const startExplanation = async () => {
@@ -647,6 +691,83 @@ export default function ConsentAgent() {
             </p>
           )}
         </div>
+
+        <details className="rounded-xl border border-cyan-200 bg-cyan-50 p-3" open>
+          <summary className="cursor-pointer text-xs font-bold text-cyan-950">
+            PubMedを内容でAI検索
+          </summary>
+          <div className="mt-3 space-y-3">
+            <p className="text-[11px] leading-relaxed text-cyan-800">
+              医師が知りたい内容を自然文で入力すると、PubMed候補を検索し、医師向け要約・主要所見・outcomeタグ付きで表示します。追加した論文だけが患者説明用根拠になります。
+            </p>
+            <div className="flex gap-2">
+              <Input
+                value={pubMedQuery}
+                onChange={(e) => setPubMedQuery(e.target.value)}
+                placeholder="大動脈解離の透析リスクについて言及している論文"
+                className="bg-white text-xs"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 shrink-0 border-cyan-300 bg-white px-2 text-[11px] font-bold text-cyan-900 hover:bg-cyan-100"
+                onClick={searchPubMedEvidence}
+                disabled={loadingPubMedSearch || !pubMedQuery.trim()}
+              >
+                {loadingPubMedSearch ? "検索中" : "PubMed検索"}
+              </Button>
+            </div>
+            {pubMedSearchMessage && <p className="text-[11px] font-semibold leading-relaxed text-cyan-900">{pubMedSearchMessage}</p>}
+            {pubMedResult && (
+              <div className="space-y-2">
+                <div className="rounded-lg border border-cyan-100 bg-white/80 p-2 text-[11px] leading-relaxed text-cyan-900">
+                  <p className="font-bold">検索意図: {pubMedResult.plan.explainForDoctor}</p>
+                  <p className="mt-1 break-words text-cyan-800">PubMed式: {pubMedResult.plan.pubmedTerm}</p>
+                  <p className="mt-1">候補はPubMedのTitle/Abstractから作った下書きです。採用前に医師が本文・abstractを確認してください。</p>
+                </div>
+                {pubMedResult.evidence.map((candidate) => {
+                  const alreadySelected = selectedEvidenceIds.includes(candidate.evidenceId);
+                  return (
+                    <div key={candidate.evidenceId} className="rounded-xl border border-cyan-100 bg-white p-3">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge className="bg-cyan-100 text-cyan-900 text-[10px]">{candidate.evidenceId}</Badge>
+                        <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>
+                        {candidate.outcomeTags?.map((tag) => (
+                          <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{tag}</span>
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs font-bold text-slate-950">{candidate.title}</p>
+                      <p className="mt-1 rounded-lg bg-cyan-50 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-slate-800">
+                        医師向け要約: {candidate.clinicianSummary}
+                      </p>
+                      {candidate.keyFindings && candidate.keyFindings.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-[11px] font-bold text-slate-700">主要所見</p>
+                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-gray-600">
+                            {candidate.keyFindings.map((finding) => <li key={finding}>{finding}</li>)}
+                          </ul>
+                        </div>
+                      )}
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
+                        <span>{candidate.citation}</span>
+                        {candidate.sourceUrl && <a href={candidate.sourceUrl} target="_blank" rel="noreferrer" className="text-blue-700 underline underline-offset-2">PubMedで確認</a>}
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="mt-2 h-8 border-cyan-300 bg-white text-xs font-bold text-cyan-900 hover:bg-cyan-100"
+                        onClick={() => addPubMedEvidenceCandidate(candidate)}
+                        disabled={alreadySelected}
+                      >
+                        {alreadySelected ? "追加済み" : "患者説明用根拠に追加"}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </details>
 
         <details className="rounded-xl border border-amber-200 bg-amber-50 p-3">
           <summary className="cursor-pointer text-xs font-bold text-amber-900">
@@ -927,22 +1048,22 @@ export default function ConsentAgent() {
         </div>
         <div>
           <h2 className="text-3xl font-black tracking-tight text-slate-950">Gemini Omni説明</h2>
-          <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-600">画像・動画・音声で説明してから、理解確認へ進みます。</p>
+          <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-600">文字・動画・音声で説明してから、理解確認へ進みます。</p>
         </div>
       </div>
 
       <section className="rounded-3xl border border-sky-100 bg-sky-50 p-5 text-slate-950">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge className="bg-sky-600 text-white text-sm">Gemini Omni mock</Badge>
-          <Badge className="bg-white text-sky-800 text-sm">画像 + 動画 + 音声</Badge>
+          <Badge className="bg-sky-600 text-white text-sm">Gemini Omni</Badge>
+          <Badge className="bg-white text-sky-800 text-sm">文字 + 動画 + 音声</Badge>
           <Badge className="bg-white text-sky-800 text-sm">患者ペース</Badge>
         </div>
         <div className="mt-5 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-inner">
           <div className="aspect-video bg-gradient-to-br from-slate-950 via-blue-950 to-sky-700 p-5 text-white">
             <div className="flex h-full flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-black">模式CT / 血流アニメーション</span>
-                <span className="animate-pulse rounded-full bg-red-500 px-3 py-1 text-xs font-black">説明中</span>
+                <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-black">動画ストーリーボード / 血流アニメーション</span>
+                <span className="animate-pulse rounded-full bg-red-500 px-3 py-1 text-xs font-black">音声ナレーション中</span>
               </div>
               <div className="grid grid-cols-3 items-end gap-3">
                 <div className="h-24 rounded-full border-4 border-sky-300 bg-sky-300/20" />

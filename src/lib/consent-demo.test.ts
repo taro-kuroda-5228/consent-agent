@@ -317,6 +317,54 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("answers abbreviated HAR versus TAR prognosis questions from the selected arch meta-analysis", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("HARとTARの予後の差は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "全弓部置換術 + frozen elephant trunk",
+      risks: ["死亡", "再手術"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("ヘミアーチ置換");
+    expect(result.answer).toContain("遠隔期死亡率");
+    expect(result.answer).toContain("全弓部置換");
+    expect(result.evidenceReferences).toEqual(["AAD-004"]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual(["AAD-004"]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
+  it("does not hard-code the hemiarch versus total arch answer when a selected source reports a different comparison", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Updated hemiarch versus total arch comparison",
+      fileName: "updated-arch-comparison.pdf",
+      extractedText:
+        "In this updated cohort, hemiarch replacement had worse early outcomes but a lower late mortality rate than total arch replacement.",
+      keyFindings: [
+        "In this updated cohort, hemiarch replacement had worse early outcomes but a lower late mortality rate than total arch replacement.",
+      ],
+      outcomeTags: ["mortality", "late-survival", "procedure-comparison"],
+    });
+
+    const result = synthesizeEvidenceBoundQA("HARとTARの予後の差は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "弓部置換術",
+      risks: ["死亡", "再手術"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toMatch(/lower late mortality|遠隔期死亡率.*低/);
+    expect(result.answer).not.toContain("遠隔期死亡率は全弓部置換より高い");
+    expect(result.answer).not.toContain("早期成績は良好");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual([uploaded.evidenceId]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("answers an unknown uploaded English paper through generic bilingual concept expansion", () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "Unknown postoperative recovery cohort",
@@ -484,6 +532,26 @@ describe("consent demo utilities", () => {
     expect(result.evidenceReferences).toEqual([]);
     expect(result.retrievedEvidence).toEqual([]);
     expect(result.requiresDoctorReview).toBe(true);
+  });
+
+  it("answers broad family questions about main complications and probabilities from selected numeric outcome spans", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("主な合併症とその確率は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "全弓部置換術 + frozen elephant trunk",
+      risks: ["死亡", "脳梗塞", "出血", "腎不全", "対麻痺"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("院内死亡7%");
+    expect(result.answer).toContain("術後脳卒中5%");
+    expect(result.answer).toContain("脊髄障害は3%");
+    expect(result.answer).not.toContain("大動脈解離は大動脈の壁");
+    expect(result.evidenceReferences).toEqual(["AAD-005"]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual(["AAD-005"]);
+    expect(result.requiresDoctorReview).toBe(false);
   });
 
   it("answers published mortality-rate questions from selected evidence when the numeric span is present", () => {

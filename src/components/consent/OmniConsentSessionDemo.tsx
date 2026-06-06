@@ -12,6 +12,8 @@ import {
 } from '@/lib/ai-consent-session';
 import { demoConsentCase } from '@/lib/omni-demo-consent-case';
 import { getMockOmniExplanation } from '@/lib/gemini-omni-adapter';
+import { AuditTimeline } from './AuditTimeline';
+import { SupabaseStatusBadge } from './SupabaseStatusBadge';
 
 const DEMO_RESPONSES = {
   clear: '大動脈が裂けて破裂の危険があり、命に関わるので緊急手術が必要です。人工血管で治療し、出血や脳梗塞も確認します。',
@@ -78,6 +80,9 @@ export function OmniConsentSessionDemo() {
     <div className="space-y-8">
       <section className="rounded-2xl border border-brand-100 bg-white p-6 shadow-sm">
         <p className="text-sm font-semibold text-brand-700">匿名デモ症例</p>
+        <div className="mt-3">
+          <SupabaseStatusBadge />
+        </div>
         <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-4">
           <InfoTile label="疾患" value={demoConsentCase.condition} />
           <InfoTile label="予定手術" value={demoConsentCase.procedure} />
@@ -85,6 +90,8 @@ export function OmniConsentSessionDemo() {
           <InfoTile label="患者表示" value={demoConsentCase.patientDisplay} />
         </div>
       </section>
+
+      <AuditTimeline />
 
       <section className="grid grid-cols-1 gap-6 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -117,12 +124,16 @@ export function OmniConsentSessionDemo() {
           </div>
           <h2 className="mt-3 text-2xl font-bold text-slate-900">{activeCheckpoint.title}</h2>
           <div className="mt-4 rounded-xl bg-white p-4 text-slate-700 shadow-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">音声説明風テキスト</p>
-            <p className="mt-2 leading-relaxed">{explanation.spokenText}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">文字説明</p>
+            <p className="mt-2 leading-relaxed">{explanation.textSummary}</p>
           </div>
           <div className="mt-4 rounded-xl border border-dashed border-brand-200 bg-white p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">図解キュー</p>
-            <p className="mt-2 text-slate-700">{explanation.visualCue}</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">動画ストーリーボード</p>
+            <p className="mt-2 text-slate-700">{explanation.videoStoryboard}</p>
+          </div>
+          <div className="mt-4 rounded-xl border border-dashed border-brand-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">音声ナレーション</p>
+            <p className="mt-2 text-slate-700">{explanation.audioNarration}</p>
           </div>
           <p className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-800">{explanation.safetyNote}</p>
         </div>

@@ -768,8 +768,11 @@ function expandGenericMedicalTerms(question: string): string[] {
 function getQuestionTerms(question: string): string[] {
   const normalized = question.toLowerCase();
   const genericTerms = expandGenericMedicalTerms(question);
-  if (isArchStrategyComparisonQuestion(question)) {
-    return Array.from(new Set(["ヘミアーチ", "半弓部", "全弓部", "トータルアーチ", "hemiarch", "total arch", "arch replacement", "arch strategy", "late mortality", "遠隔期死亡", "長期", "予後", "早期成績", "early outcomes", ...genericTerms]));
+  if (isBroadComplicationProbabilityQuestion(question)) {
+    return Array.from(new Set(["主な合併症", "合併症", "リスク", "確率", "割合", "頻度", "発生率", "outcome", "outcomes", "complication", "complications", "risk", "rate", "incidence", "mortality", "死亡", "院内死亡", "stroke", "脳卒中", "脳梗塞", "spinal cord injury", "脊髄障害", "対麻痺", "renal failure", "腎不全", "dialysis", "透析", "bleeding", "出血", "reoperation", "再手術", ...genericTerms]));
+  }
+  if (mentionsArchProcedurePair(question) && isComparativeQuestion(question)) {
+    return Array.from(new Set(["HAR", "TAR", "ヘミアーチ", "ヘミアーチ置換", "半弓部", "全弓部", "全弓部置換", "トータルアーチ", "hemiarch", "hemi-arch", "hemi arch", "hemiarch replacement", "total arch", "total-arch", "total arch replacement", "arch replacement", "arch strategy", "late mortality", "遠隔期死亡", "遠隔期死亡率", "長期", "予後", "早期成績", "early outcomes", ...genericTerms]));
   }
   if (["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) => normalized.includes(term.toLowerCase()))) {
     return Array.from(new Set(["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "sex-difference", "female sex", "male sex", "female", "male", "women", "men", "女性", "男性", ...genericTerms]));
@@ -958,30 +961,36 @@ function summarizeMostRelevantSourceSpan(question: string, evidence: EvidenceCar
   return { answer: answer.length <= 260 ? answer : `${answer.slice(0, 257)}...`, source: best.item };
 }
 
-function isArchStrategyComparisonQuestion(question: string): boolean {
+function mentionsArchProcedurePair(question: string): boolean {
   const normalized = question.toLowerCase();
-  const mentionsHemiarch = ["ヘミアーチ", "半弓部", "hemiarch", "hemi-arch"].some((term) => normalized.includes(term.toLowerCase()));
-  const mentionsTotalArch = ["トータルアーチ", "全弓部", "total arch", "total-arch"].some((term) => normalized.includes(term.toLowerCase()));
-  const asksComparison = ["差", "違い", "比較", "vs", "versus"].some((term) => normalized.includes(term.toLowerCase()));
-  return mentionsHemiarch && mentionsTotalArch && asksComparison;
+  const mentionsHemiarch = ["ヘミアーチ", "半弓部", "hemiarch", "hemi-arch", "har"].some((term) => normalized.includes(term.toLowerCase()));
+  const mentionsTotalArch = ["トータルアーチ", "全弓部", "total arch", "total-arch", "tar"].some((term) => normalized.includes(term.toLowerCase()));
+  return mentionsHemiarch && mentionsTotalArch;
 }
 
-function summarizeArchStrategyComparisonFromEvidence(evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
-  const candidate = evidence
-    .flatMap((item) => splitEvidenceSpans(item).map((span) => ({ item, span, normalizedSpan: span.toLowerCase() })))
-    .find(
-      ({ normalizedSpan }) =>
-        ["hemiarch", "ヘミアーチ", "半弓部"].some((term) => normalizedSpan.includes(term.toLowerCase())) &&
-        ["total arch", "全弓部", "トータルアーチ"].some((term) => normalizedSpan.includes(term.toLowerCase())) &&
-        ["late mortality", "遠隔期死亡", "長期", "早期成績", "early outcomes"].some((term) => normalizedSpan.includes(term.toLowerCase())),
-    );
+function translateCommonMedicalTerm(value: string): string {
+  return value
+    .replace(/hemiarch replacement/gi, "ヘミアーチ置換")
+    .replace(/total arch replacement/gi, "全弓部置換")
+    .replace(/hemiarch/gi, "ヘミアーチ")
+    .replace(/total arch/gi, "全弓部")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  if (!candidate) return undefined;
+function rewriteCommonComparativeOutcomeSentence(span: string): string | undefined {
+  const normalized = span.replace(/\s+/g, " ").trim();
+  const match = normalized.match(
+    /^(?:in this (?:study|cohort|updated cohort|meta-analysis|systematic review),\s*)?(.+?)\s+had\s+(better|worse)\s+early outcomes\s+but\s+a\s+(higher|lower)\s+late mortality rate\s+than\s+(.+?)\.?$/i,
+  );
+  if (!match) return undefined;
 
-  const answer = /hemiarch|total arch/i.test(candidate.span)
-    ? "このメタ解析では、ヘミアーチ置換は全弓部置換より早期成績は良好でしたが、遠隔期死亡率は全弓部置換より高いと報告されています。"
-    : cleanFamilyAnswerSpan(candidate.span);
-  return { answer, source: candidate.item };
+  const [, rawSubject, earlyDirection, lateDirection, rawComparator] = match;
+  const subject = translateCommonMedicalTerm(rawSubject);
+  const comparator = translateCommonMedicalTerm(rawComparator);
+  const earlyPhrase = earlyDirection.toLowerCase() === "better" ? "早期成績は良好" : "早期成績は不良";
+  const latePhrase = lateDirection.toLowerCase() === "higher" ? "高い" : "低い";
+  return `この研究では、${subject}は${comparator}より${earlyPhrase}でしたが、遠隔期死亡率は${comparator}より${latePhrase}と報告されています。`;
 }
 
 function summarizeLongTermPrognosisFromEvidence(evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
@@ -1001,6 +1010,9 @@ function summarizeLongTermPrognosisFromEvidence(evidence: EvidenceCard[]): { ans
 
 
 function makeFamilyFriendlyMedicalText(span: string): string {
+  const comparativeRewrite = rewriteCommonComparativeOutcomeSentence(span);
+  if (comparativeRewrite) return comparativeRewrite;
+
   return span
     .replace(/全弓部置換\s*\+\s*FET/g, "全弓部置換術とフローズン・エレファント・トランク法")
     .replace(/FET/g, "フローズン・エレファント・トランク法")
@@ -1117,6 +1129,7 @@ function splitEvidenceSpans(item: EvidenceCard): string[] {
 
 function isNumericRiskQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
+  if (isBroadComplicationProbabilityQuestion(question)) return true;
   if (isMortalityRateQuestion(question)) return true;
   const asksExplicitNumber = ["何%", "何％", "%", "％", "確率", "割合", "rate", "incidence"].some((term) =>
     normalized.includes(term.toLowerCase()),
@@ -1134,8 +1147,86 @@ function containsNumericRisk(span: string): boolean {
   return /\d+(?:\.\d+)?\s*[％%]/.test(span) || /95\s*%?\s*ci/i.test(span) || /95%CI/i.test(span);
 }
 
+function isBroadComplicationProbabilityQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  const specificOutcome = /死亡率|院内死亡|脳卒中|脳梗塞|脊髄障害|対麻痺|腎不全|透析|出血|再手術|mortality|stroke|spinal|paraplegia|renal|dialysis|bleeding|reoperation/.test(normalized);
+  const asksBroadComplications = /合併症|主なリスク|主な危険|主な.*リスク|どんな.*リスク|complications?|adverse events?|outcomes?/.test(normalized);
+  const asksProbability = /確率|割合|頻度|何%|何％|どれくらい|どのくらい|発生率|%|％|rate|incidence|probability|frequency/.test(normalized);
+  return asksBroadComplications && asksProbability && !specificOutcome;
+}
+
+function hasMajorOutcomeSignal(span: string): boolean {
+  return /死亡|院内死亡|脳卒中|脳梗塞|脊髄障害|対麻痺|腎不全|透析|出血|再手術|mortality|death|stroke|spinal cord|paraplegia|renal|dialysis|bleeding|reoperation/i.test(span);
+}
+
+function extractNumericOutcomeClauses(span: string): string[] {
+  const normalized = cleanFamilyAnswerSpan(span);
+  const sentence = normalized.endsWith("。") ? normalized.slice(0, -1) : normalized;
+  const parts = sentence
+    .split(/[、,;]/)
+    .map((part) => part.trim().replace(/と記載されています$/g, "").replace(/^脊髄障害(\d)/, "脊髄障害は$1"))
+    .filter((part) => containsNumericRisk(part) && hasMajorOutcomeSignal(part));
+  return parts.length > 0 ? parts : containsNumericRisk(sentence) && hasMajorOutcomeSignal(sentence) ? [sentence.replace(/と記載されています$/g, "").replace(/^脊髄障害(\d)/, "脊髄障害は$1")] : [];
+}
+
+function outcomeCategoryForClause(clause: string): string {
+  if (/脊髄障害|対麻痺|spinal cord|paraplegia/i.test(clause)) return "spinal-cord-injury";
+  if (/脳卒中|脳梗塞|stroke/i.test(clause)) return "stroke";
+  if (/死亡|mortality|death/i.test(clause)) return "mortality";
+  if (/腎不全|透析|renal|dialysis/i.test(clause)) return "renal-failure";
+  if (/出血|bleeding/i.test(clause)) return "bleeding";
+  if (/再手術|reoperation/i.test(clause)) return "reoperation";
+  return clause.toLowerCase();
+}
+
+function summarizeBroadComplicationRatesFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
+  if (!isBroadComplicationProbabilityQuestion(question)) return undefined;
+
+  const candidates = evidence.flatMap((item, evidenceIndex) =>
+    splitEvidenceSpans(item).flatMap((span, spanIndex) => {
+      const outcomeSignals = [
+        /死亡|院内死亡|mortality|death/i,
+        /脳卒中|脳梗塞|stroke/i,
+        /脊髄障害|対麻痺|spinal cord|paraplegia/i,
+        /腎不全|透析|renal|dialysis/i,
+        /出血|bleeding/i,
+        /再手術|reoperation/i,
+      ].filter((pattern) => pattern.test(span)).length;
+      const proceduralBoost = /術後|院内|手術|全弓部|フローズン|FET|postoperative|in-hospital|procedure|surgery|spinal cord/i.test(span) ? 40 : 0;
+      const japaneseOutcomeBoost = /院内死亡|術後脳卒中|脊髄障害|95%信頼区間/.test(span) ? 35 : 0;
+      const naturalHistoryPenalty = /1時間あたり|最初の48時間|per hour|initial 48 hours|untreated|未治療/i.test(span) ? 80 : 0;
+      return extractNumericOutcomeClauses(span).map((clause, clauseIndex) => ({
+        item,
+        clause,
+        score: 100 + outcomeSignals * 20 + proceduralBoost + japaneseOutcomeBoost + (item.origin === "facility-document" || item.origin === "physician-upload" ? 10 : 0) - naturalHistoryPenalty - evidenceIndex * 0.01 - spanIndex * 0.001 - clauseIndex * 0.0001,
+      }));
+    }),
+  );
+
+  const seenCategories = new Set<string>();
+  const selected = candidates
+    .sort((a, b) => b.score - a.score)
+    .filter((candidate) => {
+      const category = outcomeCategoryForClause(candidate.clause);
+      if (seenCategories.has(category)) return false;
+      seenCategories.add(category);
+      return true;
+    })
+    .slice(0, 4);
+
+  if (selected.length === 0) return undefined;
+
+  const firstSource = selected[0].item;
+  const joined = selected.map((candidate) => candidate.clause).join("、");
+  const answer = `選択済み参考資料では、${joined}と記載されています。`;
+  return { answer: answer.length <= 300 ? answer : `${answer.slice(0, 297)}...`, source: firstSource };
+}
+
 function summarizeNumericRiskFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
   if (!isNumericRiskQuestion(question)) return undefined;
+
+  const broadComplications = summarizeBroadComplicationRatesFromEvidence(question, evidence);
+  if (broadComplications) return broadComplications;
 
   const normalizedQuestion = question.toLowerCase();
   const terms = getQuestionTerms(question);
@@ -1165,11 +1256,6 @@ function summarizeNumericRiskFromEvidence(question: string, evidence: EvidenceCa
 }
 
 function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): string {
-  if (isArchStrategyComparisonQuestion(question)) {
-    const archComparison = summarizeArchStrategyComparisonFromEvidence(evidence);
-    if (archComparison) return archComparison.answer;
-  }
-
   if (isSexDifferenceQuestion(question)) {
     const sexDifference = summarizeSexDifferenceFromEvidence(evidence);
     if (sexDifference) return sexDifference.answer;
@@ -1207,11 +1293,6 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
 }
 
 function getAnswerEvidence(question: string, evidence: EvidenceCard[]): EvidenceCard[] {
-  if (isArchStrategyComparisonQuestion(question)) {
-    const archComparison = summarizeArchStrategyComparisonFromEvidence(evidence);
-    if (archComparison) return [archComparison.source];
-  }
-
   if (isSexDifferenceQuestion(question)) {
     const sexDifference = summarizeSexDifferenceFromEvidence(evidence);
     if (sexDifference) return [sexDifference.source];
