@@ -31,12 +31,15 @@ export default function FamilyExplanation() {
 
   const [view, setView] = useState<SessionView | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "not-found" | "error">("loading");
+  const [familyToken] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("t"),
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/sessions/${sessionId}`);
+        const res = await fetch(`/api/sessions/${sessionId}${familyToken ? `?t=${encodeURIComponent(familyToken)}` : ""}`);
         if (cancelled) return;
         if (res.status === 404) {
           setLoadState("not-found");
@@ -53,7 +56,7 @@ export default function FamilyExplanation() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, familyToken]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -135,7 +138,7 @@ export default function FamilyExplanation() {
             </div>
 
             <Button
-              onClick={() => router.push(`/family/${sessionId}/qa`)}
+              onClick={() => router.push(`/family/${sessionId}/qa${familyToken ? `?t=${encodeURIComponent(familyToken)}` : ""}`)}
               className="w-full bg-blue-600 hover:bg-blue-700 text-base py-5"
               size="lg"
             >

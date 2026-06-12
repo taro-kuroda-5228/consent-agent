@@ -79,12 +79,15 @@ export default function QAPage() {
   const [intent, setIntent] = useState<IntentValue | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [decision, setDecision] = useState<ConsentDecisionResult | null>(null);
+  const [familyToken] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("t"),
+  );
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/sessions/${sessionId}`);
+        const res = await fetch(`/api/sessions/${sessionId}${familyToken ? `?t=${encodeURIComponent(familyToken)}` : ""}`);
         if (cancelled) return;
         if (!res.ok) {
           setLoadState("not-found");
@@ -99,7 +102,7 @@ export default function QAPage() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, familyToken]);
 
   const askQuestion = async (question: string) => {
     const asked = question.trim();
@@ -115,6 +118,7 @@ export default function QAPage() {
           diagnosis: view?.diagnosis ?? "",
           plannedSurgery: view?.plannedSurgery ?? "",
           sessionId,
+          familyToken: familyToken ?? undefined,
         }),
       });
 
@@ -153,6 +157,7 @@ export default function QAPage() {
           answers: questions.map((q) => ({ questionId: q.id, selectedIndex: answers[q.id] })),
           concerns,
           intent,
+          familyToken: familyToken ?? undefined,
         }),
       });
       if (!res.ok) throw new Error("submit failed");

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -160,6 +160,28 @@ export default function ConsentAgent() {
   const [explanation, setExplanation] = useState<ExplanationCard[]>([]);
   const [aiSource, setAiSource] = useState<"idle" | "gemini" | "fallback">("idle");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [familyToken, setFamilyToken] = useState<string | null>(null);
+  const [familyQr, setFamilyQr] = useState<string | null>(null);
+  const familyPath = sessionId ? `/family/${sessionId}${familyToken ? `?t=${familyToken}` : ""}` : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!familyPath) {
+      return;
+    }
+    (async () => {
+      try {
+        const { default: QRCode } = await import("qrcode");
+        const dataUrl = await QRCode.toDataURL(`${window.location.origin}${familyPath}`, { width: 220, margin: 1 });
+        if (!cancelled) setFamilyQr(dataUrl);
+      } catch {
+        if (!cancelled) setFamilyQr(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [familyPath]);
 
   // Screen 3 state
   const [freeQuestion, setFreeQuestion] = useState("");
@@ -467,6 +489,7 @@ export default function ConsentAgent() {
         const data = await res.json();
         setExplanation(data.explanation);
         setSessionId(typeof data.sessionId === "string" ? data.sessionId : null);
+        setFamilyToken(typeof data.familyAccessToken === "string" ? data.familyAccessToken : null);
         setAiSource("gemini");
       } else {
         throw new Error("API error");
@@ -1120,22 +1143,28 @@ export default function ConsentAgent() {
           <p className="text-sm font-semibold leading-relaxed text-emerald-900">
             家族のスマートフォン・タブレットでこのリンクを開くと、医師が選択した根拠に基づく説明・質問・理解確認を家族自身のペースで進められます。
           </p>
+          {familyQr && (
+            <div className="flex justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={familyQr} alt="家族用リンクのQRコード" className="rounded-2xl border border-emerald-200 bg-white p-2" />
+            </div>
+          )}
           <div className="rounded-2xl border border-emerald-200 bg-white p-3 font-mono text-xs text-slate-700 break-all">
-            /family/{sessionId}
+            {familyPath}
           </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
               className="flex-1 rounded-full border-emerald-300 text-sm font-bold text-emerald-900"
               onClick={async () => {
-                await navigator.clipboard.writeText(`${window.location.origin}/family/${sessionId}`);
+                await navigator.clipboard.writeText(`${window.location.origin}${familyPath}`);
               }}
             >
               📋 リンクをコピー
             </Button>
             <Button
               className="flex-1 rounded-full bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-700"
-              onClick={() => window.open(`/family/${sessionId}`, "_blank")}
+              onClick={() => window.open(familyPath ?? "#", "_blank")}
             >
               📱 家族画面を開く
             </Button>

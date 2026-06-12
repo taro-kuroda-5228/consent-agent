@@ -34,10 +34,11 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("FHIR JSON");
   });
 
-  it("issues a family link bound to the persisted session after explanation starts", () => {
+  it("issues a tokenized family link with QR code after explanation starts", () => {
     expect(renderScreen2Source).toContain("家族用リンク発行済み");
-    expect(renderScreen2Source).toContain("/family/${sessionId}");
     expect(renderScreen2Source).toContain("📋 リンクをコピー");
+    expect(renderScreen2Source).toContain("家族用リンクのQRコード");
+    expect(pageSource).toContain("/family/${sessionId}${familyToken ? `?t=${familyToken}` : \"\"}");
     expect(pageSource).toContain("sessionId: sessionId ?? undefined");
   });
 
