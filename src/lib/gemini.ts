@@ -452,6 +452,51 @@ export async function generateQA(
   return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
 }
 
+export type ConcernsAssessment = {
+  escalate: boolean;
+  anxietyLevel: "low" | "medium" | "high";
+  reasons: string[];
+};
+
+/**
+ * 家族の自由記述（不安・確認事項）をAIで評価する。
+ * キーワード一致では拾えない不安・理解不足・個別判断の要求を検出し、
+ * escalate=true の場合は医師フォローアップへ倒す（安全側）。
+ */
+export async function assessFamilyConcernsWithGemini(
+  concerns: string,
+  context: { diagnosis: string; plannedSurgery: string },
+): Promise<ConcernsAssessment> {
+  const prompt = `あなたは緊急手術前の家族説明セッションで、家族の自由記述を評価する医療安全AIです。
+
+【症例】${context.diagnosis} / ${context.plannedSurgery}
+
+【家族の自由記述】
+${concerns}
+
+【判定ルール】
+- 強い不安、混乱、理解不足、個別の予後・成功率の要求、同意への迷い、治療への疑念があれば escalate=true。
+- 事務的な確認（持ち物、面会時間など）だけなら escalate=false でよい。
+- 迷ったら escalate=true（安全側）。
+
+【出力形式】JSONのみ:
+{ "escalate": true, "anxietyLevel": "low | medium | high", "reasons": ["医師が対応すべき理由を日本語で"] }`;
+
+  const result = await createGenAIClient().models.generateContent({
+    model: PATIENT_QA_GEMINI_MODEL,
+    contents: prompt,
+  });
+  const text = result.text ?? "";
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("Failed to parse concerns assessment as JSON");
+  const parsed = JSON.parse(jsonMatch[0]) as Partial<ConcernsAssessment>;
+  return {
+    escalate: parsed.escalate === true,
+    anxietyLevel: parsed.anxietyLevel === "low" || parsed.anxietyLevel === "medium" || parsed.anxietyLevel === "high" ? parsed.anxietyLevel : "medium",
+    reasons: Array.isArray(parsed.reasons) ? parsed.reasons.filter((item): item is string => typeof item === "string") : [],
+  };
+}
+
 export async function generateDoctorSummary(data: {
   caseId: string;
   explanationViewed: string[];

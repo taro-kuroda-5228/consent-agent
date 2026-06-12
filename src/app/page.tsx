@@ -522,6 +522,7 @@ export default function ConsentAgent() {
           customEvidence: uploadedEvidence,
           facilityAnswerTemplates: selectedFacilityTemplates,
           sessionId: sessionId ?? undefined,
+          familyToken: familyToken ?? undefined,
         }),
       }, 5000);
       if (res.ok) {

@@ -31,6 +31,46 @@ export default function FamilyExplanation() {
 
   const [view, setView] = useState<SessionView | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "not-found" | "error">("loading");
+  const [playingCardId, setPlayingCardId] = useState<string | null>(null);
+
+  const playNarration = async (card: ExplanationCard) => {
+    const text = card.audioNarration?.trim() || card.content;
+    if (!text || playingCardId) return;
+    setPlayingCardId(card.id);
+    const finish = () => setPlayingCardId(null);
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error("tts unavailable");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        finish();
+      };
+      audio.onerror = () => {
+        URL.revokeObjectURL(url);
+        finish();
+      };
+      await audio.play();
+    } catch {
+      // サーバTTSが使えない場合はブラウザ内蔵の音声合成にフォールバック
+      try {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = "ja-JP";
+        utterance.rate = 0.95;
+        utterance.onend = finish;
+        utterance.onerror = finish;
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        finish();
+      }
+    }
+  };
   const [familyToken] = useState<string | null>(() =>
     typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("t"),
   );
@@ -116,6 +156,14 @@ export default function FamilyExplanation() {
                     <span className="ml-auto text-xs text-gray-400">
                       {idx + 1}/{view.explanation.length}
                     </span>
+                    <button
+                      onClick={() => playNarration(section)}
+                      disabled={playingCardId !== null}
+                      aria-label={`${section.title}を音声で聞く`}
+                      className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      {playingCardId === section.id ? "🔊 再生中" : "🔊 聞く"}
+                    </button>
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="px-4 pb-3">

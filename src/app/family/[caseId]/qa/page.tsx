@@ -65,6 +65,22 @@ const INTENT_OPTIONS = [
 
 type IntentValue = (typeof INTENT_OPTIONS)[number]["value"];
 
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+};
+
+function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as Record<string, unknown>;
+  return (w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null) as (new () => SpeechRecognitionLike) | null;
+}
+
 export default function QAPage() {
   const params = useParams();
   const sessionId = params.caseId as string;
@@ -79,6 +95,25 @@ export default function QAPage() {
   const [intent, setIntent] = useState<IntentValue | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [decision, setDecision] = useState<ConsentDecisionResult | null>(null);
+  const [listening, setListening] = useState(false);
+  const [voiceSupported] = useState<boolean>(() => getSpeechRecognition() !== null);
+
+  const startVoiceInput = () => {
+    const SpeechRecognitionImpl = getSpeechRecognition();
+    if (!SpeechRecognitionImpl || listening) return;
+    const recognition = new SpeechRecognitionImpl();
+    recognition.lang = "ja-JP";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript ?? "";
+      if (transcript) setFreeQuestion(transcript);
+    };
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    setListening(true);
+    recognition.start();
+  };
   const [familyToken] = useState<string | null>(() =>
     typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("t"),
   );
@@ -263,13 +298,26 @@ export default function QAPage() {
               onChange={(e) => setFreeQuestion(e.target.value)}
               rows={2}
             />
-            <Button
-              onClick={() => askQuestion(freeQuestion)}
-              className="w-full bg-blue-600 hover:bg-blue-700"
-              disabled={!freeQuestion.trim() || loading || loadState !== "ready"}
-            >
-              {loading ? "⏳ 選択済み資料を確認中..." : "質問する"}
-            </Button>
+            <div className="flex gap-2">
+              {voiceSupported && (
+                <Button
+                  onClick={startVoiceInput}
+                  variant="outline"
+                  className={`shrink-0 ${listening ? "border-red-400 bg-red-50 text-red-700" : ""}`}
+                  disabled={loading || loadState !== "ready" || listening}
+                  aria-label="音声で質問する"
+                >
+                  {listening ? "🎙️ 聞き取り中..." : "🎤 音声で質問"}
+                </Button>
+              )}
+              <Button
+                onClick={() => askQuestion(freeQuestion)}
+                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                disabled={!freeQuestion.trim() || loading || loadState !== "ready"}
+              >
+                {loading ? "⏳ 選択済み資料を確認中..." : "質問する"}
+              </Button>
+            </div>
             {freeAnswer && (
               <div className={`border rounded-lg p-3 space-y-2 ${freeAnswer.requiresDoctorReview ? "bg-blue-50 border-blue-200" : "bg-sky-50 border-sky-100"}`}>
                 <p className="text-sm text-blue-900 whitespace-pre-line">{freeAnswer.answer}</p>

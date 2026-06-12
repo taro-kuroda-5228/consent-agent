@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest",
     "eval": "vitest --run eval/grounding.eval.test.ts",
+    "smoke:e2e": "node scripts/smoke-e2e.mjs",
     "check:demo-env": "node scripts/check-demo-env.ts"
   },
   "dependencies": {

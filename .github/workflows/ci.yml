@@ -23,6 +23,31 @@ jobs:
       - run: npm test -- --run
       - run: npm run build
 
+  smoke-e2e:
+    name: smoke-e2e (standalone server, full consent flow)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run consent flow smoke test against the standalone server
+        env:
+          # CI には Supabase が無いため匿名デモモード（in-memory persistence）で実行する
+          CONSENT_AGENT_DEMO_MODE: "true"
+        run: |
+          cp -r .next/static .next/standalone/.next/static
+          cp -r public .next/standalone/public
+          (cd .next/standalone && PORT=3100 HOSTNAME=127.0.0.1 node server.js &)
+          for i in $(seq 1 30); do
+            curl -fs http://127.0.0.1:3100 >/dev/null && break
+            sleep 1
+          done
+          BASE_URL=http://127.0.0.1:3100 node scripts/smoke-e2e.mjs
+
   grounding-eval:
     name: grounding-eval (hallucination regression gate)
     runs-on: ubuntu-latest

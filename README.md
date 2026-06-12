@@ -82,13 +82,17 @@ surgical indication or replace physician judgment.
 - Grounding eval suite + GitHub Actions merge gate (deterministic and live-Gemini modes)
 - Cloud Run standalone container (`Dockerfile`, `output: "standalone"`)
 - Physician review and anonymous JSON export wired to the UI
+- Voice: Gemini TTS narration per explanation card (`/api/tts`, Web Speech API fallback)
+  and push-to-talk voice questions (Web Speech API)
+- AI assessment of free-text family concerns (escalates anxiety that keyword matching misses)
+- HMAC-signed short-lived family link tokens with QR code (enforced when
+  `CONSENT_AGENT_LINK_SECRET` is set)
+- API-level smoke E2E (`npm run smoke:e2e`) running against the standalone server in CI
 
 ## What is still stubbed
 
-- Authentication (physician magic link / short-lived family tokens) is not implemented;
-  the session UUID is the only access capability
+- Physician authentication (magic link / SSO) is not implemented; the doctor console is open
 - Supabase Realtime push (the physician summary polls every 5 seconds instead)
-- TTS narration and voice input are not implemented yet
 
 ## Phase 2 target
 

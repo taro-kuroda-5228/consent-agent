@@ -102,6 +102,43 @@ describe('POST family responses', () => {
     expect(body.evaluations.some((evaluation) => evaluation.level === 'unsafe')).toBe(true);
   });
 
+  it('escalates when the AI concerns assessment flags anxiety that keywords missed', async () => {
+    const sessionId = await createSession();
+    const result = await handleFamilyResponseRequest(
+      sessionId,
+      // キーワード(怖い/死ぬ等)を含まない曖昧な不安表現
+      { answers: allCorrectAnswers(), concerns: '本当にこれでよいのか、夜も眠れません。', intent: 'agrees' },
+      repository,
+      {
+        concernsAssessor: async () => ({
+          escalate: true,
+          anxietyLevel: 'high',
+          reasons: ['強い不安と決断への迷いを示している'],
+        }),
+      },
+    );
+    const body = result.body as FamilyResponseResult;
+
+    expect(body.decision.decision).toBe('needs_physician_followup');
+    expect(body.evaluations.some((evaluation) => evaluation.checkpointId === 'family-concerns-ai' && evaluation.level === 'unsafe')).toBe(true);
+  });
+
+  it('does not escalate administrative concerns when the AI assessment clears them', async () => {
+    const sessionId = await createSession();
+    const result = await handleFamilyResponseRequest(
+      sessionId,
+      { answers: allCorrectAnswers(), concerns: '', intent: 'agrees' },
+      repository,
+      {
+        concernsAssessor: async () => {
+          throw new Error('assessor must not be called for empty concerns');
+        },
+      },
+    );
+    const body = result.body as FamilyResponseResult;
+    expect(body.decision.decision).toBe('consent_ready');
+  });
+
   it('treats undecided intent as needs_physician_followup', async () => {
     const sessionId = await createSession();
     const result = await handleFamilyResponseRequest(
