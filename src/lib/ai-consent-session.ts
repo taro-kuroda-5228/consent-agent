@@ -71,6 +71,70 @@ export interface ConsentExplanationRecord {
 const RED_FLAG_TERMS = ['わからない', '分からない', '怖い', '迷って', '死ぬ', '後遺症', '他の方法', '助かりますか', '必ず助か', '個別', '生存'];
 const EXTERNAL_ACTIONS_BLOCKED = ['calendar.invite', 'gmail.send', 'drive.share'] as const;
 
+export function detectRedFlags(freeText: string): string[] {
+  const normalized = sanitizeClinicalFreeText(freeText).toLowerCase();
+  return RED_FLAG_TERMS.filter(term => normalized.includes(term.toLowerCase()));
+}
+
+export type ConsentDecision = 'consent_ready' | 'needs_physician_followup';
+
+export interface ConsentDecisionResult {
+  decision: ConsentDecision;
+  reasons: string[];
+  unresolvedQuestions: string[];
+}
+
+/**
+ * AI-mediated consent の自律判定。
+ * 理解確認・同意意思・未解決質問から consent_ready / needs_physician_followup を判定し、
+ * needs_physician_followup の場合は医師が対応すべき論点だけを reasons に返す。
+ * 判定は医師最終確認前の説明支援であり、署名済み同意の代替ではない。
+ */
+export function deriveConsentDecision(input: {
+  evaluations: FamilyResponseEvaluation[];
+  intent: ConsentIntentRecord;
+  escalatedQuestions?: string[];
+}): ConsentDecisionResult {
+  const reasons: string[] = [];
+  const unresolvedQuestions = sanitizeTextArray(input.escalatedQuestions ?? []).filter(Boolean);
+
+  const unsafeEvaluations = input.evaluations.filter(evaluation => evaluation.level === 'unsafe');
+  if (unsafeEvaluations.length > 0) {
+    reasons.push(`強い不安・重大な訴えを検出: ${unsafeEvaluations.map(e => e.checkpointTitle).join('、')}`);
+  }
+
+  const partialEvaluations = input.evaluations.filter(evaluation => evaluation.level === 'partial');
+  if (partialEvaluations.length > 0) {
+    reasons.push(`理解が不十分な項目: ${partialEvaluations.map(e => e.checkpointTitle).join('、')}`);
+  }
+
+  if (input.evaluations.length === 0) {
+    reasons.push('理解確認が未実施');
+  }
+
+  if (input.intent.statedIntent === 'declines') {
+    reasons.push('家族が同意しない意思を示している');
+  } else if (input.intent.statedIntent === 'undecided') {
+    reasons.push('家族の同意意思が未確定');
+  }
+
+  if (unresolvedQuestions.length > 0) {
+    reasons.push(`選択済み根拠では回答できなかった質問が${unresolvedQuestions.length}件`);
+  }
+
+  const intentQuestions = sanitizeTextArray(input.intent.questionsForPhysician).filter(Boolean);
+  if (intentQuestions.length > 0) {
+    reasons.push('家族から医師への質問・不安あり');
+    unresolvedQuestions.push(...intentQuestions);
+  }
+
+  return {
+    decision: reasons.length === 0 ? 'consent_ready' : 'needs_physician_followup',
+    reasons,
+    unresolvedQuestions: Array.from(new Set(unresolvedQuestions)),
+  };
+}
+
 export function buildAorticDissectionCheckpoints(): ConsentCheckpoint[] {
   return [
     {
