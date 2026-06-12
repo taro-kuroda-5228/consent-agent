@@ -78,6 +78,12 @@ export default function DoctorSummary() {
     };
   }, [sessionId, refreshKey]);
 
+  // 家族の回答・質問を待つ間、5秒間隔でサマリーを再取得する（Realtime購読のフォールバック設計）。
+  useEffect(() => {
+    const timer = setInterval(() => setRefreshKey((key) => key + 1), 5000);
+    return () => clearInterval(timer);
+  }, []);
+
   const submitReview = async (reviewStatus: "ready_for_consent_discussion" | "needs_followup") => {
     setReviewing(true);
     try {
@@ -160,9 +166,14 @@ export default function DoctorSummary() {
               {view.diagnosis} / {view.plannedSurgery}
             </p>
           </div>
-          <Badge className="bg-red-100 text-red-800 border-red-200 text-xs px-3 py-1">
-            🔴 医師確認：必須
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs px-3 py-1">
+              🟢 ライブ更新中（5秒間隔）
+            </Badge>
+            <Badge className="bg-red-100 text-red-800 border-red-200 text-xs px-3 py-1">
+              🔴 医師確認：必須
+            </Badge>
+          </div>
         </div>
 
         {/* AI判定 */}
