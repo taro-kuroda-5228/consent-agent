@@ -13,6 +13,11 @@ interface QAResult {
   safetyLabel: string;
   requiresDoctorReview: boolean;
   evidenceReferences?: string[];
+  citationVerification?: {
+    requestedSpanCount: number;
+    verifiedSpans: Array<{ evidenceId: string; text: string }>;
+    rejectedSpans: Array<{ evidenceId: string; span: string; reason: string }>;
+  };
 }
 
 type UnderstandingQuestion = {
@@ -264,6 +269,13 @@ export default function QAPage() {
               <div className={`border rounded-lg p-3 space-y-2 ${freeAnswer.requiresDoctorReview ? "bg-blue-50 border-blue-200" : "bg-sky-50 border-sky-100"}`}>
                 <p className="text-sm text-blue-900 whitespace-pre-line">{freeAnswer.answer}</p>
                 <div className="flex flex-wrap gap-1">
+                  {freeAnswer.citationVerification &&
+                    freeAnswer.citationVerification.verifiedSpans.length > 0 &&
+                    freeAnswer.citationVerification.rejectedSpans.length === 0 && (
+                      <Badge className="bg-emerald-600 text-white text-[10px]">
+                        ✅ 出典照合済み（原文一致を機械検証）
+                      </Badge>
+                    )}
                   {(freeAnswer.evidenceReferences ?? []).map((ref) => (
                     <Badge key={ref} variant="outline" className="text-[10px] border-blue-300 text-blue-800">
                       参照: {ref}

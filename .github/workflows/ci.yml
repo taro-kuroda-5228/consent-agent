@@ -1,0 +1,41 @@
+# CI gate: コード品質 + Grounding 評価。
+# branch protection で `quality` と `grounding-eval` を必須チェックに設定すると、
+# ハルシネーション回帰を含む変更は main にマージできない。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    name: quality (lint / test / build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test -- --run
+      - run: npm run build
+
+  grounding-eval:
+    name: grounding-eval (hallucination regression gate)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # GEMINI_API_KEY シークレットが設定されていれば live Gemini 経路を検証し、
+      # 未設定なら決定論的経路を検証する（どちらもマージゲートとして機能する）。
+      - name: Run grounding eval
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: npm run eval

@@ -55,13 +55,27 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
       sessionId: input.sessionId,
       eventType: result.evidenceReferences?.length ? 'qa_answered' : 'safety_escalation',
       actorType: 'model',
-      payload: { question: input.question, answer: result.answer, safetyLabel: result.safetyLabel, evidenceReferences: result.evidenceReferences ?? [], selectedEvidenceSource, metadataWarning },
+      payload: {
+        question: input.question,
+        answer: result.answer,
+        safetyLabel: result.safetyLabel,
+        evidenceReferences: result.evidenceReferences ?? [],
+        selectedEvidenceSource,
+        metadataWarning,
+        citationVerification: result.citationVerification,
+      },
     });
     await repository.appendAuditEvent({
       sessionId: input.sessionId,
       action: 'qa_answered',
       resourceType: 'consent_session',
-      metadata: { evidenceReferences: result.evidenceReferences ?? [], selectedEvidenceSource, escalated: !result.evidenceReferences?.length },
+      metadata: {
+        evidenceReferences: result.evidenceReferences ?? [],
+        selectedEvidenceSource,
+        escalated: !result.evidenceReferences?.length,
+        citationVerifiedCount: result.citationVerification?.verifiedSpans.length ?? null,
+        citationRejectedCount: result.citationVerification?.rejectedSpans.length ?? null,
+      },
     });
   }
 

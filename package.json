@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest",
+    "eval": "vitest --run eval/grounding.eval.test.ts",
     "check:demo-env": "node scripts/check-demo-env.ts"
   },
   "dependencies": {

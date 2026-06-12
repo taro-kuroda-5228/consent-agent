@@ -4,6 +4,7 @@ import {
   resolveEvidenceSelectionForRequest,
   synthesizeEvidenceBoundQA,
   synthesizeEvidenceBoundQAFromSupportingSpans,
+  type CitationVerificationReport,
   type EvidenceCard,
   type FacilityAnswerTemplate,
   type SupportingSpanExtraction,
@@ -407,6 +408,7 @@ export async function generateQA(
   templateReferences?: FacilityAnswerTemplate[];
   supportingSpans?: Array<{ evidenceId: string; text: string }>;
   extractionMode?: "facility-template" | "agentic-source-bounded" | "deterministic-source-bounded";
+  citationVerification?: CitationVerificationReport;
 }> {
   const selectedEvidence = context.selectedEvidence !== undefined
     ? context.selectedEvidence
