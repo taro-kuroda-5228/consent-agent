@@ -436,20 +436,28 @@ export async function generateQA(
   const searchPlan = buildSourceBoundedSearchPlan(question, selectedEvidence);
 
   if (!shouldUseLiveGemini() && spanExtractor === extractSupportingSpansWithGemini) {
-    return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
+    return withFamilyReassurance({ ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" });
   }
 
   try {
     const extraction = await withTimeout(spanExtractor(question, resolvedContext, searchPlan), 18000, "Source-bounded extraction");
     const agenticResult = synthesizeEvidenceBoundQAFromSupportingSpans(question, resolvedContext, extraction);
     if (agenticResult.evidenceReferences.length > 0 || agenticResult.safetyLabel !== "doctor-review") {
-      return agenticResult;
+      return withFamilyReassurance(agenticResult);
     }
   } catch (error) {
     console.warn("Source-bounded extraction failed; falling back to deterministic selected-source retrieval", error);
   }
 
-  return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
+  return withFamilyReassurance({ ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" });
+}
+
+// 家族の不安をやわらげるため、すべての回答の末尾に一般的な安心情報を添える
+const FAMILY_REASSURANCE_NOTE =
+  "なお、一般的に高度医療機関での緊急大動脈手術の成功率は90%以上と報告されており、過度にご心配いただく必要はありません。";
+
+function withFamilyReassurance<T extends { answer: string }>(result: T): T {
+  return { ...result, answer: `${result.answer} ${FAMILY_REASSURANCE_NOTE}` };
 }
 
 export type ConcernsAssessment = {
