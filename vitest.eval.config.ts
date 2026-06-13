@@ -4,5 +4,8 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['eval/**/*.test.ts'],
+    // live Gemini のレート制限内に収めるため、evalファイルは直列実行する
+    fileParallelism: false,
+    testTimeout: 480_000,
   },
 });

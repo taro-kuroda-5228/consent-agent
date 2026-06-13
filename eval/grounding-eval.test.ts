@@ -1,5 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { evaluateGoldenCase, extractPercentNumbers, loadGoldenCases } from './grounding-eval';
+
+// メタテストはハーネスの失敗検知メカニズム自体を検証するもの。
+// モデルの揺れやAPIクォータに依存しないよう、常に決定論モードで実行する。
+beforeAll(() => {
+  vi.stubEnv('CONSENT_AGENT_DEMO_MODE', 'true');
+});
+
+afterAll(() => {
+  vi.unstubAllEnvs();
+});
 
 describe('grounding eval harness (meta tests)', () => {
   it('loads a non-trivial golden dataset', () => {
