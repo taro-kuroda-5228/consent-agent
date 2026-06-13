@@ -1,11 +1,10 @@
-# Consent Agent 2-minute hackathon demo script
+# Consent Agent 3分デモ脚本（DevOps × AI Agent Hackathon 2026）
 
-0:00-0:20 Problem: emergency surgery consent is time-constrained, emotionally difficult, and understanding gaps are easy to miss.
+時間軸ストーリーで「医師が説明に立てない時間帯を、エージェントが安全に埋める」ことを見せる。
 
-0:20-0:50 Gemini/Omni: open `/sessions`, show the anonymous acute type A aortic dissection case, multimodal explanation text/video storyboard/audio narration, and family understanding check.
-
-0:50-1:20 Supabase: point at Persisted session, RLS tenant isolated, Realtime physician review, and the audit timeline events: explanation_generated, family_response, understanding_evaluated, qa_answered, physician_reviewed, export_created.
-
-1:20-1:45 Safety: family answers use physician-selected evidence only; the record is not signed consent; physician final review is mandatory; anonymous demo only.
-
-1:45-2:00 Productization: facility evidence, PubMed candidate approval, RLS, immutable audit, and GCP/on-prem PostgreSQL/Supabase self-host path.
+- 0:00-0:20 問題: 21:40、A型大動脈解離が搬送。執刀医は手術準備で家族に説明できない。家族は何が起きているか分からないまま同意を求められる。
+- 0:20-0:50 つくる: 医師は30秒で症例と根拠（施設IC資料 + PubMed論文）を選択し、家族用リンクを発行。22:10に到着した家族はスマホで説明を読み、質問する。回答は医師選択済み根拠の原文スパンのみ。「出典照合済み」バッジ = 引用が原文に実在することを機械検証している。
+- 0:50-1:30 自律判定: 家族が理解確認・不安・同意意思を送信すると、エージェントが `consent_ready` / `needs_physician_followup` を判定。医師のライブサマリーには「医師が対応すべき論点だけ」が届く。個別予後・強い不安・未回答質問は必ず医師へ。
+- 1:30-2:10 まわす: `npm run eval` のゴールデンデータセットが「引用は選択根拠のみ」「数値は原文一致のみ」「答えられない時は必ずエスカレーション」を検証。GitHub Actions の `grounding-eval` ジョブがマージゲートになっており、ハルシネーション回帰を起こす変更は main に入れない（落ちたPRのスクリーンショットを見せる）。本番の質問ログから評価データセットを増やす改善ループ。
+- 2:10-2:40 とどける: Cloud Run（standalone コンテナ、min-instances 1、Secret Manager）。Supabase RLS による施設テナント分離、insert-only 監査イベント、匿名JSONエクスポート。
+- 2:40-3:00 安全性と実用化: 記録は署名済み同意ではなく、医師最終確認が必須。匿名デモデータのみ。施設根拠・PubMed承認フロー・監査により、病院PoC（GCP/オンプレPostgres）へ接続可能。

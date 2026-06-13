@@ -3,8 +3,11 @@ import {
   buildAorticDissectionCheckpoints,
   buildConsentExplanationRecord,
   buildPhysicianSummary,
+  deriveConsentDecision,
+  detectRedFlags,
   evaluateFamilyResponse,
   type ConsentIntentRecord,
+  type FamilyResponseEvaluation,
 } from '../ai-consent-session';
 
 describe('aortic dissection consent checkpoints', () => {
@@ -79,6 +82,103 @@ describe('buildPhysicianSummary', () => {
     expect(summary.questionsForPhysician).toContain('助かる確率を個別に教えてほしい');
     expect(summary.externalActionsBlocked).toEqual(['calendar.invite', 'gmail.send', 'drive.share']);
     expect(summary.notSignedConsentNotice).toContain('署名済み同意');
+  });
+});
+
+function clearEvaluation(overrides: Partial<FamilyResponseEvaluation> = {}): FamilyResponseEvaluation {
+  return {
+    checkpointId: 'q1',
+    checkpointTitle: '疾患部位（大動脈）',
+    level: 'clear',
+    score: 1,
+    missingConcepts: [],
+    redFlags: [],
+    recommendedNextAction: 'continue',
+    evidence: { matchedConcepts: ['大動脈'], sanitizedResponse: '大動脈' },
+    ...overrides,
+  };
+}
+
+const agreeingIntent: ConsentIntentRecord = {
+  statedIntent: 'agrees',
+  confidence: 'high',
+  freeTextSummary: '',
+  questionsForPhysician: [],
+};
+
+describe('deriveConsentDecision', () => {
+  it('returns consent_ready when understanding is clear, intent agrees, and no unresolved questions', () => {
+    const result = deriveConsentDecision({
+      evaluations: [clearEvaluation(), clearEvaluation({ checkpointId: 'q2', checkpointTitle: '緊急性' })],
+      intent: agreeingIntent,
+    });
+
+    expect(result.decision).toBe('consent_ready');
+    expect(result.reasons).toHaveLength(0);
+    expect(result.unresolvedQuestions).toHaveLength(0);
+  });
+
+  it('requires physician follow-up when understanding is partial', () => {
+    const result = deriveConsentDecision({
+      evaluations: [clearEvaluation(), clearEvaluation({ checkpointId: 'q2', checkpointTitle: '主なリスク', level: 'partial', recommendedNextAction: 'reexplain' })],
+      intent: agreeingIntent,
+    });
+
+    expect(result.decision).toBe('needs_physician_followup');
+    expect(result.reasons.join()).toContain('主なリスク');
+  });
+
+  it('requires physician follow-up on red-flag/unsafe responses', () => {
+    const result = deriveConsentDecision({
+      evaluations: [clearEvaluation({ level: 'unsafe', redFlags: ['怖い'], recommendedNextAction: 'escalate_to_physician' })],
+      intent: agreeingIntent,
+    });
+
+    expect(result.decision).toBe('needs_physician_followup');
+    expect(result.reasons.join()).toContain('強い不安');
+  });
+
+  it('requires physician follow-up when intent is undecided or declines', () => {
+    for (const statedIntent of ['undecided', 'declines'] as const) {
+      const result = deriveConsentDecision({
+        evaluations: [clearEvaluation()],
+        intent: { ...agreeingIntent, statedIntent },
+      });
+      expect(result.decision).toBe('needs_physician_followup');
+    }
+  });
+
+  it('requires physician follow-up when questions could not be answered from selected evidence', () => {
+    const result = deriveConsentDecision({
+      evaluations: [clearEvaluation()],
+      intent: agreeingIntent,
+      escalatedQuestions: ['父の個別の生存率を教えてください'],
+    });
+
+    expect(result.decision).toBe('needs_physician_followup');
+    expect(result.unresolvedQuestions).toContain('父の個別の生存率を教えてください');
+  });
+
+  it('requires physician follow-up when no understanding evaluation exists', () => {
+    const result = deriveConsentDecision({ evaluations: [], intent: agreeingIntent });
+    expect(result.decision).toBe('needs_physician_followup');
+  });
+
+  it('collects family questions for the physician as unresolved items', () => {
+    const result = deriveConsentDecision({
+      evaluations: [clearEvaluation()],
+      intent: { ...agreeingIntent, questionsForPhysician: ['手術は何時間かかりますか'] },
+    });
+
+    expect(result.decision).toBe('needs_physician_followup');
+    expect(result.unresolvedQuestions).toContain('手術は何時間かかりますか');
+  });
+});
+
+describe('detectRedFlags', () => {
+  it('detects anxiety terms and returns empty for calm text', () => {
+    expect(detectRedFlags('とても怖いです。死ぬのではないかと心配です。').length).toBeGreaterThan(0);
+    expect(detectRedFlags('説明はよく理解できました。')).toHaveLength(0);
   });
 });
 

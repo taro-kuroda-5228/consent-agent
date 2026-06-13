@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -159,6 +159,29 @@ export default function ConsentAgent() {
   // Screen 2 state
   const [explanation, setExplanation] = useState<ExplanationCard[]>([]);
   const [aiSource, setAiSource] = useState<"idle" | "gemini" | "fallback">("idle");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [familyToken, setFamilyToken] = useState<string | null>(null);
+  const [familyQr, setFamilyQr] = useState<string | null>(null);
+  const familyPath = sessionId ? `/family/${sessionId}${familyToken ? `?t=${familyToken}` : ""}` : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!familyPath) {
+      return;
+    }
+    (async () => {
+      try {
+        const { default: QRCode } = await import("qrcode");
+        const dataUrl = await QRCode.toDataURL(`${window.location.origin}${familyPath}`, { width: 220, margin: 1 });
+        if (!cancelled) setFamilyQr(dataUrl);
+      } catch {
+        if (!cancelled) setFamilyQr(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [familyPath]);
 
   // Screen 3 state
   const [freeQuestion, setFreeQuestion] = useState("");
@@ -173,7 +196,6 @@ export default function ConsentAgent() {
     concerns: string[];
     familyQuestions: { question: string; answer: string; needsDoctorFollowUp: boolean }[];
   } | null>(null);
-  const [consentSent, setConsentSent] = useState(false);
   const [recorded, setRecorded] = useState(false);
 
   const AVAILABLE_RISKS = ["死亡", "脳梗塞", "出血", "腎不全", "再手術", "感染", "麻痺", "心不全"];
@@ -466,6 +488,8 @@ export default function ConsentAgent() {
       if (res.ok) {
         const data = await res.json();
         setExplanation(data.explanation);
+        setSessionId(typeof data.sessionId === "string" ? data.sessionId : null);
+        setFamilyToken(typeof data.familyAccessToken === "string" ? data.familyAccessToken : null);
         setAiSource("gemini");
       } else {
         throw new Error("API error");
@@ -473,6 +497,7 @@ export default function ConsentAgent() {
     } catch {
       const { default: mock } = await import("@/data/mock-explanation.json");
       setExplanation(mock);
+      setSessionId(null);
       setAiSource("fallback");
     }
     setLoading1(false);
@@ -496,6 +521,8 @@ export default function ConsentAgent() {
           selectedEvidenceIds,
           customEvidence: uploadedEvidence,
           facilityAnswerTemplates: selectedFacilityTemplates,
+          sessionId: sessionId ?? undefined,
+          familyToken: familyToken ?? undefined,
         }),
       }, 5000);
       if (res.ok) {
@@ -1108,6 +1135,44 @@ export default function ConsentAgent() {
         </details>
       )}
 
+      {sessionId && (
+        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 space-y-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="bg-emerald-600 text-white text-sm">家族用リンク発行済み</Badge>
+            <Badge className="bg-white text-emerald-800 text-sm">セッション記録: 有効</Badge>
+          </div>
+          <p className="text-sm font-semibold leading-relaxed text-emerald-900">
+            家族のスマートフォン・タブレットでこのリンクを開くと、医師が選択した根拠に基づく説明・質問・理解確認を家族自身のペースで進められます。
+          </p>
+          {familyQr && (
+            <div className="flex justify-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={familyQr} alt="家族用リンクのQRコード" className="rounded-2xl border border-emerald-200 bg-white p-2" />
+            </div>
+          )}
+          <div className="rounded-2xl border border-emerald-200 bg-white p-3 font-mono text-xs text-slate-700 break-all">
+            {familyPath}
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1 rounded-full border-emerald-300 text-sm font-bold text-emerald-900"
+              onClick={async () => {
+                await navigator.clipboard.writeText(`${window.location.origin}${familyPath}`);
+              }}
+            >
+              📋 リンクをコピー
+            </Button>
+            <Button
+              className="flex-1 rounded-full bg-emerald-600 text-sm font-bold text-white hover:bg-emerald-700"
+              onClick={() => window.open(familyPath ?? "#", "_blank")}
+            >
+              📱 家族画面を開く
+            </Button>
+          </div>
+        </section>
+      )}
+
       <Button onClick={() => setStep(3)} className="w-full rounded-full bg-slate-950 py-7 text-xl font-black text-white hover:bg-slate-800">
         説明を聞いたので理解確認へ進む
       </Button>
@@ -1316,15 +1381,45 @@ export default function ConsentAgent() {
 
       <Card className="border-slate-200 bg-white shadow-sm">
         <CardHeader className="pb-2 pt-4 px-4">
-          <CardTitle className="text-base text-slate-950">eConsent</CardTitle>
+          <CardTitle className="text-base text-slate-950">セッション記録</CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4 space-y-2">
-          <Button onClick={() => setConsentSent(true)} className="w-full bg-blue-600 py-5 text-sm font-bold text-white hover:bg-blue-700 disabled:bg-blue-100 disabled:text-blue-800 disabled:opacity-100" disabled={consentSent}>
-            {consentSent ? "✅ 送信完了" : "📤 eConsent送信"}
-          </Button>
-          <Button onClick={() => setRecorded(true)} className="w-full bg-green-600 py-5 text-sm font-bold text-white hover:bg-green-700 disabled:bg-green-100 disabled:text-green-800 disabled:opacity-100" disabled={recorded}>
-            {recorded ? "✅ 説明完了を記録しました" : "📝 説明完了として記録"}
-          </Button>
+          {sessionId ? (
+            <>
+              <Button
+                onClick={() => window.open(`/doctor/${sessionId}/summary`, "_blank")}
+                className="w-full bg-blue-600 py-5 text-sm font-bold text-white hover:bg-blue-700"
+              >
+                🧑‍⚕️ 家族の回答・AI判定を含むサマリーを開く
+              </Button>
+              <Button
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`/api/sessions/${sessionId}/review`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ reviewStatus: "ready_for_consent_discussion" }),
+                    });
+                    if (!res.ok) throw new Error("review failed");
+                    setRecorded(true);
+                  } catch {
+                    setRecorded(false);
+                  }
+                }}
+                className="w-full bg-green-600 py-5 text-sm font-bold text-white hover:bg-green-700 disabled:bg-green-100 disabled:text-green-800 disabled:opacity-100"
+                disabled={recorded}
+              >
+                {recorded ? "✅ 医師レビューを記録しました" : "📝 医師レビューとして記録"}
+              </Button>
+              <p className="text-[11px] font-semibold text-slate-500 text-center">
+                記録は署名済み同意ではなく、医師最終確認前の説明支援レコードです。
+              </p>
+            </>
+          ) : (
+            <p className="rounded-2xl border border-slate-100 bg-slate-50 p-3 text-sm font-semibold text-slate-500">
+              セッション未接続（オフラインデモ表示）のため、記録機能は利用できません。
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

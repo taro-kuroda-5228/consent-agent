@@ -15,6 +15,12 @@ describe("Gemini adapter evidence guardrails", () => {
     expect(shouldUseLiveGemini({})).toBe(false);
   });
 
+  it("treats Vertex AI configuration as a live-Gemini credential", () => {
+    expect(shouldUseLiveGemini({ GOOGLE_GENAI_USE_VERTEXAI: "true", GOOGLE_CLOUD_PROJECT: "demo-project" })).toBe(true);
+    expect(shouldUseLiveGemini({ GOOGLE_GENAI_USE_VERTEXAI: "true" })).toBe(false);
+    expect(shouldUseLiveGemini({ GOOGLE_GENAI_USE_VERTEXAI: "true", GOOGLE_CLOUD_PROJECT: "demo-project", CONSENT_AGENT_DEMO_MODE: "true" })).toBe(false);
+  });
+
   it("does not fall back to default evidence when the physician explicitly selected no references", async () => {
     const result = await generateQA("脳梗塞のリスクについて教えてください。", {
       diagnosis: "Stanford A型急性大動脈解離",

@@ -1,4 +1,5 @@
 import { generateExplanation, shouldUseLiveGemini } from '../gemini';
+import { createFamilyAccessToken } from '../family-access-token';
 import { buildEvidenceTransparency, resolveEvidenceSelectionForRequest, retrieveMockEvidence, type EvidenceCard } from '../consent-demo';
 import { inMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
 import type { ConsentSessionRepository } from '../repositories/consent-session-repository';
@@ -65,7 +66,8 @@ export async function handleExplainRequest(input: ExplainHandlerInput, repositor
       resourceId: session.id,
       metadata: { selectedEvidenceIds: selectedEvidence.map((e) => e.evidenceId), modelMode: session.modelMode },
     });
-    return { status: 200, body: { explanation, selectedEvidence, evidenceTransparency, sessionId: session.id, auditEventId: audit.id, sessionEventId: event.id } };
+    const familyAccessToken = createFamilyAccessToken(session.id);
+    return { status: 200, body: { explanation, selectedEvidence, evidenceTransparency, sessionId: session.id, familyAccessToken, auditEventId: audit.id, sessionEventId: event.id } };
   } catch {
     const audit = await repository.appendAuditEvent({
       sessionId: session.id,

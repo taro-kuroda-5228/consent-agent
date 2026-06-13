@@ -1,0 +1,11 @@
+.git
+.next
+node_modules
+.env*
+!.env.example
+.vercel
+.sinria
+docs
+eval
+*.test.ts
+tsconfig.tsbuildinfo

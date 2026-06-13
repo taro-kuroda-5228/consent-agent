@@ -702,6 +702,15 @@ export type EvidenceBoundQAResult = {
   templateReferences?: FacilityAnswerTemplate[];
   supportingSpans?: Array<{ evidenceId: string; text: string }>;
   extractionMode?: "facility-template" | "agentic-source-bounded" | "deterministic-source-bounded";
+  citationVerification?: CitationVerificationReport;
+};
+
+export type CitationRejectionReason = "unknown-evidence" | "span-not-found-in-source";
+
+export type CitationVerificationReport = {
+  requestedSpanCount: number;
+  verifiedSpans: Array<{ evidenceId: string; text: string }>;
+  rejectedSpans: Array<{ evidenceId: string; span: string; reason: CitationRejectionReason }>;
 };
 
 export type SupportingSpanExtraction = {
@@ -1358,22 +1367,45 @@ function canonicalSpanFromEvidence(span: string, evidence: EvidenceCard): string
 function verifySupportingSpanExtraction(
   extraction: SupportingSpanExtraction,
   selectedEvidence: EvidenceCard[],
-): Array<{ evidence: EvidenceCard; text: string }> {
-  if (!extraction.answerable || extraction.supportingSpans.length === 0) return [];
-  const selectedById = new Map(selectedEvidence.map((item) => [item.evidenceId, item]));
+): { verified: Array<{ evidence: EvidenceCard; text: string }>; report: CitationVerificationReport } {
   const verified: Array<{ evidence: EvidenceCard; text: string }> = [];
+  const rejectedSpans: CitationVerificationReport["rejectedSpans"] = [];
 
-  for (const requested of extraction.supportingSpans) {
-    const evidence = selectedById.get(requested.evidenceId);
-    if (!evidence) continue;
-    const canonical = canonicalSpanFromEvidence(requested.span, evidence);
-    if (!canonical) continue;
-    if (!verified.some((item) => item.evidence.evidenceId === evidence.evidenceId && item.text === canonical)) {
-      verified.push({ evidence, text: canonical });
+  if (extraction.answerable && extraction.supportingSpans.length > 0) {
+    const selectedById = new Map(selectedEvidence.map((item) => [item.evidenceId, item]));
+    for (const requested of extraction.supportingSpans) {
+      const evidence = selectedById.get(requested.evidenceId);
+      if (!evidence) {
+        rejectedSpans.push({ evidenceId: requested.evidenceId, span: requested.span, reason: "unknown-evidence" });
+        continue;
+      }
+      const canonical = canonicalSpanFromEvidence(requested.span, evidence);
+      if (!canonical) {
+        rejectedSpans.push({ evidenceId: requested.evidenceId, span: requested.span, reason: "span-not-found-in-source" });
+        continue;
+      }
+      if (!verified.some((item) => item.evidence.evidenceId === evidence.evidenceId && item.text === canonical)) {
+        verified.push({ evidence, text: canonical });
+      }
     }
   }
 
-  return verified.slice(0, 3);
+  const cappedVerified = verified.slice(0, 3);
+  return {
+    verified: cappedVerified,
+    report: {
+      requestedSpanCount: extraction.supportingSpans.length,
+      verifiedSpans: cappedVerified.map((item) => ({ evidenceId: item.evidence.evidenceId, text: item.text })),
+      rejectedSpans,
+    },
+  };
+}
+
+export function verifyCitationSpans(
+  extraction: SupportingSpanExtraction,
+  selectedEvidence: EvidenceCard[],
+): CitationVerificationReport {
+  return verifySupportingSpanExtraction(extraction, selectedEvidence).report;
 }
 
 function isLowInformationSupportingSpan(span: string): boolean {
@@ -1442,8 +1474,11 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
     };
   }
 
-  const verifiedSpans = chooseAnswerSupportingSpans(verifySupportingSpanExtraction(extraction, context.selectedEvidence));
-  if (verifiedSpans.length === 0) return noDirectAnswerResult(question);
+  const verification = verifySupportingSpanExtraction(extraction, context.selectedEvidence);
+  const verifiedSpans = chooseAnswerSupportingSpans(verification.verified);
+  if (verifiedSpans.length === 0) {
+    return { ...noDirectAnswerResult(question), citationVerification: verification.report };
+  }
 
   const evidenceById = new Map(verifiedSpans.map((item) => [item.evidence.evidenceId, item.evidence]));
   return {
@@ -1455,6 +1490,7 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
     retrievedEvidence: Array.from(evidenceById.values()),
     supportingSpans: verifiedSpans.map((item) => ({ evidenceId: item.evidence.evidenceId, text: item.text })),
     extractionMode: "agentic-source-bounded",
+    citationVerification: verification.report,
   };
 }
 

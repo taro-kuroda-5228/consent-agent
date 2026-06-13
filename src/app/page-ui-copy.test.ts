@@ -24,13 +24,22 @@ describe("mobile demo UI copy and CTA readability", () => {
   });
 
   it("keeps physician handoff CTAs simple and readable on mobile", () => {
-    expect(pageSource).toContain("📤 eConsent送信");
-    expect(pageSource).toContain("📝 説明完了として記録");
+    expect(pageSource).toContain("🧑‍⚕️ 家族の回答・AI判定を含むサマリーを開く");
+    expect(pageSource).toContain("📝 医師レビューとして記録");
     expect(pageSource).toContain("bg-blue-600 py-5 text-sm font-bold text-white");
     expect(pageSource).toContain("bg-green-600 py-5 text-sm font-bold text-white");
     expect(pageSource).toContain("disabled:opacity-100");
+    expect(pageSource).toContain("署名済み同意ではなく");
     expect(pageSource).not.toContain("📋 JSONコピー");
     expect(pageSource).not.toContain("FHIR JSON");
+  });
+
+  it("issues a tokenized family link with QR code after explanation starts", () => {
+    expect(renderScreen2Source).toContain("家族用リンク発行済み");
+    expect(renderScreen2Source).toContain("📋 リンクをコピー");
+    expect(renderScreen2Source).toContain("家族用リンクのQRコード");
+    expect(pageSource).toContain("/family/${sessionId}${familyToken ? `?t=${familyToken}` : \"\"}");
+    expect(pageSource).toContain("sessionId: sessionId ?? undefined");
   });
 
   it("shows evidence sufficiency and override warning copy before family explanation", () => {
