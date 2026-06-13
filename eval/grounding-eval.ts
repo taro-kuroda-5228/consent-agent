@@ -172,10 +172,21 @@ export async function evaluateGoldenCase(goldenCase: GoldenCase): Promise<EvalCa
   };
 }
 
+function liveCaseDelayMs(): number {
+  const fromEnv = Number(process.env.EVAL_CASE_DELAY_MS);
+  if (Number.isFinite(fromEnv) && fromEnv >= 0) return fromEnv;
+  // 無料枠のレート制限(5リクエスト/分)を尊重する既定値。429時は各ケースが決定論フォールバックで継続する。
+  return 12_000;
+}
+
 export async function runGroundingEval(): Promise<EvalReport> {
   const cases = loadGoldenCases();
   const results: EvalCaseResult[] = [];
+  const delayMs = shouldUseLiveGemini() ? liveCaseDelayMs() : 0;
   for (const goldenCase of cases) {
+    if (results.length > 0 && delayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
     results.push(await evaluateGoldenCase(goldenCase));
   }
   const failures = results.flatMap((result) => result.failures);
