@@ -249,7 +249,7 @@ export function buildConsentExplanationRecord(input: {
     caseId: 'demo-aortic-dissection',
     patientHandle: 'demo-anonymous-case',
     modelMode: input.modelMode,
-    explanationVersion: 'aortic-dissection-omni-demo-v1',
+    explanationVersion: 'aortic-dissection-gemini-demo-v1',
     checkpoints: input.evaluations.map(evaluation => ({
       ...evaluation,
       evidence: {
@@ -280,7 +280,8 @@ export function sanitizeClinicalFreeText(value: string): string {
   return value
     .replace(/MRN[-_\s]*\d+/gi, '[REDACTED]')
     .replace(/\b\d{6,}\b/g, '[REDACTED]')
-    .replace(/[一-龠々]{1,4}(?:太郎|花子|さん)/g, '[REDACTED]')
+    .replace(/[一-龠々]{1,4}(?:太郎|花子)/g, '[REDACTED]')
+    .replace(/[一-龠々]{1,4}さん/g, match => (['患者さん', '家族さん', '皆さん'].includes(match) ? match : '[REDACTED]'))
     .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[REDACTED]')
     .trim();
 }

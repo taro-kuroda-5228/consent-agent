@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
 type ExplanationCard = {
@@ -32,43 +31,30 @@ export default function FamilyExplanation() {
   const [view, setView] = useState<SessionView | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "not-found" | "error">("loading");
   const [playingCardId, setPlayingCardId] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const videoStartByCardId: Record<string, number> = {
+    "disease-mechanism": 0,
+    "emergency-need": 10,
+    procedure: 21,
+    "major-risks": 32,
+    "no-surgery": 42,
+    "doctor-confirmation": 50,
+  };
 
   const playNarration = async (card: ExplanationCard) => {
-    const text = card.audioNarration?.trim() || card.content;
-    if (!text || playingCardId) return;
+    const video = videoRef.current;
+    if (!video || playingCardId) return;
     setPlayingCardId(card.id);
-    const finish = () => setPlayingCardId(null);
+    const startAt = videoStartByCardId[card.id] ?? 0;
     try {
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
-      });
-      if (!res.ok) throw new Error("tts unavailable");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.onended = () => {
-        URL.revokeObjectURL(url);
-        finish();
-      };
-      audio.onerror = () => {
-        URL.revokeObjectURL(url);
-        finish();
-      };
-      await audio.play();
+      video.currentTime = Number.isFinite(video.duration)
+        ? Math.min(startAt, Math.max(0, video.duration - 1))
+        : startAt;
+      video.scrollIntoView({ behavior: "smooth", block: "center" });
+      await video.play();
     } catch {
-      // サーバTTSが使えない場合はブラウザ内蔵の音声合成にフォールバック
-      try {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = "ja-JP";
-        utterance.rate = 0.95;
-        utterance.onend = finish;
-        utterance.onerror = finish;
-        window.speechSynthesis.speak(utterance);
-      } catch {
-        finish();
-      }
+      setPlayingCardId(null);
     }
   };
   const [familyToken] = useState<string | null>(() =>
@@ -102,9 +88,6 @@ export default function FamilyExplanation() {
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b px-4 py-3 sticky top-0 z-10">
         <h1 className="text-lg font-bold text-gray-900">家族向けご説明</h1>
-        <p className="text-xs text-gray-500">
-          ※ 担当医師が選択した資料のみに基づく説明です
-        </p>
       </header>
 
       <div className="max-w-lg mx-auto p-4 space-y-3 pb-24">
@@ -134,18 +117,24 @@ export default function FamilyExplanation() {
 
         {loadState === "ready" && view && (
           <>
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-              <p className="text-xs text-blue-700 text-center">
-                📊 担当医師が選択した{view.evidence.length}件の資料に基づく説明です
-              </p>
-              <div className="mt-2 flex flex-wrap justify-center gap-1">
-                {view.evidence.map((item) => (
-                  <Badge key={item.evidenceId} variant="outline" className="text-[10px] text-blue-800 border-blue-300">
-                    {item.evidenceId}
-                  </Badge>
-                ))}
-              </div>
-            </div>
+            <Card className="overflow-hidden border-blue-100 bg-white shadow-sm" data-testid="family-explanation-video">
+              <video
+                ref={videoRef}
+                className="block aspect-video w-full bg-slate-950"
+                controls
+                playsInline
+                preload="metadata"
+                onPause={() => setPlayingCardId(null)}
+                onEnded={() => setPlayingCardId(null)}
+                aria-label="急性A型大動脈解離の3D説明動画"
+              >
+                <source src="/media/aortic-dissection-explanation.mp4" type="video/mp4" />
+              </video>
+              <CardContent className="px-4 py-3 text-xs leading-relaxed text-slate-600">
+                まず動画で全体像を確認し、その下の説明カードで要点を順番に確認できます。
+                この動画はデモ用の補助説明で、説明カードと質問回答は担当医が選択した根拠資料に基づく下書きです。最終確認は担当医が行います。
+              </CardContent>
+            </Card>
 
             {view.explanation.map((section, idx) => (
               <Card key={section.id} className="border-l-4 border-l-blue-400">
@@ -159,7 +148,7 @@ export default function FamilyExplanation() {
                     <button
                       onClick={() => playNarration(section)}
                       disabled={playingCardId !== null}
-                      aria-label={`${section.title}を音声で聞く`}
+                      aria-label={`${section.title}の動画場面を再生`}
                       className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:bg-blue-100 disabled:opacity-50"
                     >
                       {playingCardId === section.id ? "🔊 再生中" : "🔊 聞く"}
@@ -175,15 +164,6 @@ export default function FamilyExplanation() {
             ))}
 
             <Separator className="my-3" />
-
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <p className="text-xs text-amber-800">
-                💡 <strong>ご注意:</strong>{" "}
-                この説明は担当医師が選択した資料に基づく一般的な情報です。
-                {view.diagnosis ? `（対象: ${view.diagnosis}）` : ""}
-                個別の状況については担当医師が直接ご説明します。
-              </p>
-            </div>
 
             <Button
               onClick={() => router.push(`/family/${sessionId}/qa${familyToken ? `?t=${encodeURIComponent(familyToken)}` : ""}`)}

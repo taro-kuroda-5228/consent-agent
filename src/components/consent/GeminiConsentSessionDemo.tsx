@@ -10,8 +10,8 @@ import {
   type ConsentIntentRecord,
   type FamilyResponseEvaluation,
 } from '@/lib/ai-consent-session';
-import { demoConsentCase } from '@/lib/omni-demo-consent-case';
-import { getMockOmniExplanation } from '@/lib/gemini-omni-adapter';
+import { demoConsentCase } from '@/lib/gemini-demo-consent-case';
+import { getMockGeminiExplanation } from '@/lib/gemini-explanation-adapter';
 import { AuditTimeline } from './AuditTimeline';
 import { SupabaseStatusBadge } from './SupabaseStatusBadge';
 
@@ -46,7 +46,7 @@ const INTENT_COPY: Record<IntentKind, ConsentIntentRecord> = {
   },
 };
 
-export function OmniConsentSessionDemo() {
+export function GeminiConsentSessionDemo() {
   const checkpoints = useMemo(() => buildAorticDissectionCheckpoints(), []);
   const [activeCheckpointId, setActiveCheckpointId] = useState(checkpoints[0]?.id ?? 'disease-mechanism');
   const [responseKindByCheckpoint, setResponseKindByCheckpoint] = useState<Record<string, DemoResponseKind>>({
@@ -55,7 +55,7 @@ export function OmniConsentSessionDemo() {
   const [intentKind, setIntentKind] = useState<IntentKind>('undecided');
 
   const activeCheckpoint = checkpoints.find(checkpoint => checkpoint.id === activeCheckpointId) ?? checkpoints[0];
-  const explanation = getMockOmniExplanation({
+  const explanation = getMockGeminiExplanation({
     caseId: demoConsentCase.caseId,
     checkpointId: activeCheckpoint.id,
     audience: 'patient_family',
@@ -117,7 +117,7 @@ export function OmniConsentSessionDemo() {
 
         <div className="rounded-2xl border border-brand-100 bg-gradient-to-br from-brand-50 to-white p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm font-semibold text-brand-700">Gemini Omni 説明パネル</p>
+            <p className="text-sm font-semibold text-brand-700">Gemini 3 説明パネル</p>
             <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-brand-700 ring-1 ring-brand-100">
               mode: {explanation.mode}
             </span>

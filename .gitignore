@@ -23,6 +23,14 @@
 # misc
 .DS_Store
 *.pem
+.sinria/
+
+# local media generation experiments (keep generated demo asset explicit below)
+scripts/generate-*
+scripts/probe-*
+scripts/try-vertex-imagen.py
+public/media/*
+!public/media/aortic-dissection-explanation.mp4
 
 # debug
 npm-debug.log*

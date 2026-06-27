@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseSampleRate, pcm16ToWav, TTS_MAX_TEXT_LENGTH } from './tts';
+import { parseSampleRate, pcm16ToWav, TTS_GEMINI_MODEL, TTS_MAX_TEXT_LENGTH } from './tts';
 
 describe('pcm16ToWav', () => {
   it('wraps PCM data with a valid RIFF/WAVE header', () => {
@@ -27,5 +27,11 @@ describe('parseSampleRate', () => {
 describe('tts limits', () => {
   it('keeps narration text within a family-friendly length cap', () => {
     expect(TTS_MAX_TEXT_LENGTH).toBeLessThanOrEqual(1000);
+  });
+
+  it('uses a Gemini 3 or newer TTS model id', () => {
+    expect(TTS_GEMINI_MODEL).toBe('gemini-3.1-flash-tts-preview');
+    expect(TTS_GEMINI_MODEL).toMatch(/^gemini-3/);
+    expect(TTS_GEMINI_MODEL).not.toContain('pro');
   });
 });

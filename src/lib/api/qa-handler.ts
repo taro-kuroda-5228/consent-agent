@@ -19,27 +19,36 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
     return { status: 400, body: { error: 'question is required' } };
   }
 
-  const physicianUploadedEvidence: EvidenceCard[] = Array.isArray(input.customEvidence)
-    ? input.customEvidence.filter((item) => item?.origin === 'physician-upload' && item?.evidenceId && item?.displayForFamily)
+  const requestCustomEvidence: EvidenceCard[] = Array.isArray(input.customEvidence)
+    ? input.customEvidence.filter((item) => {
+        if (!item?.evidenceId || !item?.displayForFamily) return false;
+        return item.origin === 'physician-upload' || item.retrievalStatus === 'pubmed-verified' || item.evidenceId.startsWith('PUBMED-');
+      })
     : [];
   let selectedEvidence: EvidenceCard[];
   let selectedEvidenceSource: 'database' | 'request' = 'request';
   let metadataWarning: string | undefined;
 
   if (input.sessionId) {
-    const dbEvidence = await repository.getSelectedEvidence(input.sessionId).catch(() => []);
-    if (dbEvidence.length > 0) {
+    try {
+      const dbEvidence = await repository.getSelectedEvidence(input.sessionId);
+      const requestIds = new Set(input.selectedEvidenceIds ?? []);
       selectedEvidence = dbEvidence;
       selectedEvidenceSource = 'database';
-      const requestIds = new Set(input.selectedEvidenceIds ?? []);
-      if (requestIds.size > 0 && dbEvidence.some((evidence) => !requestIds.has(evidence.evidenceId))) {
+      if (dbEvidence.length === 0) {
+        metadataWarning = 'persisted physician-selected evidence was empty; request evidence was not used for this session';
+      } else if (requestIds.size > 0 && dbEvidence.some((evidence) => !requestIds.has(evidence.evidenceId))) {
         metadataWarning = 'request selectedEvidenceIds differed from persisted physician-selected evidence; database state was used';
+      } else if (requestCustomEvidence.length > 0) {
+        metadataWarning = 'request customEvidence was ignored because persisted physician-selected evidence is the source of truth';
       }
-    } else {
-      selectedEvidence = resolveEvidenceSelectionForRequest([...retrieveMockEvidence(input.diagnosis || ''), ...physicianUploadedEvidence], input.selectedEvidenceIds);
+    } catch {
+      selectedEvidence = [];
+      selectedEvidenceSource = 'database';
+      metadataWarning = 'persisted physician-selected evidence could not be loaded; request evidence was not used for this session';
     }
   } else {
-    selectedEvidence = resolveEvidenceSelectionForRequest([...retrieveMockEvidence(input.diagnosis || ''), ...physicianUploadedEvidence], input.selectedEvidenceIds);
+    selectedEvidence = resolveEvidenceSelectionForRequest([...retrieveMockEvidence(input.diagnosis || ''), ...requestCustomEvidence], input.selectedEvidenceIds);
   }
 
   const result = await generateQA(input.question, {

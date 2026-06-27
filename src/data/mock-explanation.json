@@ -1,38 +1,79 @@
 [
   {
-    "id": "what-is-happening",
+    "id": "disease-mechanism",
     "icon": "🔴",
-    "title": "いま起きていること",
-    "content": "大動脈（心臓から全身に血液を送る一番太い血管）の壁が裂けている状態です。"
+    "title": "1. いま体の中で起きていること",
+    "content": "急性A型大動脈解離は、心臓に近い大動脈の壁が裂け、血液が本来と違う層へ入り込む病気です。破裂や心臓の圧迫、臓器への血流低下につながることがあります。",
+    "visualId": "ataad-mechanism-anonymous-diagram",
+    "audioNarration": "心臓に近い太い血管の壁が裂けています。血液の流れが乱れ、破裂や臓器の血流低下につながる可能性があります。",
+    "safetyNote": "疑問が残る場合は次の質問・理解確認画面で記載してください。",
+    "evidenceIds": [
+      "FAC-001",
+      "AAD-001"
+    ]
   },
   {
-    "id": "why-emergency",
+    "id": "emergency-need",
     "icon": "⚡",
-    "title": "なぜ今すぐ手術が必要か",
-    "content": "放置すると血管が破れ、命に関わるため、緊急手術が必要です。"
+    "title": "2. なぜ緊急対応が必要か",
+    "content": "A型大動脈解離は時間とともに状態が急に悪化することがあります。破裂、心タンポナーデ、脳や腎臓などへの血流障害を防ぐため、待機ではなく緊急で治療方針を決めます。",
+    "visualId": "ataad-emergency-risk-timeline",
+    "audioNarration": "この病気は待っている間に急に悪くなることがあります。命に関わる合併症を防ぐため、緊急で治療を進めます。",
+    "safetyNote": "疑問が残る場合は次の質問・理解確認画面で記載してください。",
+    "evidenceIds": [
+      "FAC-001",
+      "AAD-001"
+    ]
   },
   {
-    "id": "surgery-content",
+    "id": "procedure",
     "icon": "🏥",
-    "title": "手術の内容",
-    "content": "裂けた血管の部分を人工血管に取り替えます。人工心肺を使いながら行います。"
+    "title": "3. 手術で目指すこと",
+    "content": "緊急人工血管置換では、解離の広がりに応じて、上行置換、ヘミアーチ置換、部分弓部置換、全弓部置換、全弓部置換＋FETなどから手術範囲を決めます。裂けた大動脈の危険な部分を人工血管に置き換え、破裂や臓器血流障害を防ぐことを目指します。手術では人工心肺を使用し、輸血が必要になることがあります。",
+    "visualId": "ataad-graft-replacement-diagram",
+    "audioNarration": "手術では危険な大動脈の部分を人工血管に置き換え、破裂や血流障害を防ぐことを目指します。",
+    "safetyNote": "疑問が残る場合は次の質問・理解確認画面で記載してください。",
+    "evidenceIds": [
+      "FAC-001",
+      "AAD-001"
+    ]
   },
   {
-    "id": "main-risks",
+    "id": "major-risks",
     "icon": "⚠️",
-    "title": "主なリスク",
-    "content": "・出血\n・脳梗塞\n・腎不全\n・再手術の可能性"
+    "title": "4. 重要なリスク",
+    "content": "手術や病気そのものに伴い、死亡、脳梗塞、出血、腎不全などの重大なリスクがあります。具体的な数値リスクは、患者さんの状態と手術範囲を踏まえて担当医が説明します。",
+    "visualId": "ataad-major-complications-icons",
+    "audioNarration": "重大なリスクには、死亡、脳梗塞、出血、腎不全などがあります。患者さんごとの危険度は担当医が補足します。",
+    "safetyNote": "疑問が残る場合は次の質問・理解確認画面で記載してください。",
+    "evidenceIds": [
+      "FAC-001",
+      "AAD-003"
+    ]
   },
   {
     "id": "no-surgery",
     "icon": "🚫",
-    "title": "手術しない場合",
-    "content": "大動脈が破裂し、心タンポナーデや臓器虚血を起こし、命に関わる可能性があります。"
+    "title": "5. 手術しない場合の心配",
+    "content": "手術しない場合、破裂、心タンポナーデ、脳や腎臓などの臓器虚血が進み、命に関わる経過が強く懸念されます。",
+    "visualId": "ataad-no-surgery-branch-diagram",
+    "audioNarration": "手術しない場合には、血管の破裂や心臓の圧迫、臓器への血流低下が進む可能性があります。",
+    "safetyNote": "疑問が残る場合は次の質問・理解確認画面で記載してください。",
+    "evidenceIds": [
+      "FAC-001",
+      "AAD-001"
+    ]
   },
   {
-    "id": "post-op",
-    "icon": "💊",
-    "title": "術後の見通し",
-    "content": "多くの場合、集中治療室で数日間管理した後、一般病棟に移ります。回復には数週間〜数ヶ月かかります。"
+    "id": "doctor-confirmation",
+    "icon": "🧑‍⚕️",
+    "title": "6. 疑問が残ったとき",
+    "content": "疑問が残る場合は次の質問・理解確認画面で記載してください。",
+    "visualId": "doctor-handoff-confirmation-card",
+    "audioNarration": "最後に担当医が、この患者さんに合わせた見通しと質問への回答を確認します。わからない点は次の画面で残せます。",
+    "safetyNote": "疑問が残る場合は次の質問・理解確認画面で記載してください。",
+    "evidenceIds": [
+      "FAC-001"
+    ]
   }
 ]

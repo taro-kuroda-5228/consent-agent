@@ -19,6 +19,8 @@ export type PubMedArticle = {
 function decodeXml(value: string): string {
   return value
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number.parseInt(decimal, 10)))
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
     .replace(/&amp;/g, "&")
@@ -108,12 +110,18 @@ export function parsePubMedEFetchXml(xml: string): PubMedArticle[] {
 }
 
 function extractKeyFindings(abstractText: string): string[] {
-  const sentences = abstractText
-    .split(/(?<=[.!?。])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter((sentence) => sentence.length >= 20);
-  const prioritized = sentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|dialysis|renal replacement|acute kidney injury|renal|kidney|mortality|stroke|bleeding|risk|outcome/i.test(sentence));
-  return (prioritized.length ? prioritized : sentences).slice(0, 3);
+  const normalized = abstractText
+    .replace(/\s*(Background|Methods|Results|Conclusions):\s*/gi, ". $1: ")
+    .replace(/^\.\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sentences = normalized
+    .split(/(?<=[.!?。])\s+|(?=\b(?:Background|Methods|Results|Conclusions):)/i)
+    .map((sentence) => sentence.trim().replace(/^\.\s*/, ""))
+    .filter((sentence, index, all) => sentence.length >= 20 && all.indexOf(sentence) === index);
+  const numericOutcome = sentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b/i.test(sentence));
+  const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|risk|outcome/i.test(sentence));
+  return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...sentences])).slice(0, 5);
 }
 
 function isRetractionLike(article: PubMedArticle): boolean {

@@ -218,6 +218,42 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("answers dialysis risk questions from physician-selected renal-failure/dialysis evidence instead of saying no source exists", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Risk factors for acute kidney injury after Stanford type A aortic dissection repair surgery: a systematic review and meta-analysis.",
+      fileName: "PMID-36036431-renal-failure-dialysis.txt",
+      extractedText:
+        "Risk factors for acute kidney injury (AKI) after Stanford type A aortic dissection (TAAD) repair are inconsistent in different studies. This meta-analysis systematically analyzed the risk factors so as to early identify the therapeutic targets for preventing AKI. The synthesized incidence and risk factors of AKI and its impact on mortality were calculated. Twenty studies comprising 8223 patients were included. The synthesized incidence of postoperative AKI was 50.7%.",
+      clinicianSummary:
+        "大動脈解離の透析リスクについて言及している論文に関連するPubMed候補。AKI after TAAD repair, incidence, risk factors, mortality impactを扱う。",
+      keyFindings: [
+        "The synthesized incidence of postoperative AKI was 50.7%.",
+        "Risk factors for acute kidney injury (AKI) after Stanford type A aortic dissection (TAAD) repair are inconsistent in different studies.",
+        "The synthesized incidence and risk factors of AKI and its impact on mortality were calculated.",
+      ],
+      outcomeTags: ["renal-failure", "dialysis"],
+    });
+
+    const result = synthesizeEvidenceBoundQA("透析のリスクは？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "上行大動脈人工血管置換術",
+      risks: ["腎不全", "透析"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("50.7%");
+    expect(result.answer).toContain("急性腎障害（AKI）の発生率");
+    expect(result.answer).toContain("根拠論文:");
+    expect(result.answer).toContain("引用箇所:");
+    expect(result.answer).toContain("The synthesized incidence of postoperative AKI was 50.7%.");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual([uploaded.evidenceId]);
+    expect(result.supportingSpans).toEqual([{ evidenceId: uploaded.evidenceId, text: "The synthesized incidence of postoperative AKI was 50.7%." }]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("extracts numeric risk from the physician-selected reference content instead of a hard-coded outcome answer", () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "施設別 FET 手術説明資料",

@@ -261,9 +261,7 @@ export default function QAPage() {
     <div className="min-h-screen bg-slate-50">
       <header className="bg-white border-b px-4 py-3 sticky top-0 z-10">
         <h1 className="text-lg font-bold text-gray-900">質問 & 確認</h1>
-        <p className="text-xs text-gray-500">
-          ※ 回答は担当医師が選択した資料の範囲に限定されます
-        </p>
+
       </header>
 
       <div className="max-w-lg mx-auto p-4 space-y-3 pb-24">

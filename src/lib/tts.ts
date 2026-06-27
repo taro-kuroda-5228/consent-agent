@@ -1,7 +1,7 @@
 import { createGenAIClient, shouldUseLiveGemini } from './gemini';
 
-// 動作確認済み (2026-06): audio/L16;codec=pcm;rate=24000 を返す
-export const TTS_GEMINI_MODEL = 'gemini-2.5-flash-preview-tts';
+// Gemini 3+ policy: narration uses the currently available Flash TTS route when live credentials are enabled.
+export const TTS_GEMINI_MODEL = 'gemini-3.1-flash-tts-preview';
 export const TTS_VOICE_NAME = 'Kore';
 export const TTS_MAX_TEXT_LENGTH = 600;
 

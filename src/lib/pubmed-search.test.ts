@@ -46,7 +46,10 @@ describe("PubMed natural-language evidence search", () => {
     });
 
     expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({
+    const card = cards[0];
+    expect(card).toBeDefined();
+    if (!card) throw new Error("expected PubMed evidence card");
+    expect(card).toMatchObject({
       evidenceId: "PUBMED-12345678",
       pmid: "12345678",
       sourceType: "Review",
@@ -54,13 +57,11 @@ describe("PubMed natural-language evidence search", () => {
       retrievalStatus: "pubmed-verified",
       sourceUrl: "https://pubmed.ncbi.nlm.nih.gov/12345678/",
     });
-    expect(cards[0].title).toContain("Dialysis-requiring acute kidney injury");
-    expect(cards[0].clinicianSummary).toContain("8.2%");
-    expect(cards[0].keyFindings).toEqual(expect.arrayContaining([
-      "Postoperative dialysis was required in 8.2% of patients after acute type A aortic dissection repair.",
-    ]));
-    expect(cards[0].displayForFamily).toContain("選択したPubMed論文では");
-    expect(cards[0].citation).toContain("PMID: 12345678");
+    expect(card.title).toContain("Dialysis-requiring acute kidney injury");
+    expect(card.clinicianSummary).toContain("8.2%");
+    expect(card.keyFindings?.[0]).toBe("Postoperative dialysis was required in 8.2% of patients after acute type A aortic dissection repair.");
+    expect(card.displayForFamily).toContain("選択したPubMed論文では");
+    expect(card.citation).toContain("PMID: 12345678");
   });
 
   it("strips encoded HTML tags from PubMed abstract snippets", () => {

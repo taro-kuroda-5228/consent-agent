@@ -3,13 +3,13 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
-const omni = read('src/components/consent/OmniConsentSessionDemo.tsx');
+const explanationDemo = read('src/components/consent/GeminiConsentSessionDemo.tsx');
 const timeline = read('src/components/consent/AuditTimeline.tsx');
 const badge = read('src/components/consent/SupabaseStatusBadge.tsx');
 
 describe('Supabase consent workflow UI copy', () => {
   it('shows persistence, RLS, realtime, and audit timeline markers in sessions UI', () => {
-    const combined = `${omni}\n${timeline}\n${badge}`;
+    const combined = `${explanationDemo}\n${timeline}\n${badge}`;
     for (const copy of ['Persistence: Supabase configured', 'Model: deterministic mock', 'RLS tenant isolated', 'Realtime physician review', 'Realtime audit stream']) {
       expect(combined).toContain(copy);
     }
