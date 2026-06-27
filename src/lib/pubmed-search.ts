@@ -121,7 +121,63 @@ function extractKeyFindings(abstractText: string): string[] {
     .filter((sentence, index, all) => sentence.length >= 20 && all.indexOf(sentence) === index);
   const numericOutcome = sentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b/i.test(sentence));
   const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|risk|outcome/i.test(sentence));
-  return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...sentences])).slice(0, 5);
+  return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...sentences]))
+    .map(compactFindingForMobile)
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function compactFindingForMobile(sentence: string): string {
+  const normalized = sentence
+    .replace(/\s*\[[^\]]{30,}\]/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/\.\./g, ".")
+    .trim();
+  if (/^Risk factors for AKI included/i.test(normalized)) {
+    const riskLabels: string[] = [];
+    if (/cardiopulmonary bypass|\bCPB\b/i.test(normalized)) riskLabels.push("CPB >180分");
+    if (/operative time/i.test(normalized)) riskLabels.push("手術時間 >7時間");
+    if (/advanced age/i.test(normalized)) riskLabels.push("高齢");
+    if (/transfusion|pRBC/i.test(normalized)) riskLabels.push("輸血");
+    if (/body mass index|BMI/i.test(normalized)) riskLabels.push("BMI高値");
+    if (/preoperative kidney injury/i.test(normalized)) riskLabels.push("術前腎障害");
+    if (riskLabels.length) return `AKIリスク因子: ${riskLabels.join("・")}。`;
+  }
+  if (normalized.length <= 180) return normalized;
+  const firstClause = normalized.split(/;|\.\s+|, and | and (?=preoperative|advanced|increased|elevated|prolonged)/i)[0]?.trim();
+  if (firstClause && firstClause.length >= 30 && firstClause.length <= 180) return firstClause.endsWith(".") ? firstClause : `${firstClause}.`;
+  return `${normalized.slice(0, 176).trim()}…`;
+}
+
+function summarizeForDoctor(keyFindings: string[], context: { originalQuery: string; outcomeTags: string[] }): string {
+  const joined = keyFindings.join(" ");
+  const asksRenal = context.outcomeTags.some((tag) => tag === "renal-failure" || tag === "dialysis");
+  const akiPercent = joined.match(/(?:postoperative\s+)?AKI\s+(?:was\s+)?(\d+(?:\.\d+)?%)|incidence of postoperative AKI was (\d+(?:\.\d+)?%)/i);
+  const dialysisPercent = joined.match(/dialysis[^.]{0,80}?(\d+(?:\.\d+)?%)|(\d+(?:\.\d+)?%)[^.]{0,80}?dialysis/i);
+  const mortality = /mortality/i.test(joined);
+  const riskHints: string[] = [];
+  if (/cardiopulmonary bypass|\bCPB\b/i.test(joined)) riskHints.push("CPB時間");
+  if (/operative time|手術時間/i.test(joined)) riskHints.push("手術時間");
+  if (/advanced age|elderly|高齢/i.test(joined)) riskHints.push("高齢");
+  if (/transfusion|pRBC|輸血/i.test(joined)) riskHints.push("輸血");
+  if (/body mass index|BMI/i.test(joined)) riskHints.push("BMI高値");
+  if (/preoperative kidney injury|術前腎障害/i.test(joined)) riskHints.push("術前腎障害");
+
+  const incidence = akiPercent?.[1] || akiPercent?.[2] || dialysisPercent?.[1] || dialysisPercent?.[2];
+  if (asksRenal && incidence) {
+    const outcome = akiPercent ? "術後AKI" : "術後透析";
+    const tail = [
+      `${outcome} ${incidence}`,
+      riskHints.length ? `主なリスク: ${riskHints.slice(0, 4).join("・")}` : "",
+      mortality ? "AKI例で短期死亡増加" : "",
+    ].filter(Boolean).join("。 ");
+    return `${tail}。`;
+  }
+
+  const first = keyFindings[0];
+  if (!first) return "PubMed候補。abstractを医師が確認してください。";
+  const compact = compactFindingForMobile(first).replace(/\.$/, "");
+  return compact.length <= 120 ? `要点: ${compact}。` : `要点: ${compact.slice(0, 116).trim()}…`;
 }
 
 function isRetractionLike(article: PubMedArticle): boolean {
@@ -187,9 +243,7 @@ export function convertPubMedArticlesToEvidenceCards(
     const keyFindings = extractKeyFindings(article.abstractText);
     const firstAuthor = article.authors[0] ? `${article.authors[0].split(" ")[0]} et al.` : "PubMed";
     const citation = `${firstAuthor} ${article.journal || "PubMed"}. ${article.year || "n.d."}. PMID: ${article.pmid}`;
-    const clinicianSummary = keyFindings.length > 0
-      ? `${context.originalQuery} に関連するPubMed候補。${keyFindings.join(" ")}`
-      : `${context.originalQuery} に関連するPubMed候補。abstractを医師が確認してください。`;
+    const clinicianSummary = summarizeForDoctor(keyFindings, context);
     const quotedSpan = keyFindings.join(" ");
     return {
       evidenceId: `PUBMED-${article.pmid}`,
