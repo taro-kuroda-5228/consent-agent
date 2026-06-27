@@ -58,7 +58,10 @@ describe("PubMed natural-language evidence search", () => {
       sourceUrl: "https://pubmed.ncbi.nlm.nih.gov/12345678/",
     });
     expect(card.title).toContain("Dialysis-requiring acute kidney injury");
+    expect(card.clinicianSummary).toBeDefined();
     expect(card.clinicianSummary).toContain("8.2%");
+    expect(card.clinicianSummary?.length).toBeLessThanOrEqual(140);
+    expect(card.clinicianSummary).not.toContain("について言及している論文");
     expect(card.keyFindings?.[0]).toBe("Postoperative dialysis was required in 8.2% of patients after acute type A aortic dissection repair.");
     expect(card.displayForFamily).toContain("選択したPubMed論文では");
     expect(card.citation).toContain("PMID: 12345678");
@@ -73,6 +76,44 @@ describe("PubMed natural-language evidence search", () => {
 
     expect(cards[0].clinicianSummary).toContain("Background: Acute kidney injury");
     expect(cards[0].clinicianSummary).not.toContain("<b>");
+  });
+
+  it("keeps physician summaries and key findings compact on mobile", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "36036431",
+        title: "Risk factors for acute kidney injury after Stanford type A aortic dissection repair surgery: a systematic review and meta-analysis.",
+        abstractText: "The synthesized incidence of postoperative AKI was 50.7%. Risk factors for AKI included cardiopulmonary bypass (CPB) time >180 min [odds ratio (OR), 4.89, 95% confidence interval (CI), 2.06-11.61, I2 = 0%], prolonged operative time (>7 h) (OR, 2.73, 95% CI, 1.95-3.82, I2 = 0), advanced age (per 10 years) (OR, 1.34, 95% CI, 1.21-1.49, I2 = 0), increased packed red blood cells (pRBCs) transfusion perioperatively (OR, 1.09, 95% CI, 1.07-1.11, I2 = 42%), elevated body mass index (per 5 kg/m2) (OR, 1.23, 95% CI, 1.18-1.28, I2 = 42%) and preoperative kidney injury (OR, 3.61, 95% CI, 2.48-5.28, I2 = 45%). The in-hospital or 30-day mortality was higher in patients with postoperative AKI than in that without AKI [risk ratio (RR), 3.12, 95% CI, 2.54-3.85, p < 0.01]. Conclusions: AKI after TAAD repair increased the in-hospital or 30-day mortality. Reducing CPB time and pRBCs transfusion, especially in elderly or heavier weight patients, or patients with preoperative kidney injury were important to prevent AKI after TAAD repair surgery.",
+        journal: "Renal failure",
+        year: "2022",
+        authors: ["Wang X"],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて", outcomeTags: ["renal-failure", "dialysis"] });
+
+    const card = cards[0];
+    expect(card.clinicianSummary).toBeDefined();
+    expect(card.clinicianSummary?.length).toBeLessThanOrEqual(140);
+    expect(card.clinicianSummary).toContain("術後AKI");
+    expect(card.clinicianSummary).toContain("50.7%");
+    expect(card.clinicianSummary).not.toContain("The synthesized incidence");
+    expect(card.keyFindings?.length).toBeLessThanOrEqual(3);
+    expect(card.keyFindings?.every((finding) => finding.length <= 180)).toBe(true);
+  });
+
+  it("keeps the no-abstract fallback summary compact even for long queries", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "noabstract",
+        title: "Acute kidney injury after aortic dissection repair without abstract",
+        abstractText: "",
+        journal: "PubMed",
+        year: "2026",
+        authors: [],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文をできるだけ詳しく探して、医師が説明に使えるものだけを表示してほしい", outcomeTags: ["renal-failure", "dialysis"] });
+
+    expect(cards[0].clinicianSummary).toBe("PubMed候補。abstractを医師が確認してください。");
+    expect(cards[0].clinicianSummary?.length).toBeLessThanOrEqual(60);
   });
 
   it("filters PubMed retraction notices out of physician-selectable evidence", () => {

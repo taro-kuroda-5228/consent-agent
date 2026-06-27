@@ -656,7 +656,7 @@ export default function ConsentAgent() {
           </summary>
           <div className="mt-3 space-y-3">
             <p className="text-[11px] leading-relaxed text-cyan-800">
-              医師が知りたい内容を自然文で入力すると、PubMed候補を検索し、医師向け要約・主要所見・outcomeタグ付きで表示します。追加した論文だけが患者説明用根拠になります。
+              自然文でPubMed候補を検索します。追加した論文だけが患者説明用根拠になります。
             </p>
             <div className="flex gap-2">
               <Input
@@ -678,11 +678,9 @@ export default function ConsentAgent() {
             {pubMedSearchMessage && <p className="text-[11px] font-semibold leading-relaxed text-cyan-900">{pubMedSearchMessage}</p>}
             {pubMedResult && (
               <div className="space-y-2">
-                <div className="rounded-lg border border-cyan-100 bg-white/80 p-2 text-[11px] leading-relaxed text-cyan-900">
-                  <p className="font-bold">検索意図: {pubMedResult.plan.explainForDoctor}</p>
-                  <p className="mt-1 break-words text-cyan-800">PubMed式: {pubMedResult.plan.pubmedTerm}</p>
-                  <p className="mt-1">候補はPubMedのTitle/Abstractから作った下書きです。採用前に医師が本文・abstractを確認してください。</p>
-                </div>
+                <p className="rounded-lg border border-cyan-100 bg-white/80 p-2 text-[11px] font-semibold leading-relaxed text-cyan-900">
+                  候補はPubMedのTitle/Abstractから作った下書きです。採用前に医師が本文・abstractを確認してください。
+                </p>
                 {pubMedResult.evidence.map((candidate) => {
                   const alreadySelected = selectedEvidenceIds.includes(candidate.evidenceId);
                   return (
