@@ -54,6 +54,11 @@ export function buildPubMedNaturalLanguageSearch(query: string): PubMedSearchPla
     tags.push("renal-failure", "dialysis");
     explanations.push("透析・腎不全リスク");
   }
+  if (/腸管虚血|腸管壊死|腸間膜虚血|腸間膜|腹部臓器虚血|臓器灌流障害|mesenteric|bowel ischemia|intestinal ischemia|visceral|malperfusion/.test(normalized)) {
+    conceptTerms.push('(mesenteric ischemia[Title/Abstract] OR bowel ischemia[Title/Abstract] OR intestinal ischemia[Title/Abstract] OR mesenteric malperfusion[Title/Abstract] OR visceral malperfusion[Title/Abstract] OR visceral ischemia[Title/Abstract])');
+    tags.push("mesenteric-ischemia", "visceral-malperfusion");
+    explanations.push("腸管虚血/腸間膜malperfusion");
+  }
   if (/脳梗塞|脳卒中|stroke/.test(normalized)) {
     conceptTerms.push('(stroke[Title/Abstract] OR neurologic[Title/Abstract] OR neurological[Title/Abstract])');
     tags.push("stroke", "neurologic-dysfunction");
@@ -120,7 +125,7 @@ function extractKeyFindings(abstractText: string): string[] {
     .map((sentence) => sentence.trim().replace(/^\.\s*/, ""))
     .filter((sentence, index, all) => sentence.length >= 20 && all.indexOf(sentence) === index);
   const numericOutcome = sentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b/i.test(sentence));
-  const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|risk|outcome/i.test(sentence));
+  const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|risk|outcome|mesenteric|bowel|intestinal|visceral|ischemia|malperfusion|revascularization|necrotic/i.test(sentence));
   return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...sentences]))
     .map(compactFindingForMobile)
     .filter(Boolean)
@@ -149,19 +154,61 @@ function compactFindingForMobile(sentence: string): string {
   return `${normalized.slice(0, 176).trim()}…`;
 }
 
-function summarizeForDoctor(keyFindings: string[], context: { originalQuery: string; outcomeTags: string[] }): string {
+function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], context: { originalQuery: string; outcomeTags: string[] }): string {
   const joined = keyFindings.join(" ");
+  const sourceText = `${article.title} ${article.abstractText} ${joined}`;
   const asksRenal = context.outcomeTags.some((tag) => tag === "renal-failure" || tag === "dialysis");
+  const asksMesenteric = context.outcomeTags.some((tag) => tag === "mesenteric-ischemia" || tag === "visceral-malperfusion");
   const akiPercent = joined.match(/(?:postoperative\s+)?AKI\s+(?:was\s+)?(\d+(?:\.\d+)?%)|incidence of postoperative AKI was (\d+(?:\.\d+)?%)/i);
   const dialysisPercent = joined.match(/dialysis[^.]{0,80}?(\d+(?:\.\d+)?%)|(\d+(?:\.\d+)?%)[^.]{0,80}?dialysis/i);
-  const mortality = /mortality/i.test(joined);
+  const mortality = /mortality/i.test(sourceText);
   const riskHints: string[] = [];
-  if (/cardiopulmonary bypass|\bCPB\b/i.test(joined)) riskHints.push("CPB時間");
-  if (/operative time|手術時間/i.test(joined)) riskHints.push("手術時間");
-  if (/advanced age|elderly|高齢/i.test(joined)) riskHints.push("高齢");
-  if (/transfusion|pRBC|輸血/i.test(joined)) riskHints.push("輸血");
-  if (/body mass index|BMI/i.test(joined)) riskHints.push("BMI高値");
-  if (/preoperative kidney injury|術前腎障害/i.test(joined)) riskHints.push("術前腎障害");
+  if (/cardiopulmonary bypass|\bCPB\b/i.test(sourceText)) riskHints.push("CPB時間");
+  if (/operative time|手術時間/i.test(sourceText)) riskHints.push("手術時間");
+  if (/advanced age|elderly|高齢/i.test(sourceText)) riskHints.push("高齢");
+  if (/transfusion|pRBC|輸血/i.test(sourceText)) riskHints.push("輸血");
+  if (/body mass index|BMI/i.test(sourceText)) riskHints.push("BMI高値");
+  if (/preoperative kidney injury|術前腎障害/i.test(sourceText)) riskHints.push("術前腎障害");
+
+  if (asksMesenteric) {
+    const prevalence = sourceText.match(/(?:overall prevalence|prevalence)[^.]{0,40}?(\d+(?:\.\d+)?%)/i)?.[1];
+    const inHospitalMortality = sourceText.match(/(?:in-hospital mortality|early mortality rate|mortality rate)[^.]{0,50}?(\d+(?:\.\d+)?%)/i)?.[1];
+    if (prevalence && inHospitalMortality && /bowel necrosis|multiorgan failure|multi-organ failure/i.test(sourceText)) {
+      return `aTAAD+腸間膜malperfusionは頻度${prevalence}、院内死亡${inHospitalMortality}。腸管壊死/多臓器不全が主な死因。`;
+    }
+    const incidenceEarlyMortality = sourceText.match(/incidence and early mortality rate[^.]{0,80}?(\d+(?:\.\d+)?%)[^.]{0,40}?(\d+(?:\.\d+)?%)/i);
+    if (incidenceEarlyMortality) {
+      return `AAAD合併の腸間膜malperfusionは頻度${incidenceEarlyMortality[1]}、早期死亡${incidenceEarlyMortality[2]}。腸管灌流評価と再灌流判断が要点。`;
+    }
+    const worstMortality = sourceText.match(/mesenteric malperfusion[^.]{0,120}?(\d+\s*(?:-|–|to)\s*\d+%)/i)?.[1]?.replace(/\s+/g, "").replace("to", "–");
+    const mpsMortality = sourceText.match(/increased mortality up to (\d+(?:\.\d+)?%)/i)?.[1];
+    if (worstMortality || mpsMortality) {
+      return `TAADのmalperfusionは死亡リスク上昇${mpsMortality ? `（最大${mpsMortality}）` : ""}。腸間膜malperfusionは特に重篤${worstMortality ? `（死亡${worstMortality}）` : ""}。`;
+    }
+    const malperfusionRate = sourceText.match(/malperfusion occurred in (\d+(?:\.\d+)?%)/i)?.[1];
+    const mesentericOr = sourceText.match(/mesenteric malperfusion[^.]{0,140}?odds ratio,?\s*(\d+(?:\.\d+)?)/i)?.[1];
+    if (malperfusionRate && mesentericOr && mortality) {
+      return `術前malperfusion ${malperfusionRate}。腸間膜malperfusionは死亡リスク上昇（OR ${mesentericOr}）。`;
+    }
+    if (/organ-specific malperfusion|epidemiological meta-analysis/i.test(sourceText) && /perioperative mortality rate[^.]{0,80}?(\d+(?:\.\d+)?%)/i.test(sourceText)) {
+      const rate = sourceText.match(/perioperative mortality rate[^.]{0,80}?(\d+(?:\.\d+)?%)/i)?.[1];
+      return `臓器別malperfusion発生率のメタ解析。malperfusion合併で周術期死亡は最大${rate}まで上昇し、腸間膜/内臓灌流障害評価の根拠候補。`;
+    }
+    if (/mesenteric malperfusion/i.test(sourceText) && /worst prognosis|postoperative mortality/i.test(sourceText)) {
+      return "腸間膜malperfusionは予後不良・術後死亡と関連。中枢修復先行か再灌流先行かを判断する根拠候補。";
+    }
+    const visceralRate = sourceText.match(/Visceral malperfusion was diagnosed in \d+ patients \((\d+(?:\.\d+)?%)\)/i)?.[1];
+    if (visceralRate) {
+      return `ATAADでvisceral malperfusion ${visceralRate}。術中/経心膜エコーで灌流障害を診断・管理する報告。`;
+    }
+    if (/mesenteric ischemia/i.test(sourceText) && /serious|multi-organ failure|necrotic|revascularization/i.test(sourceText)) {
+      return "AAD合併の腸間膜虚血は稀だが重篤。早期診断が難しく、壊死前の灌流評価と迅速な再灌流/腸管切除判断が要点。";
+    }
+    if (/visceral malperfusion|mesenteric malperfusion|mesenteric ischemia/i.test(sourceText)) {
+      const compact = compactFindingForMobile(keyFindings.find((finding) => /mesenteric|visceral|malperfusion|ischemia/i.test(finding)) || keyFindings[0] || article.title).replace(/\.$/, "");
+      return compact.length <= 130 ? `要点: ${compact}。` : `要点: ${compact.slice(0, 126).trim()}…`;
+    }
+  }
 
   const incidence = akiPercent?.[1] || akiPercent?.[2] || dialysisPercent?.[1] || dialysisPercent?.[2];
   if (asksRenal && incidence) {
@@ -194,6 +241,7 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
 
   const asksAorticDissection = /大動脈解離|aortic dissection|dissection/i.test(context.originalQuery);
   const asksRenal = context.outcomeTags.some((tag) => tag === "renal-failure" || tag === "dialysis");
+  const asksMesenteric = context.outcomeTags.some((tag) => tag === "mesenteric-ischemia" || tag === "visceral-malperfusion");
   const asksStroke = context.outcomeTags.some((tag) => tag === "stroke" || tag === "neurologic-dysfunction");
   const asksMortality = context.outcomeTags.includes("mortality");
   const asksBleeding = context.outcomeTags.some((tag) => tag === "bleeding" || tag === "reoperation");
@@ -207,6 +255,19 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     const hasRenal = /dialysis|renal replacement|acute kidney injury|renal failure|kidney injury|postoperative renal/.test(combined);
     if (!hasRenal) return Number.NEGATIVE_INFINITY;
     score += /dialysis|renal replacement|acute kidney injury|renal failure|kidney injury/.test(title) ? 10 : 4;
+  }
+  if (asksMesenteric) {
+    const titleFocusesOtherBed = /lower limb|leg |renal|kidney|cerebral|brain|stroke|coronary|myocardial/.test(title)
+      && !/mesenteric|visceral|bowel|intestinal/.test(title);
+    if (titleFocusesOtherBed) return Number.NEGATIVE_INFINITY;
+    const hasMesenteric = /mesenteric ischemia|bowel ischemia|intestinal ischemia|mesenteric malperfusion|visceral malperfusion|visceral ischemia/.test(combined);
+    if (!hasMesenteric) return Number.NEGATIVE_INFINITY;
+    if (/mesenteric ischemia|mesenteric malperfusion|bowel ischemia|intestinal ischemia/.test(title)) score += 14;
+    else if (/visceral malperfusion|visceral ischemia/.test(title)) score += 12;
+    else if (/malperfusion/.test(title)) score += 4;
+    else score += 2;
+    if (/mesenteric malperfusion|visceral malperfusion/.test(combined)) score += 3;
+    if (/mortality|odds ratio|\bOR\b|multi-organ failure|revascularization|necrotic intestine/.test(combined)) score += 3;
   }
   if (asksStroke) {
     const hasStroke = /stroke|neurologic|neurological|cerebral/.test(combined);
@@ -243,7 +304,7 @@ export function convertPubMedArticlesToEvidenceCards(
     const keyFindings = extractKeyFindings(article.abstractText);
     const firstAuthor = article.authors[0] ? `${article.authors[0].split(" ")[0]} et al.` : "PubMed";
     const citation = `${firstAuthor} ${article.journal || "PubMed"}. ${article.year || "n.d."}. PMID: ${article.pmid}`;
-    const clinicianSummary = summarizeForDoctor(keyFindings, context);
+    const clinicianSummary = summarizeForDoctor(article, keyFindings, context);
     const quotedSpan = keyFindings.join(" ");
     return {
       evidenceId: `PUBMED-${article.pmid}`,

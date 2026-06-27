@@ -38,6 +38,18 @@ describe("PubMed natural-language evidence search", () => {
     expect(plan.outcomeTags).toEqual(expect.arrayContaining(["renal-failure", "dialysis"]));
   });
 
+  it("expands bowel ischemia queries into mesenteric ischemia and visceral malperfusion terms", () => {
+    const plan = buildPubMedNaturalLanguageSearch("大動脈解離の腸管虚血リスクについて言及している論文");
+
+    expect(plan.pubmedTerm).toContain("aortic dissection");
+    expect(plan.pubmedTerm).toContain("mesenteric ischemia");
+    expect(plan.pubmedTerm).toContain("bowel ischemia");
+    expect(plan.pubmedTerm).toContain("visceral malperfusion");
+    expect(plan.pubmedTerm).not.toContain("dialysis");
+    expect(plan.explainForDoctor).toContain("腸管虚血");
+    expect(plan.outcomeTags).toEqual(expect.arrayContaining(["mesenteric-ischemia", "visceral-malperfusion"]));
+  });
+
   it("turns PubMed XML results into physician-reviewable evidence cards", () => {
     const articles = parsePubMedEFetchXml(dialysisXml);
     const cards = convertPubMedArticlesToEvidenceCards(articles, {
@@ -125,6 +137,53 @@ describe("PubMed natural-language evidence search", () => {
 
     expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-2"]);
     expect(cards[0].title).not.toMatch(/retraction/i);
+  });
+
+  it("ranks directly answer-bearing mesenteric ischemia papers and summarizes the clinical point", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "weak-renal",
+        title: "Dialysis-requiring acute kidney injury after surgery for acute type A aortic dissection",
+        abstractText: "Postoperative dialysis was required in 8.2% of patients after acute type A aortic dissection repair.",
+        journal: "Aorta",
+        year: "2024",
+        authors: [],
+      },
+      {
+        pmid: "weak-limb",
+        title: "Lower limb malperfusion in type B aortic dissection: a systematic review.",
+        abstractText: "Lower limb malperfusion syndrome occurs in complicated type B aortic dissections. The review mentions mesenteric ischemia only as another vascular bed in the introduction.",
+        journal: "Annals",
+        year: "2014",
+        authors: [],
+      },
+      {
+        pmid: "26024781",
+        title: "Mesenteric ischemia in acute aortic dissection.",
+        abstractText: "Mesenteric ischemia complicated by acute aortic dissection (AAD) is uncommon, but serious, as there is no established treatment strategy and it can progress rapidly to multi-organ failure. Diagnosing mesenteric ischemia before necrotic change is difficult. The standard surgical procedures for mesenteric ischemia are prompt revascularization of the mesenteric artery and, if needed, resection of necrotic intestine.",
+        journal: "Surgery today",
+        year: "2016",
+        authors: ["Yamashiro S"],
+      },
+      {
+        pmid: "39848556",
+        title: "Malperfusion in Patients With Acute Type A Aortic Dissection: A Nationwide Analysis.",
+        abstractText: "Preoperative malperfusion occurred in 27.7% (2748 of 9958) of cases. Operative mortality was much greater among patients with malperfusion (26.8% vs 13.6%). After adjustment, mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).",
+        journal: "The Annals of thoracic surgery",
+        year: "2025",
+        authors: ["Smith J"],
+      },
+    ], { originalQuery: "大動脈解離の腸管虚血リスクについて言及している論文", outcomeTags: ["mesenteric-ischemia", "visceral-malperfusion"] });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-26024781", "PUBMED-39848556"]);
+    expect(cards[0].clinicianSummary).toContain("重篤");
+    expect(cards[0].clinicianSummary).toContain("早期診断");
+    expect(cards[0].clinicianSummary).toContain("再灌流");
+    expect(cards[0].clinicianSummary).not.toMatch(/^要点: Mesenteric ischemia/);
+    expect(cards[1].clinicianSummary).toContain("malperfusion 27.7%");
+    expect(cards[1].clinicianSummary).toContain("腸間膜malperfusion");
+    expect(cards[1].clinicianSummary).toContain("死亡リスク上昇");
+    expect(cards[1].clinicianSummary?.length).toBeLessThanOrEqual(150);
   });
 
   it("ranks directly answer-bearing dialysis and aortic-dissection papers over weak perioperative matches", () => {
