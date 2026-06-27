@@ -10,13 +10,10 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
   createPhysicianUploadedEvidence,
-  evaluateEvidenceSufficiency,
   getDefaultSelectedEvidenceIds,
   getEvidenceCatalog,
   getDefaultFacilityAnswerTemplates,
-  type EvidenceCandidateSuggestion,
   type EvidenceCard,
-  type EvidenceSufficiencyTopic,
   type FacilityAnswerTemplate,
 } from "@/lib/consent-demo";
 import { PHYSICIAN_QUICK_CASES, resolveExplanationStartCase, type PhysicianQuickCase } from "@/lib/physician-intake";
@@ -28,6 +25,10 @@ interface ExplanationCard {
   icon: string;
   title: string;
   content: string;
+  visualId?: string;
+  audioNarration?: string;
+  safetyNote?: string;
+  evidenceIds?: string[];
 }
 
 interface QAResult {
@@ -68,44 +69,12 @@ const FAQ = [
   { question: "脳梗塞のリスクについて、もう少し詳しく教えてください。", answer: "手術中や解離そのものの影響で脳への血流が悪くなる可能性があります。個別のリスクは担当医が直接説明します。", requiresDoctorReview: true },
 ];
 
-const OMNI_EXPLANATION_STORYBOARD = [
-  {
-    id: "ct-image",
-    mode: "画像",
-    icon: "🖼️",
-    title: "CT画像で、どこが裂けているかを示す",
-    description: "Gemini Omniが模式CTを指し示しながら、心臓に近い大動脈に裂け目があることを説明します。",
-  },
-  {
-    id: "animation",
-    mode: "動画",
-    icon: "🎞️",
-    title: "放置した場合と手術の目的を30秒動画で説明",
-    description: "破裂・心タンポナーデ・臓器血流障害を防ぐために緊急手術が必要、という流れを短いアニメで見せます。",
-  },
-  {
-    id: "voice",
-    mode: "音声",
-    icon: "🔊",
-    title: "音声で要点を読み上げ、患者さんのペースで一時停止",
-    description: "難しい言葉を避け、必要に応じて同じ内容を言い換えます。今は決定論的mock、実運用ではGemini Omni/Live APIへ差し替えます。",
-  },
-];
-
 const UNDERSTANDING_QUESTIONS = [
   { id: "q1", question: "今回の病気はどの血管に起きていますか？", options: ["肺動脈", "大動脈", "冠動脈", "腎動脈"], correctIndex: 1 },
   { id: "q2", question: "なぜ緊急手術が必要ですか？", options: ["痛みが強いから", "血管が破裂する危険があるから", "感染するから", "薬が効かないから"], correctIndex: 1 },
   { id: "q3", question: "手術の主なリスクは何ですか？", options: ["出血・脳梗塞など", "傷が残る", "入院が長い", "痛い"], correctIndex: 0 },
   { id: "q4", question: "最終的な判断は誰がしますか？", options: ["AI", "家族", "担当医師", "看護師"], correctIndex: 2 },
 ];
-
-const EVIDENCE_TOPIC_LABELS: Record<EvidenceSufficiencyTopic, string> = {
-  "disease-definition": "疾患説明",
-  "emergency-need": "緊急性",
-  "procedure-purpose": "手術目的",
-  "major-complications": "主要合併症",
-  "physician-ai-boundary": "医師/AI境界",
-};
 
 type Step = 1 | 2 | 3 | 4;
 
@@ -120,11 +89,6 @@ export default function ConsentAgent() {
   const [deletedEvidenceIds, setDeletedEvidenceIds] = useState<string[]>([]);
   const evidenceCatalog = [...baseEvidenceCatalog, ...uploadedEvidence].filter((item) => !deletedEvidenceIds.includes(item.evidenceId));
   const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>(getDefaultSelectedEvidenceIds());
-  const selectedEvidence = evidenceCatalog.filter((item) => selectedEvidenceIds.includes(item.evidenceId));
-  const evidenceSufficiency = evaluateEvidenceSufficiency(selectedEvidence);
-  const evidenceCoverageReady = evidenceSufficiency.status === "ready";
-  const [evidenceSuggestion, setEvidenceSuggestion] = useState<EvidenceCandidateSuggestion | null>(null);
-  const [loadingEvidenceSuggestion, setLoadingEvidenceSuggestion] = useState(false);
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
   const [uploadTitle, setUploadTitle] = useState("日本のガイドライン / 非PubMed論文PDF");
   const [uploadSourceUrl, setUploadSourceUrl] = useState("");
@@ -159,6 +123,8 @@ export default function ConsentAgent() {
   // Screen 2 state
   const [explanation, setExplanation] = useState<ExplanationCard[]>([]);
   const [aiSource, setAiSource] = useState<"idle" | "gemini" | "fallback">("idle");
+  const [activeAudioCardId, setActiveAudioCardId] = useState<string | null>(null);
+  const [audioStatus, setAudioStatus] = useState("音声は未再生です");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [familyToken, setFamilyToken] = useState<string | null>(null);
   const [familyQr, setFamilyQr] = useState<string | null>(null);
@@ -223,35 +189,6 @@ export default function ConsentAgent() {
     setRisks(quickCase.risks);
     setNotes(quickCase.notes);
     setSelectedEvidenceIds(evidenceCatalog.map((item) => item.evidenceId));
-    setEvidenceSuggestion(null);
-  };
-
-  const suggestEvidence = async () => {
-    if (!diagnosis || !plannedSurgery) return;
-    setLoadingEvidenceSuggestion(true);
-    try {
-      const res = await fetchWithTimeout("/api/evidence/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ diagnosis, plannedSurgery, risks }),
-      }, 5000);
-      if (!res.ok) throw new Error("API error");
-      const data: EvidenceCandidateSuggestion = await res.json();
-      setEvidenceSuggestion(data);
-      setSelectedEvidenceIds(data.suggestedEvidence.map((item) => item.evidenceId));
-    } catch {
-      setEvidenceSuggestion({
-        mode: "medevidence-ai-candidate-suggestion",
-        retrievalMode: "medevidence-rag-plus-facility-candidate",
-        sourcePolicy: "候補抽出に失敗したため、デフォルト根拠を医師確認用に提示しています。引用可否は医師が最終選択します。",
-        suggestedEvidence: selectedEvidence,
-        rationaleByEvidenceId: Object.fromEntries(
-          selectedEvidence.map((item) => [item.evidenceId, "デフォルト選択根拠です。医師が引用可否を確認してください。"]),
-        ),
-        searchTrace: ["候補抽出API失敗", "デフォルト根拠を維持"],
-      });
-    }
-    setLoadingEvidenceSuggestion(false);
   };
 
   const toggleRisk = (risk: string) => {
@@ -270,13 +207,6 @@ export default function ConsentAgent() {
     setSelectedEvidenceIds((prev) => prev.filter((id) => id !== evidenceId));
     setUploadedEvidence((prev) => prev.filter((item) => item.evidenceId !== evidenceId));
     setDeletedEvidenceIds((prev) => Array.from(new Set([...prev, evidenceId])));
-    setEvidenceSuggestion((prev) => prev ? {
-      ...prev,
-      suggestedEvidence: prev.suggestedEvidence.filter((item) => item.evidenceId !== evidenceId),
-      rationaleByEvidenceId: Object.fromEntries(
-        Object.entries(prev.rationaleByEvidenceId).filter(([id]) => id !== evidenceId),
-      ),
-    } : prev);
   };
 
   const toggleFacilityTemplate = (templateId: string) => {
@@ -447,6 +377,39 @@ export default function ConsentAgent() {
     setPubMedSearchMessage(`追加しました: ${candidate.evidenceId}。患者説明用根拠として選択済みです。`);
   };
 
+  const playAudioNarration = (cardId: string) => {
+    if (typeof window === "undefined") {
+      setAudioStatus("この環境では音声再生を利用できません。動画を確認してください。");
+      return;
+    }
+    const video = document.querySelector<HTMLVideoElement>('[data-testid="generated-explanation-video"] video');
+    if (!video) {
+      setAudioStatus("説明動画を読み込めませんでした。画面を再読み込みしてください。");
+      return;
+    }
+    const videoStartByCardId: Record<string, number> = {
+      "disease-mechanism": 0,
+      "emergency-need": 10,
+      procedure: 21,
+      "major-risks": 32,
+      "no-surgery": 42,
+      "doctor-confirmation": 50,
+    };
+    const startAt = videoStartByCardId[cardId] ?? 0;
+    if (Number.isFinite(video.duration)) {
+      video.currentTime = Math.min(startAt, Math.max(0, video.duration - 1));
+    } else {
+      video.currentTime = startAt;
+    }
+    setActiveAudioCardId(cardId);
+    setAudioStatus("3D説明動画の該当場面を自然音声で再生中です");
+    video.scrollIntoView({ behavior: "smooth", block: "center" });
+    video.play().catch(() => {
+      setActiveAudioCardId(null);
+      setAudioStatus("動画の再生ボタンを押して音声を確認してください。");
+    });
+  };
+
   const startExplanation = async () => {
     const startCase = resolveExplanationStartCase({
       age,
@@ -466,6 +429,8 @@ export default function ConsentAgent() {
 
     setFreeAnswer(null);
     setFreeQuestion("");
+    setActiveAudioCardId(null);
+    setAudioStatus("説明カードを作成しました。上の3D動画の再生ボタンで自然音声を確認できます。");
     setLoading1(true);
     try {
       const res = await fetchWithTimeout("/api/explain", {
@@ -576,7 +541,7 @@ export default function ConsentAgent() {
   };
 
   // ---- Render Helpers ----
-  const stepLabels = ["医師入力", "Gemini Omni説明", "理解確認", "医師サマリー"];
+  const stepLabels = ["医師入力", "家族説明", "理解確認", "医師サマリー"];
 
   // ---- Screen Renderers ----
   const renderScreen1 = () => (
@@ -652,7 +617,7 @@ export default function ConsentAgent() {
 
           <div className="space-y-1">
             <Label className="text-sm">予定手術</Label>
-            <Input placeholder="緊急上行大動脈人工血管置換術 ± ヘミアーチ置換術" value={plannedSurgery} onChange={(e) => setPlannedSurgery(e.target.value)} />
+            <Input placeholder="緊急人工血管置換（上行置換〜弓部置換範囲を術中判断）" value={plannedSurgery} onChange={(e) => setPlannedSurgery(e.target.value)} />
           </div>
 
           <div className="space-y-1">
@@ -685,40 +650,6 @@ export default function ConsentAgent() {
           <Label className="text-sm">家族説明で引用する根拠</Label>
           <span className="text-[11px] text-blue-700 font-medium">医師選択のみ引用</span>
         </div>
-        <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-indigo-900">MedEvidence根拠候補</p>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-7 shrink-0 border-indigo-200 bg-white px-2 text-[11px] text-indigo-800 hover:bg-indigo-100"
-              onClick={suggestEvidence}
-              disabled={loadingEvidenceSuggestion || !diagnosis || !plannedSurgery}
-            >
-              {loadingEvidenceSuggestion ? "候補確認中" : "根拠候補"}
-            </Button>
-          </div>
-          {evidenceSuggestion ? (
-            <div className="mt-1 text-[11px] leading-relaxed text-indigo-700">
-              候補: {evidenceSuggestion.suggestedEvidence.map((item) => item.evidenceId).join(" / ") || "なし"}
-              <details className="mt-1">
-                <summary className="cursor-pointer font-semibold text-gray-700">理由</summary>
-                <div className="mt-1 space-y-1 text-gray-600">
-                  {evidenceSuggestion.suggestedEvidence.map((item) => (
-                    <p key={item.evidenceId}>
-                      <span className="font-bold text-indigo-800">{item.evidenceId}</span>: {evidenceSuggestion.rationaleByEvidenceId[item.evidenceId]}
-                    </p>
-                  ))}
-                </div>
-              </details>
-            </div>
-          ) : (
-            <p className="mt-1 text-[11px] leading-relaxed text-indigo-700">
-              診断・術式・リスクから候補を出し、医師が最終選択します。
-            </p>
-          )}
-        </div>
-
         <details className="rounded-xl border border-cyan-200 bg-cyan-50 p-3" open>
           <summary className="cursor-pointer text-xs font-bold text-cyan-950">
             PubMedを内容でAI検索
@@ -886,9 +817,6 @@ export default function ConsentAgent() {
                         {item.retrievalStatus === "pubmed-verified" && (
                           <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>
                         )}
-                        {evidenceSuggestion?.suggestedEvidence.some((candidate) => candidate.evidenceId === item.evidenceId) && (
-                          <Badge className="bg-indigo-100 text-indigo-800 text-[10px]">候補</Badge>
-                        )}
                         <button
                           type="button"
                           onClick={() => deleteEvidence(item.evidenceId)}
@@ -1030,38 +958,11 @@ export default function ConsentAgent() {
             })}
           </div>
         </details>
-        <div className={`rounded-xl border p-3 ${evidenceCoverageReady ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className={`text-sm font-bold ${evidenceCoverageReady ? "text-emerald-900" : "text-amber-950"}`}>
-                {evidenceCoverageReady ? "根拠カバレッジ: 説明開始可能" : "根拠カバレッジ: 不足あり"}
-              </p>
-              <p className={`mt-1 text-[11px] leading-relaxed ${evidenceCoverageReady ? "text-emerald-800" : "text-amber-900"}`}>
-                {evidenceCoverageReady
-                  ? "疾患・緊急性・手術目的・主要合併症・医師責任境界が選択根拠内で確認できます。"
-                  : "不足がある場合も医師overrideで開始できますが、家族向け回答は選択済み根拠の範囲に限定されます。"}
-              </p>
-            </div>
-            <Badge className={evidenceCoverageReady ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}>
-              {evidenceSufficiency.coveredTopics.length}/5
-            </Badge>
-          </div>
-          {evidenceSufficiency.missingTopics.length > 0 && (
-            <p className="mt-2 text-[11px] font-semibold text-amber-950">
-              不足トピック: {evidenceSufficiency.missingTopics.map((topic) => EVIDENCE_TOPIC_LABELS[topic]).join(" / ")}
-            </p>
-          )}
-          {evidenceSufficiency.majorComplicationCategories.length > 0 && (
-            <p className="mt-1 text-[11px] font-medium text-slate-600">
-              合併症カテゴリ: {evidenceSufficiency.majorComplicationCategories.join(" / ")}
-            </p>
-          )}
-        </div>
       </div>
 
       <div className="pt-2">
         <Button onClick={startExplanation} className="w-full bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-300 disabled:text-white disabled:opacity-100" disabled={loading1}>
-          {loading1 ? "説明を準備中..." : !evidenceCoverageReady ? "医師overrideで開始" : diagnosis ? "家族説明を開始" : "デモ症例で家族説明を開始"}
+          {loading1 ? "説明を準備中..." : diagnosis ? "家族説明を開始" : "デモ症例で家族説明を開始"}
         </Button>
       </div>
     </div>
@@ -1071,78 +972,81 @@ export default function ConsentAgent() {
     <div className="rounded-[28px] bg-white px-5 py-6 shadow-sm ring-1 ring-slate-200 space-y-7">
       <div className="flex items-center gap-4">
         <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-3xl bg-slate-950 text-2xl font-black text-white">
-          Omni
+          3D
         </div>
         <div>
-          <h2 className="text-3xl font-black tracking-tight text-slate-950">Gemini Omni説明</h2>
-          <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-600">文字・動画・音声で説明してから、理解確認へ進みます。</p>
+          <h2 className="text-3xl font-black tracking-tight text-slate-950">家族説明</h2>
         </div>
       </div>
 
       <section className="rounded-3xl border border-sky-100 bg-sky-50 p-5 text-slate-950">
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge className="bg-sky-600 text-white text-sm">Gemini Omni</Badge>
-          <Badge className="bg-white text-sky-800 text-sm">文字 + 動画 + 音声</Badge>
-          <Badge className="bg-white text-sky-800 text-sm">患者ペース</Badge>
-        </div>
-        <div className="mt-5 overflow-hidden rounded-3xl border border-sky-200 bg-white shadow-inner">
-          <div className="aspect-video bg-gradient-to-br from-slate-950 via-blue-950 to-sky-700 p-5 text-white">
-            <div className="flex h-full flex-col justify-between">
-              <div className="flex items-center justify-between">
-                <span className="rounded-full bg-white/15 px-3 py-1 text-xs font-black">動画ストーリーボード / 血流アニメーション</span>
-                <span className="animate-pulse rounded-full bg-red-500 px-3 py-1 text-xs font-black">音声ナレーション中</span>
-              </div>
-              <div className="grid grid-cols-3 items-end gap-3">
-                <div className="h-24 rounded-full border-4 border-sky-300 bg-sky-300/20" />
-                <div className="relative h-32 rounded-full border-4 border-red-300 bg-red-300/20">
-                  <span className="absolute -right-3 top-10 rounded-full bg-red-500 px-2 py-1 text-xs font-black">裂け目</span>
-                </div>
-                <div className="h-20 rounded-full border-4 border-sky-300 bg-sky-300/20" />
-              </div>
-              <p className="text-xl font-black leading-relaxed">心臓に近い大動脈が裂けており、破裂や臓器血流障害を防ぐため緊急手術を行います。</p>
-            </div>
+        <div className="overflow-hidden rounded-3xl border border-sky-200 bg-slate-950 shadow-inner">
+          <div data-testid="generated-explanation-video">
+            <video
+              className="block aspect-video w-full bg-slate-950"
+              controls
+              playsInline
+              preload="metadata"
+              aria-label="急性A型大動脈解離の3D解剖説明動画。音声付き。"
+            >
+              <source src="/media/aortic-dissection-explanation.mp4" type="video/mp4" />
+              お使いのブラウザでは動画を再生できません。
+            </video>
           </div>
         </div>
-        <div className="mt-4 grid gap-3">
-          {OMNI_EXPLANATION_STORYBOARD.map((item) => (
-            <div key={item.id} className="rounded-2xl border border-sky-100 bg-white p-4">
-              <div className="flex items-start gap-3">
-                <span className="text-3xl">{item.icon}</span>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="bg-slate-100 text-slate-700">{item.mode}</Badge>
-                    <p className="text-base font-black text-slate-950">{item.title}</p>
+        <div className="mt-3 rounded-2xl border border-blue-100 bg-white p-3 text-sm font-black text-blue-950" aria-live="polite" data-testid="audio-playback-status">
+          🔊 {audioStatus}
+        </div>
+        <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-relaxed text-amber-900">
+          この動画はハッカソン用デモの補助説明です。説明カードと質問回答は担当医が選択した根拠資料に基づく下書きで、最終確認は担当医が行います。
+        </p>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {explanation.map((card, index) => (
+              <article key={card.id} className="rounded-2xl border border-sky-100 bg-white p-3 shadow-sm">
+                <div className="flex items-start gap-2">
+                  <span className="text-2xl">{card.icon}</span>
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge className="bg-slate-100 text-slate-700">{index + 1}</Badge>
+                      <p className="text-sm font-black text-slate-950">{card.title}</p>
+                    </div>
+                    <p className="text-xs font-semibold leading-relaxed text-slate-700">{card.content}</p>
+                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 p-2">
+                      <button
+                        type="button"
+                        onClick={() => playAudioNarration(card.id)}
+                        className="rounded-full bg-blue-600 px-3 py-1.5 text-xs font-black text-white hover:bg-blue-700"
+                        aria-label={`${card.title}の音声を再生`}
+                      >
+                        {activeAudioCardId === card.id ? "動画を再生中" : "動画音声を再生"}
+                      </button>
+                      <span className="text-xs font-bold text-blue-950">上の3D動画の自然音声を再生します</span>
+                    </div>
+                    <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2 text-xs font-semibold leading-relaxed text-slate-700">
+                      <summary className="cursor-pointer font-black text-slate-950">確認</summary>
+                      {card.evidenceIds?.length ? <p className="mt-2"><span className="font-black text-slate-950">根拠ID:</span> {card.evidenceIds.join(" / ")}</p> : null}
+                      <p className="mt-1"><span className="font-black text-slate-950">確認:</span> {card.safetyNote ?? "疑問が残る場合は次の質問・理解確認画面で記載してください。"}</p>
+                    </details>
                   </div>
-                  <p className="mt-1 text-sm font-semibold leading-relaxed text-slate-600">{item.description}</p>
                 </div>
-              </div>
-            </div>
-          ))}
+              </article>
+            ))}
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold leading-relaxed text-slate-700">
+          疑問が残る場合は次の質問・理解確認画面で記載してください。
         </div>
       </section>
-
-      {explanation.length > 0 && (
-        <details className="rounded-3xl border border-slate-200 bg-white p-4">
-          <summary className="cursor-pointer text-xl font-black text-slate-900">説明スクリプトを確認</summary>
-          <div className="mt-4 space-y-3">
-            {explanation.map((card) => (
-              <div key={card.id} className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-base font-black text-slate-900">{card.icon} {card.title}</p>
-                <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-slate-700">{card.content}</p>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
 
       {sessionId && (
         <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge className="bg-emerald-600 text-white text-sm">家族用リンク発行済み</Badge>
-            <Badge className="bg-white text-emerald-800 text-sm">セッション記録: 有効</Badge>
+            <Badge className="bg-white text-emerald-800 text-sm">質問・理解確認へ進めます</Badge>
           </div>
           <p className="text-sm font-semibold leading-relaxed text-emerald-900">
-            家族のスマートフォン・タブレットでこのリンクを開くと、医師が選択した根拠に基づく説明・質問・理解確認を家族自身のペースで進められます。
+            家族のスマートフォン・タブレットでこのリンクを開くと、説明・質問・理解確認を家族自身のペースで進められます。
           </p>
           {familyQr && (
             <div className="flex justify-center">
@@ -1174,7 +1078,7 @@ export default function ConsentAgent() {
       )}
 
       <Button onClick={() => setStep(3)} className="w-full rounded-full bg-slate-950 py-7 text-xl font-black text-white hover:bg-slate-800">
-        説明を聞いたので理解確認へ進む
+        説明内容を聞いたので質問・理解確認へ進む
       </Button>
     </div>
   );

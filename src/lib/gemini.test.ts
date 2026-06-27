@@ -1,11 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { createPhysicianUploadedEvidence } from "./consent-demo";
-import { generateQA, PATIENT_EXPLANATION_GEMINI_MODEL, PATIENT_QA_GEMINI_MODEL, shouldUseLiveGemini } from "./gemini";
+import { generateExplanation, generateQA, DOCTOR_SUMMARY_GEMINI_MODEL, PATIENT_EXPLANATION_GEMINI_MODEL, PATIENT_QA_GEMINI_MODEL, shouldUseLiveGemini } from "./gemini";
 
 describe("Gemini adapter evidence guardrails", () => {
-  it("uses Gemini 3.5 Flash for patient Q&A and Gemini Omni for patient explanation", () => {
-    expect(PATIENT_QA_GEMINI_MODEL).toBe("gemini-3.5-flash");
-    expect(PATIENT_EXPLANATION_GEMINI_MODEL).toBe("gemini-omni");
+  it("uses Gemini 3 or newer model ids for patient explanation, patient Q&A, and doctor summary", () => {
+    const models = [PATIENT_EXPLANATION_GEMINI_MODEL, PATIENT_QA_GEMINI_MODEL, DOCTOR_SUMMARY_GEMINI_MODEL];
+    expect(models).toEqual(["gemini-3.5-flash", "gemini-3.5-flash", "gemini-3.5-flash"]);
+    for (const model of models) {
+      expect(model).toMatch(/^gemini-3/);
+      expect(model).toContain("flash");
+      expect(model).not.toContain("pro");
+      expect(model).not.toContain("omni");
+      expect(model).not.toMatch(/^gemini-2/);
+    }
   });
 
   it("forces deterministic fallback in explicit anonymous demo mode even when a Gemini key is configured", () => {
@@ -19,6 +26,36 @@ describe("Gemini adapter evidence guardrails", () => {
     expect(shouldUseLiveGemini({ GOOGLE_GENAI_USE_VERTEXAI: "true", GOOGLE_CLOUD_PROJECT: "demo-project" })).toBe(true);
     expect(shouldUseLiveGemini({ GOOGLE_GENAI_USE_VERTEXAI: "true" })).toBe(false);
     expect(shouldUseLiveGemini({ GOOGLE_GENAI_USE_VERTEXAI: "true", GOOGLE_CLOUD_PROJECT: "demo-project", CONSENT_AGENT_DEMO_MODE: "true" })).toBe(false);
+  });
+
+  it("builds the Gemini explanation as a six-step clinical AI explanation screen contract", async () => {
+    const cards = await generateExplanation({
+      diagnosis: "急性Stanford A型大動脈解離",
+      plannedSurgery: "上行大動脈人工血管置換術",
+      risks: ["死亡", "脳梗塞", "出血", "輸血", "腎不全", "意識障害", "多臓器不全"],
+      urgency: "超緊急",
+      purpose: "破裂・心タンポナーデ・臓器血流障害を防ぐ",
+      cardiopulmonaryBypass: true,
+      transfusion: "必要になる可能性が高い",
+      notes: "本人は説明困難で家族向け説明",
+      selectedEvidence: [],
+    });
+
+    expect(cards.map((card: { id: string }) => card.id)).toEqual([
+      "disease-mechanism",
+      "emergency-need",
+      "procedure",
+      "major-risks",
+      "no-surgery",
+      "doctor-confirmation",
+    ]);
+    expect(cards.every((card: { audioNarration?: string; visualId?: string }) => card.audioNarration && card.visualId)).toBe(true);
+    expect(cards[3].content).toContain("死亡");
+    expect(cards[3].content).toContain("脳梗塞");
+    expect(cards[3].content).toContain("腎不全");
+    expect(cards[4].content).toContain("手術しない場合");
+    expect(JSON.stringify(cards)).not.toContain("動画ストーリーボード");
+    expect(JSON.stringify(cards)).not.toContain("CT画像");
   });
 
   it("does not fall back to default evidence when the physician explicitly selected no references", async () => {

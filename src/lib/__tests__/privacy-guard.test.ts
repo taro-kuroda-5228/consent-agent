@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { demoConsentCase } from '../omni-demo-consent-case';
-import { buildConsentExplanationRecord, buildAorticDissectionCheckpoints, evaluateFamilyResponse } from '../ai-consent-session';
-import { createGeminiOmniAdapter } from '../gemini-omni-adapter';
+import { demoConsentCase } from '../gemini-demo-consent-case';
+import { buildConsentExplanationRecord, buildAorticDissectionCheckpoints, evaluateFamilyResponse, sanitizeClinicalFreeText } from '../ai-consent-session';
+import { createGeminiExplanationAdapter } from '../gemini-explanation-adapter';
 
 describe('Consent Agent Vercel privacy guard', () => {
   it('keeps the demo case anonymous', () => {
@@ -31,7 +31,7 @@ describe('Consent Agent Vercel privacy guard', () => {
   });
 
   it('uses mock fallback without API credentials', async () => {
-    const adapter = createGeminiOmniAdapter({});
+    const adapter = createGeminiExplanationAdapter({});
     await expect(
       adapter.generateExplanation({
         caseId: 'demo-aortic-dissection',
@@ -40,5 +40,14 @@ describe('Consent Agent Vercel privacy guard', () => {
         language: 'ja',
       }),
     ).resolves.toMatchObject({ mode: 'mock' });
+  });
+
+  it('does not redact generic clinical wording such as 患者さん while still redacting names', () => {
+    const sanitized = sanitizeClinicalFreeText('患者さんの状態を確認します。山田さんと黒田太郎 MRN-123456');
+
+    expect(sanitized).toContain('患者さんの状態');
+    expect(sanitized).not.toContain('山田さん');
+    expect(sanitized).not.toContain('黒田太郎');
+    expect(sanitized).not.toContain('MRN-123456');
   });
 });

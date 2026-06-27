@@ -82,7 +82,7 @@ export interface ConsentSessionRepository {
 
 export const DEMO_INSTITUTION_ID = '00000000-0000-0000-0000-000000000001';
 export const DEMO_CASE_ID = '00000000-0000-0000-0000-000000000101';
-export const DEFAULT_EXPLANATION_VERSION = 'aortic-dissection-omni-demo-v1';
+export const DEFAULT_EXPLANATION_VERSION = 'aortic-dissection-gemini-demo-v1';
 export const NOT_SIGNED_CONSENT_NOTICE = 'この記録は署名済み同意ではなく、医師最終確認前の同意説明支援レコードです。';
 
 export function makeId(prefix = 'evt') {

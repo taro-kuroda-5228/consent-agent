@@ -23,7 +23,7 @@ export const PHYSICIAN_QUICK_CASES: PhysicianQuickCase[] = [
     sex: "男性",
     diagnosis: "Stanford A型急性大動脈解離",
     urgency: "至急手術",
-    plannedSurgery: "緊急上行大動脈人工血管置換術 ± ヘミアーチ置換術",
+    plannedSurgery: "緊急上行大動脈人工血管置換（上行置換〜弓部置換範囲を術中判断）",
     purpose: "裂けた大動脈の部分を人工血管に置換し、破裂や心タンポナーデを防ぐ。",
     cardiopulmonaryBypass: true,
     transfusion: "必要な可能性大",

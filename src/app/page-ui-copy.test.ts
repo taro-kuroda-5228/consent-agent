@@ -42,11 +42,17 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).toContain("sessionId: sessionId ?? undefined");
   });
 
-  it("shows evidence sufficiency and override warning copy before family explanation", () => {
-    expect(pageSource).toContain("根拠カバレッジ: 説明開始可能");
-    expect(pageSource).toContain("根拠カバレッジ: 不足あり");
-    expect(pageSource).toContain("不足トピック");
-    expect(pageSource).toContain("医師overrideで開始");
+  it("keeps the evidence area simple for the hackathon and does not show redundant candidate/coverage panels", () => {
+    expect(pageSource).toContain("PubMedを内容でAI検索");
+    expect(pageSource).toContain("日本のガイドライン・非PubMed資料URLを追加");
+    expect(pageSource).toContain("選択中の根拠 {selectedEvidenceIds.length}件を確認・変更");
+    expect(pageSource).not.toContain("MedEvidence根拠候補");
+    expect(pageSource).not.toContain("根拠候補");
+    expect(pageSource).not.toContain("/api/evidence/suggest");
+    expect(pageSource).not.toContain("根拠カバレッジ: 説明開始可能");
+    expect(pageSource).not.toContain("根拠カバレッジ: 不足あり");
+    expect(pageSource).not.toContain("不足トピック");
+    expect(pageSource).not.toContain("医師overrideで開始");
     expect(pageSource).not.toContain("selectedEvidenceIds.length > 0 ? selectedEvidenceIds : getDefaultSelectedEvidenceIds()");
   });
 
@@ -58,15 +64,57 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("judge sample");
   });
 
-  it("keeps patient AI Q&A only in the understanding check section, not in Gemini Omni explanation", () => {
+  it("keeps patient AI Q&A only in the understanding check section, not in Gemini explanation", () => {
     expect(renderScreen2Source).not.toContain("<h3 className=\"text-3xl font-black text-slate-950\">質問する</h3>");
     expect(renderScreen2Source).not.toContain("よくある家族の質問");
     expect(renderScreen2Source).not.toContain("handleFreeQuestion");
-    expect(renderScreen2Source).toContain("説明を聞いたので理解確認へ進む");
-    expect(renderScreen2Source).toContain("Gemini Omni説明");
-    expect(renderScreen2Source).toContain("文字 + 動画 + 音声");
-    expect(renderScreen2Source).toContain("音声ナレーション");
+    expect(renderScreen2Source).toContain("説明内容を聞いたので質問・理解確認へ進む");
+    expect(renderScreen2Source).toContain("家族説明");
+    expect(renderScreen2Source).not.toContain("Gemini Omni説明");
+    expect(renderScreen2Source).not.toContain("Gemini Omni");
+    expect(renderScreen2Source).not.toContain("動画・音声・字幕で順番に説明します");
+    expect(renderScreen2Source).not.toContain("音声・字幕付き動画");
+    expect(renderScreen2Source).toContain("playAudioNarration(card.id)");
+    expect(pageSource).not.toContain("speechSynthesis");
+    expect(pageSource).not.toContain("createOscillator");
+    expect(renderScreen2Source).toContain("data-testid=\"audio-playback-status\"");
     expect(pageSource).toContain("<CardTitle className=\"text-sm\">✏️ 自由に質問する");
+  });
+
+  it("makes the Gemini explanation section the real clinical AI explanation screen rather than a preview/storyboard", () => {
+    expect(renderScreen2Source).not.toContain("体の中で起きていることを、動画・音声・字幕で順番に説明します");
+    expect(renderScreen2Source).not.toContain("音声・字幕付き動画");
+    expect(renderScreen2Source).not.toContain("3D解剖図");
+    expect(renderScreen2Source).not.toContain("やさしい説明");
+    expect(renderScreen2Source).not.toContain("医師確認資料に基づく");
+    expect(renderScreen2Source).not.toContain("個別予後・死亡率・術式判断は担当医が補足します。AIは、医師が選んだ施設資料・論文・ガイドラインに沿って説明順序を整える補助です。");
+    expect(renderScreen2Source).not.toContain("動画は急性A型大動脈解離の病態、緊急性、人工血管置換、医師補足を約50秒で説明します。");
+    expect(renderScreen2Source).toContain("data-testid=\"generated-explanation-video\"");
+    expect(renderScreen2Source).toContain("/media/aortic-dissection-explanation.mp4");
+    expect(renderScreen2Source).not.toContain("/media/aortic-dissection-explanation.vtt");
+    expect(renderScreen2Source).toContain("controls");
+    expect(renderScreen2Source).toContain("playsInline");
+    expect(renderScreen2Source).toContain("sm:grid-cols-2");
+    expect(renderScreen2Source).not.toContain("根拠と安全境界");
+    expect(renderScreen2Source).toContain("確認");
+    expect(renderScreen2Source).toContain("playAudioNarration(card.id)");
+    expect(renderScreen2Source).not.toContain("{card.visualId");
+    expect(renderScreen2Source).not.toContain("ataad-clinical-explanation");
+    expect(renderScreen2Source).not.toContain("匿名模式図:</span>");
+    expect(renderScreen2Source).not.toContain("生成済み説明動画の匿名模式アニメーション");
+    expect(renderScreen2Source).not.toContain("GEMINI_EXPLANATION_STORYBOARD.map");
+    expect(renderScreen2Source).not.toContain("動画ストーリーボード");
+    expect(renderScreen2Source).not.toContain("CT画像で");
+    expect(renderScreen2Source).not.toContain("説明スクリプトを確認");
+    expect(renderScreen2Source).not.toContain("プレビュー");
+  });
+
+  it("does not expose Omni-specific product copy in the physician UI", () => {
+    expect(pageSource).not.toContain("Gemini Omni");
+    expect(pageSource).not.toContain("gemini-omni");
+    expect(pageSource).not.toContain("omni-style");
+    expect(pageSource).toContain("家族説明");
+    expect(pageSource).not.toContain("3D解剖図");
   });
 
   it("lets physicians add and delete facility templates and avoids doctor-review warnings for template answers", () => {

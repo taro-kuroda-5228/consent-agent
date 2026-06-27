@@ -735,7 +735,7 @@ const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResul
   { terms: ["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["脳梗塞", "脳卒中", "stroke", "後遺症"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["出血", "輸血", "bleeding"], safetyLabel: "doctor-review", requiresDoctorReview: true },
-  { terms: ["腎", "腎不全", "renal"], safetyLabel: "doctor-review", requiresDoctorReview: true },
+  { terms: ["腎", "腎不全", "急性腎障害", "透析", "renal", "renal failure", "kidney", "aki", "dialysis"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["臓器", "血流", "malperfusion"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["手術", "なぜ", "必要", "緊急", "しない", "破裂", "心タンポナーデ"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["長期", "長期的", "予後", "遠隔期", "再手術", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance", "follow-up"], safetyLabel: "doctor-review", requiresDoctorReview: true },
@@ -1076,6 +1076,113 @@ function summarizeEmergencyNeedFromEvidence(evidence: EvidenceCard[]): { answer:
   return { answer, source };
 }
 
+function isRenalDialysisRiskQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  const asksRenal = /透析|腎|腎不全|急性腎障害|aki|renal|kidney|dialysis/.test(normalized);
+  const asksRisk = /リスク|risk|起こ|合併症|可能性|危険|について/.test(normalized);
+  return asksRenal && asksRisk;
+}
+
+function extractRenalDialysisNumericFinding(span: string): string | undefined {
+  const normalized = span.replace(/\s+/g, " ").trim();
+  const sentences = normalized
+    .replace(/\s*(Background|Methods|Results|Conclusions):\s*/gi, ". $1: ")
+    .replace(/^\.\s*/, "")
+    .split(/(?<=[.!?。])\s+|(?=\b(?:Background|Methods|Results|Conclusions):)/i)
+    .map((sentence) => sentence.trim().replace(/^\.\s*/, ""))
+    .filter((sentence) => sentence.length >= 8);
+  const directDialysis = sentences.find((sentence) =>
+    /dialysis|透析|renal replacement|腎代替療法/i.test(sentence) && /\d+(?:\.\d+)?\s*[％%]/.test(sentence),
+  );
+  if (directDialysis) return directDialysis;
+  return sentences.find((sentence) =>
+    /acute kidney injury|\bAKI\b|急性腎障害|腎不全|renal failure|kidney injury/i.test(sentence) && /\d+(?:\.\d+)?\s*[％%]/.test(sentence),
+  );
+}
+
+function makeCitationLabel(source: EvidenceCard): string {
+  return source.citation || [source.title, source.pmid ? `PMID: ${source.pmid}` : undefined].filter(Boolean).join(" ");
+}
+
+function makeAnswerWithCitation(answer: string, source: EvidenceCard, span: string): string {
+  if (/根拠論文:|引用箇所:/.test(answer)) return answer;
+  const normalizedAnswer = answer.endsWith("。") || answer.endsWith(".”") || answer.endsWith("」") ? answer : `${answer}。`;
+  const citation = makeCitationLabel(source);
+  const quote = cleanFamilyAnswerSpan(normalizeEvidenceSpan(span));
+  return `${normalizedAnswer}\n根拠論文: ${citation}\n引用箇所: “${quote}”`;
+}
+
+function selectBestCitationSpanForQuestion(question: string, source: EvidenceCard): string {
+  if (isEmergencySurgeryNeedQuestion(question)) {
+    const emergencySpan = source.keyFindings?.find((finding) => /破裂/.test(finding) && /心タンポナーデ/.test(finding));
+    if (emergencySpan) return emergencySpan;
+  }
+  const candidates = splitEvidenceSpans(source);
+  if (candidates.length === 0) return source.quotedSpan || source.displayForFamily || source.claim;
+  return candidates
+    .map((span, index) => ({ span, score: scoreSpanForQuestion(question, span, source.origin === "facility-document" || source.origin === "physician-upload" ? 10 : 0) - index * 0.001 }))
+    .sort((a, b) => b.score - a.score)[0]?.span ?? candidates[0];
+}
+
+function translateRenalDialysisFindingForFamily(finding: string): string {
+  const normalized = finding.replace(/\s+/g, " ").trim();
+  const percent = normalized.match(/\d+(?:\.\d+)?\s*[％%]/)?.[0]?.replace("％", "%");
+  const isDirectDialysis = /dialysis|透析|renal replacement|腎代替療法/i.test(normalized);
+  if (percent && isDirectDialysis) {
+    return `大動脈解離術後に透析または腎代替療法が必要になるリスクは、選択された論文では${percent}と報告されています。`;
+  }
+  if (percent && /acute kidney injury|\bAKI\b|急性腎障害|腎不全|renal failure|kidney injury/i.test(normalized)) {
+    return `選択された論文では、大動脈解離術後の急性腎障害（AKI）の発生率は${percent}と報告されています。透析そのものの発生率ではなく、透析につながり得る術後腎合併症の数値として説明します。`;
+  }
+  return cleanFamilyAnswerSpan(normalized);
+}
+
+function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
+  if (!isRenalDialysisRiskQuestion(question)) return undefined;
+
+  const candidates = evidence.flatMap((item, evidenceIndex) => {
+    const haystack = [
+      item.title,
+      item.displayForFamily,
+      item.claim,
+      item.quotedSpan,
+      item.clinicianSummary,
+      item.clinicalScope,
+      ...(item.keyFindings ?? []),
+      ...(item.outcomeTags ?? []),
+    ].join(" ").toLowerCase();
+    const sourceScore =
+      (/透析|dialysis/.test(haystack) ? 80 : 0) +
+      (/急性腎障害|aki|renal|kidney|腎不全|腎障害/.test(haystack) ? 60 : 0) +
+      (/risk factors?|リスク因子|incidence|発生|mortality|死亡/.test(haystack) ? 25 : 0) +
+      (item.evidenceId.startsWith("PUBMED-") || item.retrievalStatus === "pubmed-verified" ? 20 : 0) -
+      evidenceIndex * 0.01;
+    const spans = splitEvidenceSpans(item).map((span, spanIndex) => {
+      const numericFinding = extractRenalDialysisNumericFinding(span);
+      const normalizedSpan = span.toLowerCase();
+      const normalizedFinding = numericFinding?.toLowerCase() ?? "";
+      const spanScore =
+        (/透析|dialysis|renal replacement/.test(normalizedSpan) ? 80 : 0) +
+        (/急性腎障害|aki|renal|kidney|腎不全|腎障害/.test(normalizedSpan) ? 60 : 0) +
+        (/risk factors?|リスク因子|incidence|発生|mortality|死亡/.test(normalizedSpan) ? 25 : 0) +
+        (numericFinding ? 120 : 0) +
+        (/透析|dialysis|renal replacement/.test(normalizedFinding) ? 40 : 0) -
+        spanIndex * 0.001;
+      return { item, span, numericFinding, score: sourceScore + spanScore };
+    });
+    return spans.length > 0 ? spans : [{ item, span: item.displayForFamily, numericFinding: extractRenalDialysisNumericFinding(item.displayForFamily), score: sourceScore }];
+  });
+
+  const best = candidates.sort((a, b) => b.score - a.score)[0];
+  if (!best || best.score < 80) return undefined;
+
+  const supportingSpan = best.numericFinding ?? best.span;
+  const body = translateRenalDialysisFindingForFamily(supportingSpan);
+  const citation = makeCitationLabel(best.item);
+  const answer = `${body}\n根拠論文: ${citation}\n引用箇所: “${supportingSpan}”`;
+  return { answer: answer.length <= 520 ? answer : `${answer.slice(0, 517)}...`, source: best.item, span: supportingSpan };
+}
+
 function summarizeStrokeRiskFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
   if (!isStrokeRiskQuestion(question)) return undefined;
 
@@ -1131,7 +1238,7 @@ function splitEvidenceSpans(item: EvidenceCard): string[] {
   ].filter(Boolean) as string[];
 
   return textParts
-    .flatMap((part) => part.split(/(?<=[。.!?？])\s*/))
+    .flatMap((part) => part.split(/(?<=[。!?？])\s*|(?<=[.!?])\s+(?=[A-Z])/))
     .map((part) => part.replace(/\s+/g, " ").trim())
     .filter((part, index, parts) => part.length >= 8 && parts.indexOf(part) === index);
 }
@@ -1278,6 +1385,9 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
   const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
   if (strokeRisk) return strokeRisk.answer;
 
+  const renalDialysisRisk = summarizeRenalDialysisRiskFromEvidence(question, evidence);
+  if (renalDialysisRisk) return renalDialysisRisk.answer;
+
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return numericRisk.answer;
 
@@ -1314,6 +1424,9 @@ function getAnswerEvidence(question: string, evidence: EvidenceCard[]): Evidence
 
   const strokeRisk = summarizeStrokeRiskFromEvidence(question, evidence);
   if (strokeRisk) return [strokeRisk.source];
+
+  const renalDialysisRisk = summarizeRenalDialysisRiskFromEvidence(question, evidence);
+  if (renalDialysisRisk) return [renalDialysisRisk.source];
 
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return [numericRisk.source];
@@ -1481,8 +1594,12 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
   }
 
   const evidenceById = new Map(verifiedSpans.map((item) => [item.evidence.evidenceId, item.evidence]));
+  const primarySpan = verifiedSpans[0];
+  const answer = primarySpan
+    ? makeAnswerWithCitation(answerFromSupportingSpans(verifiedSpans), primarySpan.evidence, primarySpan.text)
+    : answerFromSupportingSpans(verifiedSpans);
   return {
-    answer: answerFromSupportingSpans(verifiedSpans),
+    answer,
     safetyLabel: extraction.confidence === "low" ? "doctor-review" : "general",
     requiresDoctorReview: extraction.confidence === "low",
     retrievalMode: "physician-curated-only",
@@ -1569,14 +1686,32 @@ export function synthesizeEvidenceBoundQA(
   }
 
   const answerEvidence = getAnswerEvidence(question, relevantEvidence);
+  const renalDialysisRisk = summarizeRenalDialysisRiskFromEvidence(question, answerEvidence);
+  const primaryAnswerSource = renalDialysisRisk?.source ?? answerEvidence[0];
+  const primaryCitationSpan = renalDialysisRisk?.span ?? (primaryAnswerSource ? selectBestCitationSpanForQuestion(question, primaryAnswerSource) : undefined);
+  const baseAnswer = renalDialysisRisk?.answer ?? summarizeFromEvidence(question, answerEvidence);
+  const shouldAppendCitation =
+    isNumericRiskQuestion(question) ||
+    isStrokeRiskQuestion(question) ||
+    isRenalDialysisRiskQuestion(question) ||
+    isComparativeQuestion(question) ||
+    isLongTermPrognosisQuestion(question) ||
+    isSexDifferenceQuestion(question);
+  const answer = shouldAppendCitation && primaryAnswerSource && primaryCitationSpan
+    ? makeAnswerWithCitation(baseAnswer, primaryAnswerSource, primaryCitationSpan)
+    : baseAnswer;
+  const supportingSpans = shouldAppendCitation && primaryAnswerSource && primaryCitationSpan
+    ? [{ evidenceId: primaryAnswerSource.evidenceId, text: primaryCitationSpan }]
+    : undefined;
 
   return {
-    answer: summarizeFromEvidence(question, answerEvidence),
+    answer,
     safetyLabel: "general",
     requiresDoctorReview: false,
     retrievalMode: "physician-curated-only",
     evidenceReferences: answerEvidence.map((item) => item.evidenceId),
     retrievedEvidence: answerEvidence,
+    supportingSpans,
   };
 }
 
