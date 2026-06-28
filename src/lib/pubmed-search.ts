@@ -311,7 +311,10 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     const hasRespiratory = /\bards\b|acute respiratory distress syndrome|respiratory failure|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
     const respiratoryOnlyAsCompositeEndpoint = /composite outcome[^.]{0,160}respiratory failure/i.test(combined)
       && !/\bards\b|acute respiratory distress syndrome|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
-    if (!hasRespiratory || respiratoryOnlyAsCompositeEndpoint) return Number.NEGATIVE_INFINITY;
+    const broadPandemicSurgeryOutcome = /covid|pandemic|sars-cov-2/.test(title)
+      && /mortality|morbidit|composite incidence|before versus during|during-pandemic|published cases/.test(combined)
+      && !/\bards\b|acute respiratory distress syndrome|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
+    if (!hasRespiratory || respiratoryOnlyAsCompositeEndpoint || broadPandemicSurgeryOutcome) return Number.NEGATIVE_INFINITY;
     if (/\bards\b|acute respiratory distress syndrome/.test(title)) score += 14;
     else if (/postoperative pulmonary complication|pulmonary complication|respiratory failure|acute lung injury|oxygenation impairment/.test(title)) score += 11;
     else if (/respiratory|pulmonary|lung/.test(title)) score += 6;
