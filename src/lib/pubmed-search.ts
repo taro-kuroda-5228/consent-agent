@@ -59,6 +59,11 @@ export function buildPubMedNaturalLanguageSearch(query: string): PubMedSearchPla
     tags.push("mesenteric-ischemia", "visceral-malperfusion");
     explanations.push("腸管虚血/腸間膜malperfusion");
   }
+  if (/ards|acute respiratory distress|急性呼吸窮迫|呼吸窮迫|呼吸不全|肺障害|肺合併症|oxygenation|oxygenation impairment|respiratory failure|pulmonary complication|lung injury/.test(normalized)) {
+    conceptTerms.push('(ARDS[Title/Abstract] OR acute respiratory distress syndrome[Title/Abstract] OR respiratory failure[Title/Abstract] OR pulmonary complication[Title/Abstract] OR postoperative pulmonary complication[Title/Abstract] OR acute lung injury[Title/Abstract] OR oxygenation impairment[Title/Abstract])');
+    tags.push("ards", "respiratory-complication");
+    explanations.push("ARDS/呼吸不全・肺合併症");
+  }
   if (/脳梗塞|脳卒中|stroke/.test(normalized)) {
     conceptTerms.push('(stroke[Title/Abstract] OR neurologic[Title/Abstract] OR neurological[Title/Abstract])');
     tags.push("stroke", "neurologic-dysfunction");
@@ -125,7 +130,7 @@ function extractKeyFindings(abstractText: string): string[] {
     .map((sentence) => sentence.trim().replace(/^\.\s*/, ""))
     .filter((sentence, index, all) => sentence.length >= 20 && all.indexOf(sentence) === index);
   const numericOutcome = sentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b/i.test(sentence));
-  const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|risk|outcome|mesenteric|bowel|intestinal|visceral|ischemia|malperfusion|revascularization|necrotic/i.test(sentence));
+  const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|risk|outcome|mesenteric|bowel|intestinal|visceral|ischemia|malperfusion|revascularization|necrotic|\bARDS\b|acute respiratory distress|respiratory failure|pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/i.test(sentence));
   return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...sentences]))
     .map(compactFindingForMobile)
     .filter(Boolean)
@@ -159,6 +164,7 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
   const sourceText = `${article.title} ${article.abstractText} ${joined}`;
   const asksRenal = context.outcomeTags.some((tag) => tag === "renal-failure" || tag === "dialysis");
   const asksMesenteric = context.outcomeTags.some((tag) => tag === "mesenteric-ischemia" || tag === "visceral-malperfusion");
+  const asksArds = context.outcomeTags.some((tag) => tag === "ards" || tag === "respiratory-complication");
   const akiPercent = joined.match(/(?:postoperative\s+)?AKI\s+(?:was\s+)?(\d+(?:\.\d+)?%)|incidence of postoperative AKI was (\d+(?:\.\d+)?%)/i);
   const dialysisPercent = joined.match(/dialysis[^.]{0,80}?(\d+(?:\.\d+)?%)|(\d+(?:\.\d+)?%)[^.]{0,80}?dialysis/i);
   const mortality = /mortality/i.test(sourceText);
@@ -210,6 +216,34 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
     }
   }
 
+
+
+  if (asksArds) {
+    const ardsIncidence = sourceText.match(/(?:incidence of (?:postoperative )?ARDS|ARDS (?:occurred|incidence)|acute respiratory distress syndrome \(ARDS\)[^.]{0,80}?)(?:[^.]{0,80}?)(\d+(?:\.\d+)?%)/i)?.[1]
+      || sourceText.match(/(\d+(?:\.\d+)?%)[^.]{0,80}?(?:ARDS|acute respiratory distress syndrome)/i)?.[1];
+    const ppcIncidence = sourceText.match(/(?:incidence of PPCs?|incidence of postoperative pulmonary complications?|postoperative pulmonary complications?[^.]{0,80}?)(?:[^.]{0,80}?)(\d+(?:\.\d+)?%)/i)?.[1]
+      || sourceText.match(/(\d+(?:\.\d+)?%)[^.]{0,80}?(?:PPCs?|postoperative pulmonary complications?)/i)?.[1];
+    const riskLabels: string[] = [];
+    if (/inflammatory|C-reactive protein|CRP|neutrophil|interleukin|cytokine/i.test(sourceText)) riskLabels.push("炎症反応");
+    if (/oxygenation impairment|oxygenation index|PaO2|FiO2/i.test(sourceText)) riskLabels.push("酸素化障害");
+    if (/transfusion|blood transfusion|pRBC/i.test(sourceText)) riskLabels.push("輸血");
+    if (/cardiopulmonary bypass|\bCPB\b|circulatory arrest/i.test(sourceText)) riskLabels.push("CPB/循環停止");
+    if (/mechanical ventilation|ventilation time/i.test(sourceText)) riskLabels.push("人工呼吸管理");
+    if (/predictive model|nomogram|validation/i.test(sourceText)) {
+      return `TAAD術後ARDSの予測モデル研究。${ardsIncidence ? `ARDS ${ardsIncidence}。` : ""}${riskLabels.length ? `候補因子: ${riskLabels.slice(0, 4).join("・")}。` : "術前/周術期因子で早期予測。"}`;
+    }
+    if (/postoperative pulmonary complications?|\bPPCs?\b/i.test(sourceText) && ppcIncidence) {
+      return `ATAAD術後肺合併症は${ppcIncidence}。${riskLabels.length ? `リスク因子候補: ${riskLabels.slice(0, 4).join("・")}。` : "ARDS/呼吸不全を含む術後管理の根拠候補。"}`;
+    }
+    if (/acute lung injury|oxygenation impairment/i.test(sourceText)) {
+      return "AADでは術前からALI/酸素化障害を合併し得る。炎症反応を背景に人工呼吸・術後回復へ影響する根拠候補。";
+    }
+    if (/acute respiratory distress syndrome|\bARDS\b/i.test(sourceText)) {
+      return `大動脈解離にARDSを合併すると周術期リスクと術後回復へ影響。${ardsIncidence ? `報告頻度${ardsIncidence}。` : "病態・予測因子確認用。"}`;
+    }
+    const compact = compactFindingForMobile(keyFindings.find((finding) => /ARDS|respiratory|pulmonary|lung injury|oxygenation/i.test(finding)) || keyFindings[0] || article.title).replace(/\.$/, "");
+    return compact.length <= 130 ? `要点: ${compact}。` : `要点: ${compact.slice(0, 126).trim()}…`;
+  }
   const incidence = akiPercent?.[1] || akiPercent?.[2] || dialysisPercent?.[1] || dialysisPercent?.[2];
   if (asksRenal && incidence) {
     const outcome = akiPercent ? "術後AKI" : "術後透析";
@@ -242,6 +276,7 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
   const asksAorticDissection = /大動脈解離|aortic dissection|dissection/i.test(context.originalQuery);
   const asksRenal = context.outcomeTags.some((tag) => tag === "renal-failure" || tag === "dialysis");
   const asksMesenteric = context.outcomeTags.some((tag) => tag === "mesenteric-ischemia" || tag === "visceral-malperfusion");
+  const asksArds = context.outcomeTags.some((tag) => tag === "ards" || tag === "respiratory-complication");
   const asksStroke = context.outcomeTags.some((tag) => tag === "stroke" || tag === "neurologic-dysfunction");
   const asksMortality = context.outcomeTags.includes("mortality");
   const asksBleeding = context.outcomeTags.some((tag) => tag === "bleeding" || tag === "reoperation");
@@ -268,6 +303,18 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     else score += 2;
     if (/mesenteric malperfusion|visceral malperfusion/.test(combined)) score += 3;
     if (/mortality|odds ratio|\bOR\b|multi-organ failure|revascularization|necrotic intestine/.test(combined)) score += 3;
+  }
+  if (asksArds) {
+    const titleFocusesOtherOutcome = /stroke|renal|kidney|mesenteric|visceral|lower limb|bleeding|mortality in acute|octogenarian/.test(title)
+      && !/ards|acute respiratory distress|respiratory|pulmonary|lung injury|oxygenation/.test(title);
+    if (titleFocusesOtherOutcome) return Number.NEGATIVE_INFINITY;
+    const hasRespiratory = /\bards\b|acute respiratory distress syndrome|respiratory failure|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
+    if (!hasRespiratory) return Number.NEGATIVE_INFINITY;
+    if (/\bards\b|acute respiratory distress syndrome/.test(title)) score += 14;
+    else if (/postoperative pulmonary complication|pulmonary complication|respiratory failure|acute lung injury|oxygenation impairment/.test(title)) score += 11;
+    else if (/respiratory|pulmonary|lung/.test(title)) score += 6;
+    else score += 2;
+    if (/risk factor|predictive model|nomogram|incidence|outcome|mechanical ventilation|oxygenation/.test(combined)) score += 4;
   }
   if (asksStroke) {
     const hasStroke = /stroke|neurologic|neurological|cerebral/.test(combined);
