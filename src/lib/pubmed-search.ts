@@ -305,7 +305,7 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     if (/mortality|odds ratio|\bOR\b|multi-organ failure|revascularization|necrotic intestine/.test(combined)) score += 3;
   }
   if (asksArds) {
-    const titleFocusesOtherOutcome = /stroke|renal|kidney|mesenteric|visceral|lower limb|bleeding|mortality in acute|octogenarian/.test(title)
+    const titleFocusesOtherOutcome = /stroke|renal|kidney|mesenteric|visceral|lower limb|bleeding|mortality in acute|death|prehospital death|ct finding|octogenarian/.test(title)
       && !/ards|acute respiratory distress|respiratory|pulmonary|lung injury|oxygenation/.test(title);
     if (titleFocusesOtherOutcome) return Number.NEGATIVE_INFINITY;
     const hasRespiratory = /\bards\b|acute respiratory distress syndrome|respiratory failure|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
