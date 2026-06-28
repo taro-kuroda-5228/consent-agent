@@ -50,6 +50,55 @@ describe("PubMed natural-language evidence search", () => {
     expect(plan.outcomeTags).toEqual(expect.arrayContaining(["mesenteric-ischemia", "visceral-malperfusion"]));
   });
 
+  it("expands postoperative ARDS queries into respiratory complication terms", () => {
+    const plan = buildPubMedNaturalLanguageSearch("大動脈解離術後ARDSのリスク");
+
+    expect(plan.pubmedTerm).toContain("aortic dissection");
+    expect(plan.pubmedTerm).toContain("ARDS");
+    expect(plan.pubmedTerm).toContain("acute respiratory distress syndrome");
+    expect(plan.pubmedTerm).toContain("postoperative pulmonary complication");
+    expect(plan.explainForDoctor).toContain("ARDS");
+    expect(plan.outcomeTags).toEqual(expect.arrayContaining(["ards", "respiratory-complication"]));
+  });
+
+  it("ranks directly answer-bearing postoperative ARDS papers and summarizes clinical risk", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "weak-stroke",
+        title: "Postoperative stroke in acute type A aortic dissection: incidence, outcomes, and perioperative risk factors.",
+        abstractText: "Postoperative stroke occurred in 13.6% of patients and was associated with significant extension of dissection.",
+        journal: "Aorta",
+        year: "2025",
+        authors: [],
+      },
+      {
+        pmid: "41388298",
+        title: "Development and validation of a predictive model for postoperative acute respiratory distress syndrome in patients with type A aortic dissection based on the 2023 updated definition.",
+        abstractText: "Acute respiratory distress syndrome (ARDS) is a common complication after type A aortic dissection surgery and often leads to worsened clinical outcomes for patients. A retrospective analysis was conducted on the clinical data of 423 patients who were diagnosed with type A aortic dissection and who underwent surgery. The predictive model included oxygenation impairment, inflammatory markers, cardiopulmonary bypass time, and blood transfusion.",
+        journal: "Journal of cardiothoracic surgery",
+        year: "2025",
+        authors: ["Li X"],
+      },
+      {
+        pmid: "37773789",
+        title: "Postoperative pulmonary complications in patients undergoing aortic surgery: A single-center retrospective study.",
+        abstractText: "Postoperative pulmonary complications (PPCs) are among the most common complications after cardiovascular surgery. This study aimed to explore the real incidence of and risk factors for PPC in patients with acute type A aortic dissection (ATAAD) who underwent total aortic arch replacement combined with frozen elephant trunk. The incidence of PPCs was 32.8%. Risk factors included mechanical ventilation time, transfusion, and cardiopulmonary bypass.",
+        journal: "Frontiers",
+        year: "2023",
+        authors: ["Chen Y"],
+      },
+    ], { originalQuery: "大動脈解離術後ARDSのリスク", outcomeTags: ["ards", "respiratory-complication"] });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-41388298", "PUBMED-37773789"]);
+    expect(cards[0].clinicianSummary).toContain("TAAD術後ARDS");
+    expect(cards[0].clinicianSummary).toContain("予測モデル");
+    expect(cards[0].clinicianSummary).toMatch(/酸素化障害|炎症反応|CPB|輸血/);
+    expect(cards[0].clinicianSummary).not.toMatch(/stroke|脳卒中/i);
+    expect(cards[1].clinicianSummary).toContain("術後肺合併症");
+    expect(cards[1].clinicianSummary).toContain("32.8%");
+    expect(cards.every((card) => (card.clinicianSummary?.length ?? 0) <= 150)).toBe(true);
+  });
+
   it("turns PubMed XML results into physician-reviewable evidence cards", () => {
     const articles = parsePubMedEFetchXml(dialysisXml);
     const cards = convertPubMedArticlesToEvidenceCards(articles, {
