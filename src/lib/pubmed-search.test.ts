@@ -72,6 +72,14 @@ describe("PubMed natural-language evidence search", () => {
         authors: [],
       },
       {
+        pmid: "weak-composite",
+        title: "Effects of dexmedetomidine on surgery for type A acute aortic dissection outcome.",
+        abstractText: "The in-hospital mortality and composite outcome including all-cause mortality, acute kidney injury, delirium, postoperative atrial fibrillation, and respiratory failure, were considered primary outcomes. The risk of Acute Kidney Injury Network stage 3 acute kidney injury was significantly lower in the dexmedetomidine group.",
+        journal: "Medicine",
+        year: "2022",
+        authors: [],
+      },
+      {
         pmid: "41388298",
         title: "Development and validation of a predictive model for postoperative acute respiratory distress syndrome in patients with type A aortic dissection based on the 2023 updated definition.",
         abstractText: "Acute respiratory distress syndrome (ARDS) is a common complication after type A aortic dissection surgery and often leads to worsened clinical outcomes for patients. A retrospective analysis was conducted on the clinical data of 423 patients who were diagnosed with type A aortic dissection and who underwent surgery. The predictive model included oxygenation impairment, inflammatory markers, cardiopulmonary bypass time, and blood transfusion.",
