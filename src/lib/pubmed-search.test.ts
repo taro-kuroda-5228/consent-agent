@@ -96,6 +96,14 @@ describe("PubMed natural-language evidence search", () => {
         authors: [],
       },
       {
+        pmid: "weak-general-reoperation",
+        title: "Aortic dissection after previous cardiovascular surgery.",
+        abstractText: "This study assesses early and late outcomes of reoperations. Hospital mortality was 6%, stroke 4%, renal failure 2%, and respiratory failure 7%. Aortic dissection after cardiovascular surgery is rare and can be managed with acceptable operative risks.",
+        journal: "Journal of thoracic and cardiovascular surgery",
+        year: "2004",
+        authors: [],
+      },
+      {
         pmid: "41388298",
         title: "Development and validation of a predictive model for postoperative acute respiratory distress syndrome in patients with type A aortic dissection based on the 2023 updated definition.",
         abstractText: "Acute respiratory distress syndrome (ARDS) is a common complication after type A aortic dissection surgery and often leads to worsened clinical outcomes for patients. A retrospective analysis was conducted on the clinical data of 423 patients who were diagnosed with type A aortic dissection and who underwent surgery. The predictive model included oxygenation impairment, inflammatory markers, cardiopulmonary bypass time, and blood transfusion.",
