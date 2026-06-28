@@ -88,6 +88,14 @@ describe("PubMed natural-language evidence search", () => {
         authors: [],
       },
       {
+        pmid: "weak-prehospital-death",
+        title: "CT findings of type A acute aortic dissection that did and did not result in prehospital death.",
+        abstractText: "The patients were divided into those that did and did not suffer prehospital death. Bloody pericardial effusion and lung consolidation were significant risk factors for prehospital death. Secondary respiratory failure might contribute to prehospital death in such cases.",
+        journal: "Medicine",
+        year: "2022",
+        authors: [],
+      },
+      {
         pmid: "41388298",
         title: "Development and validation of a predictive model for postoperative acute respiratory distress syndrome in patients with type A aortic dissection based on the 2023 updated definition.",
         abstractText: "Acute respiratory distress syndrome (ARDS) is a common complication after type A aortic dissection surgery and often leads to worsened clinical outcomes for patients. A retrospective analysis was conducted on the clinical data of 423 patients who were diagnosed with type A aortic dissection and who underwent surgery. The predictive model included oxygenation impairment, inflammatory markers, cardiopulmonary bypass time, and blood transfusion.",
