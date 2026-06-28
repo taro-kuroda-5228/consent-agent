@@ -80,6 +80,14 @@ describe("PubMed natural-language evidence search", () => {
         authors: [],
       },
       {
+        pmid: "weak-covid-pandemic",
+        title: "Acute type A aortic dissection patients undergoing surgical repair during the COVID-19 pandemic.",
+        abstractText: "Meta-analysis showed that either the composite incidence of mortality and morbidities or individual morbidity was comparable between two groups, except that more patients developed pneumonia. Literature reviews of published cases reported hypoxia, endotracheal re-intubation, respiratory failure, renal failure, coagulopathy, multi-organ failure and shock. ATAAD patients with concomitant COVID-19 infection had a high risk of mortality and morbidities.",
+        journal: "Medicine",
+        year: "2025",
+        authors: [],
+      },
+      {
         pmid: "41388298",
         title: "Development and validation of a predictive model for postoperative acute respiratory distress syndrome in patients with type A aortic dissection based on the 2023 updated definition.",
         abstractText: "Acute respiratory distress syndrome (ARDS) is a common complication after type A aortic dissection surgery and often leads to worsened clinical outcomes for patients. A retrospective analysis was conducted on the clinical data of 423 patients who were diagnosed with type A aortic dissection and who underwent surgery. The predictive model included oxygenation impairment, inflammatory markers, cardiopulmonary bypass time, and blood transfusion.",
