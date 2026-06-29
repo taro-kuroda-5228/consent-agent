@@ -459,6 +459,37 @@ describe("consent demo utilities", () => {
     expect(result.supportingSpans?.[0]?.text).toContain("Mesenteric malperfusion");
   });
 
+  it("uses generic selected-source RAG to quote non-numeric clinical statements without using model prior knowledge", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Mesenteric malperfusion clinical consequences in acute type A dissection",
+      fileName: "mesenteric-malperfusion-consequences.pdf",
+      extractedText:
+        "Mesenteric malperfusion was associated with persistent metabolic acidosis and the need for bowel resection after acute type A dissection repair. The paper did not evaluate renal replacement therapy.",
+      keyFindings: [
+        "Mesenteric malperfusion was associated with persistent metabolic acidosis and the need for bowel resection after acute type A dissection repair.",
+      ],
+      outcomeTags: ["organ-malperfusion"],
+    });
+
+    const result = synthesizeEvidenceBoundQA("腸管虚血では何が問題になりますか？", {
+      diagnosis: "急性A型大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["腸管虚血"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("persistent metabolic acidosis");
+    expect(result.answer).toContain("bowel resection");
+    expect(result.answer).not.toContain("renal replacement therapy");
+    expect(result.answer).toContain("根拠論文");
+    expect(result.answer).toContain("引用箇所");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.supportingSpans?.[0]?.text).toContain("Mesenteric malperfusion");
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("keeps a safe deterministic fallback for family wording like head fog when selected evidence contains delirium", () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "Unknown postoperative neurocognitive cohort",

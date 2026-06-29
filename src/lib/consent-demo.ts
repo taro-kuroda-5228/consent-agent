@@ -743,6 +743,7 @@ const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResul
 ];
 
 const GENERIC_MEDICAL_CONCEPT_TERMS: string[][] = [
+  ["腸管虚血", "腸管", "腸管灌流", "腸管血流", "mesenteric", "mesenteric malperfusion", "bowel", "bowel ischemia", "ischemia", "intestinal ischemia"],
   ["認知機能", "認知", "もの忘れ", "記憶", "cognitive", "cognition", "cognitive dysfunction", "postoperative cognitive dysfunction", "neurocognitive", "cognitive-dysfunction"],
   ["せん妄", "意識混乱", "混乱", "頭がぼーっと", "ぼーっと", "delirium", "confusion"],
   ["退院", "退院時", "退院後", "discharge", "at discharge", "post-discharge", "after discharge"],
@@ -1375,6 +1376,42 @@ function summarizeGenericSourceBoundedRiskFromEvidence(question: string, evidenc
   };
 }
 
+function isGenericSourceBoundedFallbackQuestion(question: string): boolean {
+  return (
+    (expandGenericMedicalTerms(question).length > 0 || isRiskOrProbabilityQuestion(question)) &&
+    !isNumericRiskQuestion(question) &&
+    !isStrokeRiskQuestion(question) &&
+    !isRenalDialysisRiskQuestion(question) &&
+    !isComparativeQuestion(question) &&
+    !isLongTermPrognosisQuestion(question) &&
+    !isEmergencySurgeryNeedQuestion(question) &&
+    !isDiseaseDefinitionQuestion(question) &&
+    !isSexDifferenceQuestion(question)
+  );
+}
+
+function summarizeGenericSourceBoundedStatementFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
+  if (!isGenericSourceBoundedFallbackQuestion(question)) return undefined;
+  const candidates = evidence.flatMap((item, evidenceIndex) => {
+    const sourcePriority = item.origin === "facility-document" || item.origin === "physician-upload" ? 10 : 0;
+    return splitEvidenceSpans(item).map((span, spanIndex) => {
+      const clinicalSignal = /associated|association|occurred|reported|observed|need for|required|linked|risk|outcome|complication|malperfusion|ischemia|bowel|mesenteric|resection|acidosis|関連|伴|必要|発生|認め|リスク|合併|虚血|腸管|切除/i.test(span);
+      const score = scoreSpanForQuestion(question, span, sourcePriority) + (clinicalSignal ? 18 : 0) - evidenceIndex * 0.01 - spanIndex * 0.001;
+      return { item, span, score, clinicalSignal };
+    });
+  });
+
+  const best = candidates
+    .filter((candidate) => candidate.clinicalSignal && candidate.score >= 28)
+    .sort((a, b) => b.score - a.score)[0];
+
+  if (!best) return undefined;
+
+  const answerSpan = cleanFamilyAnswerSpan(best.span);
+  const answer = `${answerSpan}${answerSpan.endsWith("。") ? "" : "。"}`;
+  return { answer: answer.length <= 240 ? answer : `${answer.slice(0, 237)}...`, source: best.item, span: best.span };
+}
+
 function summarizeNumericRiskFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
   if (!isNumericRiskQuestion(question)) return undefined;
 
@@ -1428,6 +1465,9 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return numericRisk.answer;
 
+  const genericStatement = summarizeGenericSourceBoundedStatementFromEvidence(question, evidence);
+  if (genericStatement) return genericStatement.answer;
+
   if (isLongTermPrognosisQuestion(question)) {
     const longTerm = summarizeLongTermPrognosisFromEvidence(evidence);
     if (longTerm) return longTerm.answer;
@@ -1467,6 +1507,9 @@ function getAnswerEvidence(question: string, evidence: EvidenceCard[]): Evidence
 
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return [numericRisk.source];
+
+  const genericStatement = summarizeGenericSourceBoundedStatementFromEvidence(question, evidence);
+  if (genericStatement) return [genericStatement.source];
 
   if (isLongTermPrognosisQuestion(question)) {
     const longTerm = summarizeLongTermPrognosisFromEvidence(evidence);
@@ -1701,7 +1744,7 @@ export function synthesizeEvidenceBoundQA(
   );
 
   if (relevantEvidence.length === 0) {
-    const genericRisk = matchedPolicy ? undefined : summarizeGenericSourceBoundedRiskFromEvidence(question, context.selectedEvidence);
+    const genericRisk = matchedPolicy || !isGenericSourceBoundedFallbackQuestion(question) ? undefined : summarizeGenericSourceBoundedRiskFromEvidence(question, context.selectedEvidence);
     if (genericRisk) {
       return {
         answer: genericRisk.answer,
@@ -1711,6 +1754,18 @@ export function synthesizeEvidenceBoundQA(
         evidenceReferences: [genericRisk.source.evidenceId],
         retrievedEvidence: [genericRisk.source],
         supportingSpans: [{ evidenceId: genericRisk.source.evidenceId, text: genericRisk.span }],
+      };
+    }
+    const genericStatement = matchedPolicy ? undefined : summarizeGenericSourceBoundedStatementFromEvidence(question, context.selectedEvidence);
+    if (genericStatement) {
+      return {
+        answer: makeAnswerWithCitation(genericStatement.answer, genericStatement.source, genericStatement.span),
+        safetyLabel: "general",
+        requiresDoctorReview: false,
+        retrievalMode: "physician-curated-only",
+        evidenceReferences: [genericStatement.source.evidenceId],
+        retrievedEvidence: [genericStatement.source],
+        supportingSpans: [{ evidenceId: genericStatement.source.evidenceId, text: genericStatement.span }],
       };
     }
     return {
@@ -1736,10 +1791,14 @@ export function synthesizeEvidenceBoundQA(
 
   const answerEvidence = getAnswerEvidence(question, relevantEvidence);
   const renalDialysisRisk = summarizeRenalDialysisRiskFromEvidence(question, answerEvidence);
-  const primaryAnswerSource = renalDialysisRisk?.source ?? answerEvidence[0];
-  const primaryCitationSpan = renalDialysisRisk?.span ?? (primaryAnswerSource ? selectBestCitationSpanForQuestion(question, primaryAnswerSource) : undefined);
-  const baseAnswer = renalDialysisRisk?.answer ?? summarizeFromEvidence(question, answerEvidence);
+  const genericRisk = renalDialysisRisk || !isGenericSourceBoundedFallbackQuestion(question) ? undefined : summarizeGenericSourceBoundedRiskFromEvidence(question, answerEvidence);
+  const genericStatement = renalDialysisRisk || genericRisk ? undefined : summarizeGenericSourceBoundedStatementFromEvidence(question, answerEvidence);
+  const primaryAnswerSource = renalDialysisRisk?.source ?? genericRisk?.source ?? genericStatement?.source ?? answerEvidence[0];
+  const primaryCitationSpan = renalDialysisRisk?.span ?? genericRisk?.span ?? genericStatement?.span ?? (primaryAnswerSource ? selectBestCitationSpanForQuestion(question, primaryAnswerSource) : undefined);
+  const baseAnswer = renalDialysisRisk?.answer ?? genericRisk?.answer ?? genericStatement?.answer ?? summarizeFromEvidence(question, answerEvidence);
   const shouldAppendCitation =
+    Boolean(genericRisk) ||
+    Boolean(genericStatement) ||
     isNumericRiskQuestion(question) ||
     isStrokeRiskQuestion(question) ||
     isRenalDialysisRiskQuestion(question) ||
