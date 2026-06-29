@@ -1243,6 +1243,11 @@ function splitEvidenceSpans(item: EvidenceCard): string[] {
     .filter((part, index, parts) => part.length >= 8 && parts.indexOf(part) === index);
 }
 
+function isRiskOrProbabilityQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  return /リスク|危険|可能性|起こ|どれくらい|どのくらい|頻度|発生|発生率|確率|割合|何%|何％|%|％|risk|probability|frequency|incidence|rate|occur/.test(normalized);
+}
+
 function isNumericRiskQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
   if (isBroadComplicationProbabilityQuestion(question)) return true;
@@ -1336,6 +1341,38 @@ function summarizeBroadComplicationRatesFromEvidence(question: string, evidence:
   const joined = selected.map((candidate) => candidate.clause).join("、");
   const answer = `選択済み参考資料では、${joined}と記載されています。`;
   return { answer: answer.length <= 300 ? answer : `${answer.slice(0, 297)}...`, source: firstSource };
+}
+
+function summarizeGenericSourceBoundedRiskFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
+  if (!isRiskOrProbabilityQuestion(question)) return undefined;
+  if (evidence.length !== 1) return undefined;
+
+  const source = evidence[0];
+  const candidateSpans = splitEvidenceSpans(source)
+    .map((span, index) => {
+      const numeric = containsNumericRisk(span) || /odds ratio|risk ratio|\bOR\b|\bRR\b|confidence interval|95\s*%\s*CI/i.test(span);
+      const outcome = /risk|mortality|death|outcome|complication|incidence|occurred|associated|odds ratio|risk ratio|malperfusion|ischemia|灌流|虚血|死亡|発生|合併/i.test(span);
+      const score = (numeric ? 100 : 0) + (outcome ? 60 : 0) - index * 0.01;
+      return { span, score };
+    })
+    .filter((candidate) => candidate.score >= 120)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2);
+
+  if (candidateSpans.length === 0) return undefined;
+
+  const joined = candidateSpans.map((candidate) => cleanFamilyAnswerSpan(candidate.span)).join(" ");
+  const readable = joined
+    .replace(/odds ratio,?\s*/gi, "OR ")
+    .replace(/95\s*%\s*CI/gi, "95%信頼区間");
+  const answer = `${readable}${readable.endsWith("。") ? "" : "。"}`;
+  const citation = makeCitationLabel(source);
+  const citationSpan = candidateSpans.map((candidate) => candidate.span).join(" ");
+  return {
+    answer: `${answer}\n根拠論文: ${citation}\n引用箇所: “${citationSpan}”`,
+    source,
+    span: citationSpan,
+  };
 }
 
 function summarizeNumericRiskFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard } | undefined {
@@ -1664,6 +1701,18 @@ export function synthesizeEvidenceBoundQA(
   );
 
   if (relevantEvidence.length === 0) {
+    const genericRisk = summarizeGenericSourceBoundedRiskFromEvidence(question, context.selectedEvidence);
+    if (genericRisk) {
+      return {
+        answer: genericRisk.answer,
+        safetyLabel: "general",
+        requiresDoctorReview: false,
+        retrievalMode: "physician-curated-only",
+        evidenceReferences: [genericRisk.source.evidenceId],
+        retrievedEvidence: [genericRisk.source],
+        supportingSpans: [{ evidenceId: genericRisk.source.evidenceId, text: genericRisk.span }],
+      };
+    }
     return {
       answer: "選択済み参考資料内には、この質問に直接答えられる記載が見つかりません。",
       safetyLabel: matchedPolicy?.safetyLabel ?? "doctor-review",

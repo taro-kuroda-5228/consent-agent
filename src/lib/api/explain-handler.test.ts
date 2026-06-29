@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { handleExplainRequest } from './explain-handler';
 import { handleQaRequest } from './qa-handler';
 import { InMemoryConsentSessionRepository, resetInMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
-import type { EvidenceCard } from '../consent-demo';
+import { createPhysicianUploadedEvidence, type EvidenceCard } from '../consent-demo';
 
 describe('explain and qa handlers persistence', () => {
   beforeEach(() => resetInMemoryConsentSessionRepository());
@@ -30,6 +30,40 @@ describe('explain and qa handlers persistence', () => {
     expect(qa.body.evidenceReferences).toContain('AAD-004');
     const summary = await repo.getSessionSummary(sessionId);
     expect(summary?.events.map(e => e.eventType)).toContain('qa_answered');
+  });
+
+  it('answers persisted physician-selected evidence through source-bounded Q&A when Japanese wording differs from the English source terms', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const session = await repo.createSession({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術' });
+    const uploaded = createPhysicianUploadedEvidence({
+      title: 'Mesenteric malperfusion in acute type A aortic dissection',
+      fileName: 'mesenteric-malperfusion.pdf',
+      extractedText:
+        'Preoperative malperfusion occurred in 27.7% of cases. Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).',
+      keyFindings: [
+        'Preoperative malperfusion occurred in 27.7% of cases.',
+        'Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).',
+      ],
+      outcomeTags: ['organ-malperfusion'],
+    });
+    await repo.saveSelectedEvidence({ sessionId: session.id, selectedEvidence: [uploaded] });
+
+    const qa = await handleQaRequest({
+      sessionId: session.id,
+      question: '腸管虚血のリスクは？',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      risks: ['腸管虚血'],
+    }, repo);
+
+    expect(qa.status).toBe(200);
+    if ('error' in qa.body) throw new Error(qa.body.error);
+    expect(qa.body.metadata.selectedEvidenceSource).toBe('database');
+    expect(qa.body.answer).not.toContain('直接答えられる記載が見つかりません');
+    expect(qa.body.answer).toContain('27.7%');
+    expect(qa.body.answer).toContain('OR 1.82');
+    expect(qa.body.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(qa.body.supportingSpans?.[0]?.text).toContain('Mesenteric malperfusion');
   });
 
   it('does not let request-supplied PubMed evidence override persisted physician-selected session evidence', async () => {
