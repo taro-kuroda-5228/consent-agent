@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPubMedNaturalLanguageSearch,
   convertPubMedArticlesToEvidenceCards,
+  parseClinicalQuery,
   parsePubMedEFetchXml,
 } from "./pubmed-search";
 
@@ -27,6 +28,26 @@ const dialysisXml = `<?xml version="1.0"?>
 </PubmedArticleSet>`;
 
 describe("PubMed natural-language evidence search", () => {
+  it("structures natural-language clinical questions without hard-coding a disease-specific mode", () => {
+    const clinicalQuery = parseClinicalQuery("大動脈解離術後ARDSのリスク");
+
+    expect(clinicalQuery.conditionConcepts).toEqual(expect.arrayContaining(["acute aortic dissection"]));
+    expect(clinicalQuery.outcomeConcepts).toEqual(expect.arrayContaining(["acute respiratory distress syndrome"]));
+    expect(clinicalQuery.timingConcepts).toEqual(expect.arrayContaining(["postoperative", "perioperative"]));
+    expect(clinicalQuery.questionType).toBe("risk");
+    expect(clinicalQuery.relevanceStrategy).toBe("topic-level-clinical-relevance");
+    expect(clinicalQuery.futureModelPlan).toContain("supervised reranker after clinician feedback");
+  });
+
+  it("reports the PubMed search as structured relevance ranking rather than special-case rules", () => {
+    const plan = buildPubMedNaturalLanguageSearch("大動脈解離術後ARDSのリスク");
+
+    expect(plan.clinicalQuery.outcomeConcepts).toContain("acute respiratory distress syndrome");
+    expect(plan.rankingPolicy).toContain("directly answers the structured clinical question");
+    expect(plan.evaluationPolicy).toContain("regression fixture");
+    expect(JSON.stringify(plan)).not.toMatch(/ardsSpecialCase|excludePmid|hard.?coded/i);
+  });
+
   it("expands a Japanese content query into a PubMed query for dissection and dialysis risk", () => {
     const plan = buildPubMedNaturalLanguageSearch("大動脈解離の透析リスクについて言及している論文");
 

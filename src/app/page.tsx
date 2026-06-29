@@ -49,6 +49,17 @@ interface PubMedSearchResult {
     pubmedTerm: string;
     explainForDoctor: string;
     outcomeTags: string[];
+    clinicalQuery?: {
+      conditionConcepts: string[];
+      interventionOrContextConcepts: string[];
+      outcomeConcepts: string[];
+      timingConcepts: string[];
+      questionType: string;
+      relevanceStrategy: string;
+      futureModelPlan: string;
+    };
+    rankingPolicy?: string;
+    evaluationPolicy?: string;
   };
   evidence: EvidenceCard[];
 }
@@ -679,8 +690,16 @@ export default function ConsentAgent() {
             {pubMedResult && (
               <div className="space-y-2">
                 <p className="rounded-lg border border-cyan-100 bg-white/80 p-2 text-[11px] font-semibold leading-relaxed text-cyan-900">
-                  候補はPubMedのTitle/Abstractから作った下書きです。採用前に医師が本文・abstractを確認してください。
+                  候補はPubMedのTitle/Abstractから作った下書きです。構造化クエリと主題一致ランキングで、質問に直接答える論文を優先します。疾患別の固定ルールではなく、採用前に医師が本文・abstractを確認してください。
                 </p>
+                {pubMedResult.plan.clinicalQuery && (
+                  <div className="rounded-lg border border-cyan-100 bg-white/80 p-2 text-[11px] leading-relaxed text-cyan-900">
+                    <p className="font-bold">構造化クエリ / 主題一致ランキング</p>
+                    <p className="mt-1 font-semibold">疾患/文脈: {[...pubMedResult.plan.clinicalQuery.conditionConcepts, ...pubMedResult.plan.clinicalQuery.interventionOrContextConcepts].join(" / ") || "未分類"}</p>
+                    <p className="font-semibold">アウトカム: {pubMedResult.plan.clinicalQuery.outcomeConcepts.join(" / ") || "未分類"}</p>
+                    <p className="font-semibold">評価方針: PubMed候補は回帰fixtureで継続改善し、患者説明には医師が追加したものだけを引用します。</p>
+                  </div>
+                )}
                 {pubMedResult.evidence.map((candidate) => {
                   const alreadySelected = selectedEvidenceIds.includes(candidate.evidenceId);
                   return (
