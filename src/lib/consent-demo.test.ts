@@ -429,6 +429,36 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("uses generic selected-source RAG to answer a Japanese risk question from an English numeric source without a disease-specific mapping", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Mesenteric malperfusion in acute type A aortic dissection",
+      fileName: "mesenteric-malperfusion.pdf",
+      extractedText:
+        "Preoperative malperfusion occurred in 27.7% of cases. Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).",
+      keyFindings: [
+        "Preoperative malperfusion occurred in 27.7% of cases.",
+        "Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).",
+      ],
+      outcomeTags: ["organ-malperfusion"],
+    });
+
+    const result = synthesizeEvidenceBoundQA("腸管虚血のリスクは？", {
+      diagnosis: "急性A型大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["腸管虚血"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("27.7%");
+    expect(result.answer).toContain("OR 1.82");
+    expect(result.answer).toContain("根拠論文");
+    expect(result.answer).toContain("引用箇所");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.supportingSpans?.[0]?.text).toContain("Mesenteric malperfusion");
+  });
+
   it("keeps a safe deterministic fallback for family wording like head fog when selected evidence contains delirium", () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "Unknown postoperative neurocognitive cohort",
