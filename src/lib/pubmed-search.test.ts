@@ -125,6 +125,14 @@ describe("PubMed natural-language evidence search", () => {
         authors: [],
       },
       {
+        pmid: "weak-registry-definition",
+        title: "Aortic arch registry of type a aortic dissection (AoArch) - rationale, design and definition criteria.",
+        abstractText: "We will define secondary outcomes as permanent neurologic deficit, the need for new dialysis, respiratory failure, a composite endpoint of mortality and major complications, and reintervention. This registry describes rationale and design definitions for type A aortic dissection repair.",
+        journal: "Trials",
+        year: "2026",
+        authors: [],
+      },
+      {
         pmid: "41388298",
         title: "Development and validation of a predictive model for postoperative acute respiratory distress syndrome in patients with type A aortic dissection based on the 2023 updated definition.",
         abstractText: "Acute respiratory distress syndrome (ARDS) is a common complication after type A aortic dissection surgery and often leads to worsened clinical outcomes for patients. A retrospective analysis was conducted on the clinical data of 423 patients who were diagnosed with type A aortic dissection and who underwent surgery. The predictive model included oxygenation impairment, inflammatory markers, cardiopulmonary bypass time, and blood transfusion.",

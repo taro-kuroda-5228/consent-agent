@@ -383,14 +383,17 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
       && !/ards|acute respiratory distress|respiratory|pulmonary|lung injury|oxygenation/.test(title);
     if (titleFocusesOtherOutcome) return Number.NEGATIVE_INFINITY;
     const hasRespiratory = /\bards\b|acute respiratory distress syndrome|respiratory failure|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
-    const respiratoryOnlyAsCompositeEndpoint = /composite outcome[^.]{0,160}respiratory failure/i.test(combined)
+    const respiratoryOnlyAsCompositeEndpoint = /composite (?:outcome|endpoint)[^.]{0,180}respiratory failure|respiratory failure[^.]{0,180}composite (?:outcome|endpoint)/i.test(combined)
       && !/\bards\b|acute respiratory distress syndrome|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
-    const respiratoryOnlyInGeneralOutcomeList = /mortality[^.]{0,80}stroke[^.]{0,80}renal failure[^.]{0,80}respiratory failure/i.test(combined)
+    const respiratoryOnlyInGeneralOutcomeList = /mortality[^.]{0,100}stroke[^.]{0,100}(?:renal failure|dialysis)[^.]{0,100}respiratory failure|permanent neurologic deficit[^.]{0,120}(?:new dialysis|dialysis)[^.]{0,120}respiratory failure/i.test(combined)
+      && !/\bards\b|acute respiratory distress syndrome|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
+    const broadProtocolOrRegistryDefinition = /registry|rationale|design|definition criteria|protocol/i.test(title)
+      && /secondary outcomes?|composite (?:outcome|endpoint)|definition criteria/i.test(combined)
       && !/\bards\b|acute respiratory distress syndrome|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
     const broadPandemicSurgeryOutcome = /covid|pandemic|sars-cov-2/.test(title)
       && /mortality|morbidit|composite incidence|before versus during|during-pandemic|published cases/.test(combined)
       && !/\bards\b|acute respiratory distress syndrome|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
-    if (!hasRespiratory || respiratoryOnlyAsCompositeEndpoint || respiratoryOnlyInGeneralOutcomeList || broadPandemicSurgeryOutcome) return Number.NEGATIVE_INFINITY;
+    if (!hasRespiratory || respiratoryOnlyAsCompositeEndpoint || respiratoryOnlyInGeneralOutcomeList || broadProtocolOrRegistryDefinition || broadPandemicSurgeryOutcome) return Number.NEGATIVE_INFINITY;
     if (/\bards\b|acute respiratory distress syndrome/.test(title)) score += 14;
     else if (/postoperative pulmonary complication|pulmonary complication|respiratory failure|acute lung injury|oxygenation impairment/.test(title)) score += 11;
     else if (/respiratory|pulmonary|lung/.test(title)) score += 6;
