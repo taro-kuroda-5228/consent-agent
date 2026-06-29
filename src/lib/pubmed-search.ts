@@ -379,6 +379,8 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     if (/mortality|odds ratio|\bOR\b|multi-organ failure|revascularization|necrotic intestine/.test(combined)) score += 3;
   }
   if (asksArds) {
+    const hasAcuteTypeADissectionContext = /acute (?:type a )?aortic dissection|type a aortic dissection|\bataad\b/.test(combined);
+    if (asksAorticDissection && !hasAcuteTypeADissectionContext) return Number.NEGATIVE_INFINITY;
     const titleFocusesOtherOutcome = /stroke|renal|kidney|mesenteric|visceral|lower limb|bleeding|mortality in acute|death|prehospital death|ct finding|octogenarian/.test(title)
       && !/ards|acute respiratory distress|respiratory|pulmonary|lung injury|oxygenation/.test(title);
     if (titleFocusesOtherOutcome) return Number.NEGATIVE_INFINITY;

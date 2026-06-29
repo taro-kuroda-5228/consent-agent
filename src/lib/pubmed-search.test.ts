@@ -133,6 +133,14 @@ describe("PubMed natural-language evidence search", () => {
         authors: [],
       },
       {
+        pmid: "weak-aortic-arch-repair-cohort",
+        title: "Fenestrated and Branched Endovascular Aortic Arch Repair Outcomes in Female Patients: A Retrospective Multicentre Analysis.",
+        abstractText: "Data on females managed with fenestrated or branched endovascular aortic arch repair are limited. The aortic dissection rate was 38.5%. Thirty-day mortality, stroke, respiratory failure, and renal failure were captured as outcomes.",
+        journal: "Annals",
+        year: "2025",
+        authors: [],
+      },
+      {
         pmid: "41388298",
         title: "Development and validation of a predictive model for postoperative acute respiratory distress syndrome in patients with type A aortic dissection based on the 2023 updated definition.",
         abstractText: "Acute respiratory distress syndrome (ARDS) is a common complication after type A aortic dissection surgery and often leads to worsened clinical outcomes for patients. A retrospective analysis was conducted on the clinical data of 423 patients who were diagnosed with type A aortic dissection and who underwent surgery. The predictive model included oxygenation impairment, inflammatory markers, cardiopulmonary bypass time, and blood transfusion.",
