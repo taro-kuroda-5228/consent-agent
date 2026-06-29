@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPubMedNaturalLanguageSearch,
   convertPubMedArticlesToEvidenceCards,
+  parseClinicalQuery,
   parsePubMedEFetchXml,
 } from "./pubmed-search";
 
@@ -27,6 +28,26 @@ const dialysisXml = `<?xml version="1.0"?>
 </PubmedArticleSet>`;
 
 describe("PubMed natural-language evidence search", () => {
+  it("structures natural-language clinical questions without hard-coding a disease-specific mode", () => {
+    const clinicalQuery = parseClinicalQuery("大動脈解離術後ARDSのリスク");
+
+    expect(clinicalQuery.conditionConcepts).toEqual(expect.arrayContaining(["acute aortic dissection"]));
+    expect(clinicalQuery.outcomeConcepts).toEqual(expect.arrayContaining(["acute respiratory distress syndrome"]));
+    expect(clinicalQuery.timingConcepts).toEqual(expect.arrayContaining(["postoperative", "perioperative"]));
+    expect(clinicalQuery.questionType).toBe("risk");
+    expect(clinicalQuery.relevanceStrategy).toBe("topic-level-clinical-relevance");
+    expect(clinicalQuery.futureModelPlan).toContain("supervised reranker after clinician feedback");
+  });
+
+  it("reports the PubMed search as structured relevance ranking rather than special-case rules", () => {
+    const plan = buildPubMedNaturalLanguageSearch("大動脈解離術後ARDSのリスク");
+
+    expect(plan.clinicalQuery.outcomeConcepts).toContain("acute respiratory distress syndrome");
+    expect(plan.rankingPolicy).toContain("directly answers the structured clinical question");
+    expect(plan.evaluationPolicy).toContain("regression fixture");
+    expect(JSON.stringify(plan)).not.toMatch(/ardsSpecialCase|excludePmid|hard.?coded/i);
+  });
+
   it("expands a Japanese content query into a PubMed query for dissection and dialysis risk", () => {
     const plan = buildPubMedNaturalLanguageSearch("大動脈解離の透析リスクについて言及している論文");
 
@@ -93,6 +114,14 @@ describe("PubMed natural-language evidence search", () => {
         abstractText: "The patients were divided into those that did and did not suffer prehospital death. Bloody pericardial effusion and lung consolidation were significant risk factors for prehospital death. Secondary respiratory failure might contribute to prehospital death in such cases.",
         journal: "Medicine",
         year: "2022",
+        authors: [],
+      },
+      {
+        pmid: "weak-general-reoperation",
+        title: "Aortic dissection after previous cardiovascular surgery.",
+        abstractText: "This study assesses early and late outcomes of reoperations. Hospital mortality was 6%, stroke 4%, renal failure 2%, and respiratory failure 7%. Aortic dissection after cardiovascular surgery is rare and can be managed with acceptable operative risks.",
+        journal: "Journal of thoracic and cardiovascular surgery",
+        year: "2004",
         authors: [],
       },
       {

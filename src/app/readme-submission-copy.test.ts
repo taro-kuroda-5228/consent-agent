@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -18,5 +18,17 @@ describe("hackathon README", () => {
     expect(readme).toContain("Grounding evaluation & CI gate");
     expect(readme).toContain("npm run eval");
     expect(readme).toContain("machine-verified citation badge");
+  });
+
+  it("documents the application-ready evidence search architecture without presenting disease-specific hard-coding", () => {
+    const path = join(process.cwd(), "docs/clinical-evidence-search-architecture.md");
+    expect(existsSync(path)).toBe(true);
+    const doc = readFileSync(path, "utf8");
+
+    expect(doc).toContain("Structured clinical query");
+    expect(doc).toContain("topic-level clinical relevance ranking");
+    expect(doc).toContain("regression fixture");
+    expect(doc).toContain("Supervised reranker / distillation is intentionally deferred until after application launch");
+    expect(doc).not.toMatch(/ARDS専用ルール|PMID除外リスト|hard-coded disease rule/i);
   });
 });

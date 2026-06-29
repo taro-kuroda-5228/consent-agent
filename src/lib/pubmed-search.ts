@@ -1,10 +1,25 @@
 import type { EvidenceCard } from "./consent-demo";
 
+export type ClinicalQuery = {
+  rawQuery: string;
+  language: "ja" | "en";
+  conditionConcepts: string[];
+  interventionOrContextConcepts: string[];
+  outcomeConcepts: string[];
+  timingConcepts: string[];
+  questionType: "risk" | "benefit" | "diagnosis" | "prognosis" | "treatment" | "complication" | "general";
+  relevanceStrategy: "topic-level-clinical-relevance";
+  futureModelPlan: string;
+};
+
 export type PubMedSearchPlan = {
   originalQuery: string;
+  clinicalQuery: ClinicalQuery;
   pubmedTerm: string;
   explainForDoctor: string;
   outcomeTags: string[];
+  rankingPolicy: string;
+  evaluationPolicy: string;
 };
 
 export type PubMedArticle = {
@@ -39,8 +54,64 @@ function allMatches(text: string, pattern: RegExp): string[] {
   return Array.from(text.matchAll(pattern)).map((match) => decodeXml(match[1])).filter(Boolean);
 }
 
+export function parseClinicalQuery(query: string): ClinicalQuery {
+  const normalized = query.toLowerCase();
+  const isJapanese = /[ぁ-んァ-ン一-龠]/.test(query);
+  const conditionConcepts: string[] = [];
+  const interventionOrContextConcepts: string[] = [];
+  const outcomeConcepts: string[] = [];
+  const timingConcepts: string[] = [];
+
+  if (/大動脈解離|aortic dissection|dissection/.test(normalized)) {
+    conditionConcepts.push("acute aortic dissection", "type A aortic dissection");
+  }
+  if (/手術|術後|周術期|surgery|surgical|postoperative|perioperative/.test(normalized)) {
+    interventionOrContextConcepts.push("surgery");
+  }
+  if (/術後|postoperative/.test(normalized)) timingConcepts.push("postoperative");
+  if (/周術期|手術|術後|perioperative|surgery|surgical/.test(normalized)) timingConcepts.push("perioperative");
+  if (/ards|acute respiratory distress|急性呼吸窮迫|呼吸窮迫/.test(normalized)) {
+    outcomeConcepts.push("acute respiratory distress syndrome");
+  }
+  if (/呼吸不全|肺障害|肺合併症|oxygenation|respiratory failure|pulmonary complication|lung injury/.test(normalized)) {
+    outcomeConcepts.push("respiratory failure", "pulmonary complication", "acute lung injury", "oxygenation impairment");
+  }
+  if (/透析|腎不全|腎障害|aki|renal|kidney|dialysis/.test(normalized)) {
+    outcomeConcepts.push("acute kidney injury", "renal failure", "dialysis");
+  }
+  if (/腸管虚血|腸管壊死|腸間膜虚血|腸間膜|腹部臓器虚血|臓器灌流障害|mesenteric|bowel ischemia|intestinal ischemia|visceral|malperfusion/.test(normalized)) {
+    outcomeConcepts.push("mesenteric ischemia", "visceral malperfusion");
+  }
+  if (/脳梗塞|脳卒中|stroke/.test(normalized)) outcomeConcepts.push("stroke", "neurologic dysfunction");
+  if (/死亡|mortality|death/.test(normalized)) outcomeConcepts.push("mortality");
+  if (/出血|bleeding|hemorrhage/.test(normalized)) outcomeConcepts.push("bleeding", "reoperation");
+
+  const questionType: ClinicalQuery["questionType"] = /リスク|risk|predictor|予測|合併症|complication/.test(normalized)
+    ? "risk"
+    : /治療|treatment|therapy/.test(normalized)
+      ? "treatment"
+      : /診断|diagnosis/.test(normalized)
+        ? "diagnosis"
+        : /予後|prognosis|outcome/.test(normalized)
+          ? "prognosis"
+          : "general";
+
+  return {
+    rawQuery: query,
+    language: isJapanese ? "ja" : "en",
+    conditionConcepts: Array.from(new Set(conditionConcepts)),
+    interventionOrContextConcepts: Array.from(new Set(interventionOrContextConcepts)),
+    outcomeConcepts: Array.from(new Set(outcomeConcepts)),
+    timingConcepts: Array.from(new Set(timingConcepts)),
+    questionType,
+    relevanceStrategy: "topic-level-clinical-relevance",
+    futureModelPlan: "supervised reranker after clinician feedback and query/article relevance labels are collected post-application launch",
+  };
+}
+
 export function buildPubMedNaturalLanguageSearch(query: string): PubMedSearchPlan {
   const normalized = query.toLowerCase();
+  const clinicalQuery = parseClinicalQuery(query);
   const conceptTerms: string[] = [];
   const tags: string[] = [];
   const explanations: string[] = [];
@@ -92,11 +163,14 @@ export function buildPubMedNaturalLanguageSearch(query: string): PubMedSearchPla
 
   return {
     originalQuery: query,
+    clinicalQuery,
     pubmedTerm,
     explainForDoctor: explanations.length > 0
       ? `自然文から ${explanations.join("、")} をPubMed検索語へ展開しました。`
       : "自然文をTitle/Abstract検索語へ展開しました。",
     outcomeTags: Array.from(new Set(tags)),
+    rankingPolicy: "Broad PubMed retrieval followed by topic-level ranking: prefer articles that directly answers the structured clinical question, downrank/omit secondary-only mentions and broad outcome lists.",
+    evaluationPolicy: "Observed false positives are kept as regression fixture examples for clinical relevance evaluation, not as product-wide PMID exclusion rules.",
   };
 }
 
@@ -311,10 +385,12 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     const hasRespiratory = /\bards\b|acute respiratory distress syndrome|respiratory failure|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
     const respiratoryOnlyAsCompositeEndpoint = /composite outcome[^.]{0,160}respiratory failure/i.test(combined)
       && !/\bards\b|acute respiratory distress syndrome|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
+    const respiratoryOnlyInGeneralOutcomeList = /mortality[^.]{0,80}stroke[^.]{0,80}renal failure[^.]{0,80}respiratory failure/i.test(combined)
+      && !/\bards\b|acute respiratory distress syndrome|pulmonary complication|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
     const broadPandemicSurgeryOutcome = /covid|pandemic|sars-cov-2/.test(title)
       && /mortality|morbidit|composite incidence|before versus during|during-pandemic|published cases/.test(combined)
       && !/\bards\b|acute respiratory distress syndrome|postoperative pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/.test(combined);
-    if (!hasRespiratory || respiratoryOnlyAsCompositeEndpoint || broadPandemicSurgeryOutcome) return Number.NEGATIVE_INFINITY;
+    if (!hasRespiratory || respiratoryOnlyAsCompositeEndpoint || respiratoryOnlyInGeneralOutcomeList || broadPandemicSurgeryOutcome) return Number.NEGATIVE_INFINITY;
     if (/\bards\b|acute respiratory distress syndrome/.test(title)) score += 14;
     else if (/postoperative pulmonary complication|pulmonary complication|respiratory failure|acute lung injury|oxygenation impairment/.test(title)) score += 11;
     else if (/respiratory|pulmonary|lung/.test(title)) score += 6;

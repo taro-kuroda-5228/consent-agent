@@ -142,6 +142,9 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).toContain("患者説明用根拠に追加");
     expect(pageSource).toContain("医師向け要約");
     expect(pageSource).toContain("主要所見");
+    expect(pageSource).toContain("構造化クエリ");
+    expect(pageSource).toContain("主題一致ランキング");
+    expect(pageSource).toContain("疾患別の固定ルールではなく");
     expect(pageSource).not.toContain("検索意図:");
     expect(pageSource).not.toContain("PubMed式:");
     expect(pageSource).not.toContain("pubMedResult.plan.pubmedTerm");
