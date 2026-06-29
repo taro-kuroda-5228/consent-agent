@@ -141,6 +141,14 @@ describe("PubMed natural-language evidence search", () => {
         authors: [],
       },
       {
+        pmid: "weak-thoracoabdominal-aneurysm-tracheostomy",
+        title: "Tracheostomy After Thoracoabdominal Aortic Aneurysm Repair: Risk Factors and Outcomes.",
+        abstractText: "Extensive repairs were performed in 716 patients. Tracheostomy was necessary in 11.1%. Operative mortality was higher in patients with tracheostomy. Acute type A aortic dissection was listed only in baseline history, not as the study focus.",
+        journal: "Annals",
+        year: "2019",
+        authors: [],
+      },
+      {
         pmid: "41388298",
         title: "Development and validation of a predictive model for postoperative acute respiratory distress syndrome in patients with type A aortic dissection based on the 2023 updated definition.",
         abstractText: "Acute respiratory distress syndrome (ARDS) is a common complication after type A aortic dissection surgery and often leads to worsened clinical outcomes for patients. A retrospective analysis was conducted on the clinical data of 423 patients who were diagnosed with type A aortic dissection and who underwent surgery. The predictive model included oxygenation impairment, inflammatory markers, cardiopulmonary bypass time, and blood transfusion.",
