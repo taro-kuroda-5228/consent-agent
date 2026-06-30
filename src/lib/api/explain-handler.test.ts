@@ -100,7 +100,7 @@ describe('explain and qa handlers persistence', () => {
     expect(qa.body.supportingSpans?.[0]?.text).toContain('Mesenteric malperfusion');
   });
 
-  it('does not let request-supplied PubMed evidence override persisted physician-selected session evidence', async () => {
+  it('merges request-time physician-selected PubMed evidence into a persisted QA session', async () => {
     const repo = new InMemoryConsentSessionRepository();
     const explained = await handleExplainRequest({
       diagnosis: '急性A型大動脈解離',
@@ -144,11 +144,11 @@ describe('explain and qa handlers persistence', () => {
 
     expect(qa.status).toBe(200);
     if ('error' in qa.body) throw new Error(qa.body.error);
-    expect(qa.body.answer).not.toContain('50.7%');
-    expect(qa.body.evidenceReferences).not.toContain('PUBMED-36036431');
-    expect(qa.body.selectedEvidence.map((item: EvidenceCard) => item.evidenceId)).toEqual(['FAC-001']);
-    expect(qa.body.metadata.selectedEvidenceSource).toBe('database');
-    expect(qa.body.metadata.warning).toContain('customEvidence was ignored');
+    expect(qa.body.answer).toContain('50.7%');
+    expect(qa.body.evidenceReferences).toContain('PUBMED-36036431');
+    expect(qa.body.selectedEvidence.map((item: EvidenceCard) => item.evidenceId)).toEqual(['FAC-001', 'PUBMED-36036431']);
+    expect(qa.body.metadata.selectedEvidenceSource).toBe('database+request');
+    expect(qa.body.metadata.warning).toContain('merged with persisted session evidence');
   });
 
   it('does not use request customEvidence when a persisted session intentionally has no selected evidence', async () => {
@@ -181,7 +181,7 @@ describe('explain and qa handlers persistence', () => {
       diagnosis: '急性A型大動脈解離',
       plannedSurgery: '上行大動脈人工血管置換術',
       risks: ['腎不全', '透析'],
-      selectedEvidenceIds: ['PUBMED-36036431'],
+      selectedEvidenceIds: [],
       customEvidence: [pubmedRenalEvidence],
     }, repo);
 
@@ -191,6 +191,6 @@ describe('explain and qa handlers persistence', () => {
     expect(qa.body.evidenceReferences).not.toContain('PUBMED-36036431');
     expect(qa.body.selectedEvidence).toEqual([]);
     expect(qa.body.metadata.selectedEvidenceSource).toBe('database');
-    expect(qa.body.metadata.warning).toContain('persisted physician-selected evidence was empty');
+    expect(qa.body.metadata.warning).toContain('no request-time physician-selected evidence');
   });
 });
