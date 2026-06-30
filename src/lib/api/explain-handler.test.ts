@@ -66,6 +66,40 @@ describe('explain and qa handlers persistence', () => {
     expect(qa.body.supportingSpans?.[0]?.text).toContain('Mesenteric malperfusion');
   });
 
+  it('answers persisted physician-selected non-numeric source statements through Q&A without prior knowledge', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const session = await repo.createSession({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術' });
+    const uploaded = createPhysicianUploadedEvidence({
+      title: 'Mesenteric malperfusion clinical consequences in acute type A dissection',
+      fileName: 'mesenteric-malperfusion-consequences.pdf',
+      extractedText:
+        'Mesenteric malperfusion was associated with persistent metabolic acidosis and the need for bowel resection after acute type A dissection repair. The paper did not evaluate renal replacement therapy.',
+      keyFindings: [
+        'Mesenteric malperfusion was associated with persistent metabolic acidosis and the need for bowel resection after acute type A dissection repair.',
+      ],
+      outcomeTags: ['organ-malperfusion'],
+    });
+    await repo.saveSelectedEvidence({ sessionId: session.id, selectedEvidence: [uploaded] });
+
+    const qa = await handleQaRequest({
+      sessionId: session.id,
+      question: '腸管虚血では何が問題になりますか？',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      risks: ['腸管虚血'],
+    }, repo);
+
+    expect(qa.status).toBe(200);
+    if ('error' in qa.body) throw new Error(qa.body.error);
+    expect(qa.body.metadata.selectedEvidenceSource).toBe('database');
+    expect(qa.body.answer).not.toContain('直接答えられる記載が見つかりません');
+    expect(qa.body.answer).toContain('persistent metabolic acidosis');
+    expect(qa.body.answer).toContain('bowel resection');
+    expect(qa.body.answer).not.toContain('renal replacement therapy');
+    expect(qa.body.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(qa.body.supportingSpans?.[0]?.text).toContain('Mesenteric malperfusion');
+  });
+
   it('does not let request-supplied PubMed evidence override persisted physician-selected session evidence', async () => {
     const repo = new InMemoryConsentSessionRepository();
     const explained = await handleExplainRequest({
