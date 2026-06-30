@@ -439,15 +439,20 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     if (asksAorticDissection && !hasAcuteTypeADissectionContext) return Number.NEGATIVE_INFINITY;
     const hasTracheostomy = /tracheostomy|tracheotomy|prolonged mechanical ventilation|prolonged ventilation/.test(combined);
     if (!hasTracheostomy) return Number.NEGATIVE_INFINITY;
+    const titleDirectlyFocusesTracheostomy = /tracheostomy|tracheotomy|prolonged (?:mechanical )?ventilation/.test(title);
+    const hasAnswerBearingTracheostomyRate = /tracheostom(?:y|ies)[^.]{0,120}?(?:was|required|necessary|performed|rate|incidence)?[^.]{0,120}?\d+(?:\.\d+)?\s*%|\d+(?:\.\d+)?\s*%[^.]{0,120}?tracheostom/.test(combined)
+      || /prolonged (?:mechanical )?ventilation[^.]{0,120}?\d+(?:\.\d+)?\s*%|\d+(?:\.\d+)?\s*%[^.]{0,120}?prolonged (?:mechanical )?ventilation/.test(combined);
+    if (!titleDirectlyFocusesTracheostomy && !hasAnswerBearingTracheostomyRate) return Number.NEGATIVE_INFINITY;
     const broadAneurysmContextOnly = /aneurysm|thoracoabdominal|endovascular/.test(title)
       && !/aortic dissection|type a aortic dissection|\bataad\b/.test(title);
     if (broadAneurysmContextOnly) return Number.NEGATIVE_INFINITY;
-    const titleFocusesOtherOutcome = /mortality in acute|mesenteric|visceral|stroke|inflammatory|malperfusion|tavi/.test(title)
-      && !/tracheostomy|tracheotomy|prolonged (?:mechanical )?ventilation/.test(title);
+    const titleFocusesOtherOutcome = /mortality in acute|mesenteric|visceral|stroke|inflammatory|malperfusion|tavi|octogenarian|cannulation|acute kidney injury/.test(title)
+      && !titleDirectlyFocusesTracheostomy;
     if (titleFocusesOtherOutcome) return Number.NEGATIVE_INFINITY;
     if (/tracheostomy|tracheotomy/.test(title)) score += 14;
     else if (/prolonged (?:mechanical )?ventilation/.test(title)) score += 12;
     else score += 4;
+    if (hasAnswerBearingTracheostomyRate) score += 8;
     if (/risk factor|predictor|incidence|outcome|associated|mortality|pneumonia|respiratory failure/.test(combined)) score += 4;
   }
   if (asksStroke) {
