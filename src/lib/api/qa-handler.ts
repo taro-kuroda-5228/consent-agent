@@ -26,21 +26,27 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
       })
     : [];
   let selectedEvidence: EvidenceCard[];
-  let selectedEvidenceSource: 'database' | 'request' = 'request';
+  let selectedEvidenceSource: 'database' | 'request' | 'database+request' = 'request';
   let metadataWarning: string | undefined;
 
   if (input.sessionId) {
     try {
       const dbEvidence = await repository.getSelectedEvidence(input.sessionId);
       const requestIds = new Set(input.selectedEvidenceIds ?? []);
-      selectedEvidence = dbEvidence;
-      selectedEvidenceSource = 'database';
-      if (dbEvidence.length === 0) {
-        metadataWarning = 'persisted physician-selected evidence was empty; request evidence was not used for this session';
+      const dbEvidenceIds = new Set(dbEvidence.map((evidence) => evidence.evidenceId));
+      const requestTimeSelectedEvidence = requestIds.size > 0
+        ? requestCustomEvidence.filter((evidence) => requestIds.has(evidence.evidenceId) && !dbEvidenceIds.has(evidence.evidenceId))
+        : [];
+      selectedEvidence = [...dbEvidence, ...requestTimeSelectedEvidence];
+      selectedEvidenceSource = requestTimeSelectedEvidence.length > 0 ? 'database+request' : 'database';
+      if (dbEvidence.length === 0 && requestTimeSelectedEvidence.length === 0) {
+        metadataWarning = 'persisted physician-selected evidence was empty; no request-time physician-selected evidence was provided for this session';
+      } else if (requestTimeSelectedEvidence.length > 0) {
+        metadataWarning = 'request-time physician-selected evidence was merged with persisted session evidence';
       } else if (requestIds.size > 0 && dbEvidence.some((evidence) => !requestIds.has(evidence.evidenceId))) {
         metadataWarning = 'request selectedEvidenceIds differed from persisted physician-selected evidence; database state was used';
       } else if (requestCustomEvidence.length > 0) {
-        metadataWarning = 'request customEvidence was ignored because persisted physician-selected evidence is the source of truth';
+        metadataWarning = 'request customEvidence was ignored because it was not selected for this session';
       }
     } catch {
       selectedEvidence = [];
