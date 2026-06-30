@@ -82,6 +82,17 @@ describe("PubMed natural-language evidence search", () => {
     expect(plan.outcomeTags).toEqual(expect.arrayContaining(["ards", "respiratory-complication"]));
   });
 
+  it("expands tracheostomy queries instead of falling back to broad dissection outcomes", () => {
+    const plan = buildPubMedNaturalLanguageSearch("大動脈解離の気管切開リスクについて言及している論文");
+
+    expect(plan.pubmedTerm).toContain("aortic dissection");
+    expect(plan.pubmedTerm).toContain("tracheostomy");
+    expect(plan.pubmedTerm).toContain("prolonged mechanical ventilation");
+    expect(plan.pubmedTerm).not.toBe('(aortic dissection[Title/Abstract] OR acute type A aortic dissection[Title/Abstract] OR ATAAD[Title/Abstract]) AND (risk[Title/Abstract] OR outcome[Title/Abstract] OR postoperative[Title/Abstract] OR complication[Title/Abstract]) NOT (retraction[Publication Type] OR retraction[Title])');
+    expect(plan.explainForDoctor).toContain("気管切開");
+    expect(plan.outcomeTags).toEqual(expect.arrayContaining(["tracheostomy", "prolonged-ventilation"]));
+  });
+
   it("ranks directly answer-bearing postoperative ARDS papers and summarizes clinical risk", () => {
     const cards = convertPubMedArticlesToEvidenceCards([
       {
@@ -174,6 +185,57 @@ describe("PubMed natural-language evidence search", () => {
     expect(cards[1].clinicianSummary).toContain("術後肺合併症");
     expect(cards[1].clinicianSummary).toContain("32.8%");
     expect(cards.every((card) => (card.clinicianSummary?.length ?? 0) <= 150)).toBe(true);
+  });
+
+  it("ranks directly answer-bearing tracheostomy papers and omits broad dissection outcomes", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "40734571",
+        title: "Mortality in acute type A aortic dissection - A systematic review based on contemporary registries.",
+        abstractText: "We included registry-based studies reporting in-hospital, 30-day, operative or 48-hour mortality following ATAAD. In-hospital mortality was reported in 13 registries with rates ranging from 5% to 29%.",
+        journal: "Romanian journal of internal medicine",
+        year: "2025",
+        authors: ["Matei R"],
+      },
+      {
+        pmid: "39076744",
+        title: "Systematic Review of the Management of Acute Type A Aortic Dissection with Mesenteric Malperfusion.",
+        abstractText: "A total of 352 patients diagnosed with aTAAD complicated with MMP were included with an overall prevalence of 4%. The overall in-hospital mortality amongst these patients was 43.5%, and bowel necrosis and/or multiorgan failure were the major causes of death.",
+        journal: "Reviews in cardiovascular medicine",
+        year: "2023",
+        authors: ["Wang J"],
+      },
+      {
+        pmid: "37333431",
+        title: "Inflammatory risk stratification individualizes anti-inflammatory pharmacotherapy for acute type A aortic dissection.",
+        abstractText: "The population was used to develop an inflammatory risk model to predict multiple organ dysfunction syndrome after acute type A aortic dissection.",
+        journal: "Nature communications",
+        year: "2023",
+        authors: ["Zhang Q"],
+      },
+      {
+        pmid: "weak-thoracoabdominal-aneurysm-tracheostomy",
+        title: "Tracheostomy After Thoracoabdominal Aortic Aneurysm Repair: Risk Factors and Outcomes.",
+        abstractText: "Extensive repairs were performed in 716 patients. Tracheostomy was necessary in 11.1%. Operative mortality was higher in patients with tracheostomy. Acute type A aortic dissection was listed only in baseline history, not as the study focus.",
+        journal: "Annals",
+        year: "2019",
+        authors: [],
+      },
+      {
+        pmid: "direct-tracheostomy-ataad",
+        title: "Tracheostomy after acute type A aortic dissection repair: incidence, risk factors, and outcomes.",
+        abstractText: "Among patients undergoing surgery for acute type A aortic dissection, tracheostomy was required in 9.5%. Tracheostomy was associated with pneumonia, renal failure, prolonged mechanical ventilation, and higher operative mortality.",
+        journal: "Aorta",
+        year: "2024",
+        authors: ["Sato T"],
+      },
+    ], { originalQuery: "大動脈解離の気管切開リスクについて言及している論文", outcomeTags: ["tracheostomy", "prolonged-ventilation"] });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-direct-tracheostomy-ataad"]);
+    expect(cards[0].clinicianSummary).toContain("気管切開");
+    expect(cards[0].clinicianSummary).toContain("9.5%");
+    expect(cards[0].clinicianSummary).toMatch(/肺合併症|腎障害/);
+    expect(cards[0].clinicianSummary).not.toMatch(/^要点: We included registry-based/);
   });
 
   it("turns PubMed XML results into physician-reviewable evidence cards", () => {

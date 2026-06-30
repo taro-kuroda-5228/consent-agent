@@ -82,6 +82,9 @@ export function parseClinicalQuery(query: string): ClinicalQuery {
   if (/腸管虚血|腸管壊死|腸間膜虚血|腸間膜|腹部臓器虚血|臓器灌流障害|mesenteric|bowel ischemia|intestinal ischemia|visceral|malperfusion/.test(normalized)) {
     outcomeConcepts.push("mesenteric ischemia", "visceral malperfusion");
   }
+  if (/気管切開|tracheostom|tracheotom|prolonged ventilation|prolonged mechanical ventilation/.test(normalized)) {
+    outcomeConcepts.push("tracheostomy", "prolonged mechanical ventilation");
+  }
   if (/脳梗塞|脳卒中|stroke/.test(normalized)) outcomeConcepts.push("stroke", "neurologic dysfunction");
   if (/死亡|mortality|death/.test(normalized)) outcomeConcepts.push("mortality");
   if (/出血|bleeding|hemorrhage/.test(normalized)) outcomeConcepts.push("bleeding", "reoperation");
@@ -134,6 +137,11 @@ export function buildPubMedNaturalLanguageSearch(query: string): PubMedSearchPla
     conceptTerms.push('(ARDS[Title/Abstract] OR acute respiratory distress syndrome[Title/Abstract] OR respiratory failure[Title/Abstract] OR pulmonary complication[Title/Abstract] OR postoperative pulmonary complication[Title/Abstract] OR acute lung injury[Title/Abstract] OR oxygenation impairment[Title/Abstract])');
     tags.push("ards", "respiratory-complication");
     explanations.push("ARDS/呼吸不全・肺合併症");
+  }
+  if (/気管切開|tracheostom|tracheotom|prolonged ventilation|prolonged mechanical ventilation/.test(normalized)) {
+    conceptTerms.push('(tracheostomy[Title/Abstract] OR tracheotomy[Title/Abstract] OR prolonged mechanical ventilation[Title/Abstract] OR prolonged ventilation[Title/Abstract])');
+    tags.push("tracheostomy", "prolonged-ventilation");
+    explanations.push("気管切開・長期人工呼吸");
   }
   if (/脳梗塞|脳卒中|stroke/.test(normalized)) {
     conceptTerms.push('(stroke[Title/Abstract] OR neurologic[Title/Abstract] OR neurological[Title/Abstract])');
@@ -204,7 +212,7 @@ function extractKeyFindings(abstractText: string): string[] {
     .map((sentence) => sentence.trim().replace(/^\.\s*/, ""))
     .filter((sentence, index, all) => sentence.length >= 20 && all.indexOf(sentence) === index);
   const numericOutcome = sentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b/i.test(sentence));
-  const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|risk|outcome|mesenteric|bowel|intestinal|visceral|ischemia|malperfusion|revascularization|necrotic|\bARDS\b|acute respiratory distress|respiratory failure|pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation/i.test(sentence));
+  const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|risk|outcome|mesenteric|bowel|intestinal|visceral|ischemia|malperfusion|revascularization|necrotic|\bARDS\b|acute respiratory distress|respiratory failure|pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation|tracheostomy|tracheotomy/i.test(sentence));
   return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...sentences]))
     .map(compactFindingForMobile)
     .filter(Boolean)
@@ -239,6 +247,7 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
   const asksRenal = context.outcomeTags.some((tag) => tag === "renal-failure" || tag === "dialysis");
   const asksMesenteric = context.outcomeTags.some((tag) => tag === "mesenteric-ischemia" || tag === "visceral-malperfusion");
   const asksArds = context.outcomeTags.some((tag) => tag === "ards" || tag === "respiratory-complication");
+  const asksTracheostomy = context.outcomeTags.some((tag) => tag === "tracheostomy" || tag === "prolonged-ventilation");
   const akiPercent = joined.match(/(?:postoperative\s+)?AKI\s+(?:was\s+)?(\d+(?:\.\d+)?%)|incidence of postoperative AKI was (\d+(?:\.\d+)?%)/i);
   const dialysisPercent = joined.match(/dialysis[^.]{0,80}?(\d+(?:\.\d+)?%)|(\d+(?:\.\d+)?%)[^.]{0,80}?dialysis/i);
   const mortality = /mortality/i.test(sourceText);
@@ -318,6 +327,25 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
     const compact = compactFindingForMobile(keyFindings.find((finding) => /ARDS|respiratory|pulmonary|lung injury|oxygenation/i.test(finding)) || keyFindings[0] || article.title).replace(/\.$/, "");
     return compact.length <= 130 ? `要点: ${compact}。` : `要点: ${compact.slice(0, 126).trim()}…`;
   }
+  if (asksTracheostomy) {
+    const trachRate = sourceText.match(/tracheostom(?:y|ies)[^.]{0,80}?(?:was|required|necessary|performed|rate|incidence)?[^.]{0,80}?(\d+(?:\.\d+)?%)/i)?.[1]
+      || sourceText.match(/(\d+(?:\.\d+)?%)[^.]{0,100}?tracheostom/i)?.[1];
+    const ventilationRate = sourceText.match(/prolonged (?:mechanical )?ventilation[^.]{0,80}?(\d+(?:\.\d+)?%)/i)?.[1]
+      || sourceText.match(/(\d+(?:\.\d+)?%)[^.]{0,100}?prolonged (?:mechanical )?ventilation/i)?.[1];
+    const factors: string[] = [];
+    if (/cardiopulmonary bypass|\bCPB\b|circulatory arrest/i.test(sourceText)) factors.push("CPB/循環停止");
+    if (/stroke|neurologic|neurological/i.test(sourceText)) factors.push("神経合併症");
+    if (/renal|kidney|dialysis|acute kidney injury|\bAKI\b/i.test(sourceText)) factors.push("腎障害");
+    if (/pneumonia|pulmonary|respiratory failure|ARDS|acute respiratory distress/i.test(sourceText)) factors.push("肺合併症");
+    const rate = trachRate || ventilationRate;
+    if (rate) {
+      return `ATAAD術後の${trachRate ? "気管切開" : "長期人工呼吸"}は${rate}。${factors.length ? `関連因子候補: ${factors.slice(0, 4).join("・")}。` : "術後呼吸管理リスクの根拠候補。"}`;
+    }
+    if (/tracheostomy|tracheotomy|prolonged mechanical ventilation|prolonged ventilation/i.test(sourceText)) {
+      const compact = compactFindingForMobile(keyFindings.find((finding) => /tracheostomy|tracheotomy|prolonged mechanical ventilation|prolonged ventilation/i.test(finding)) || keyFindings[0] || article.title).replace(/\.$/, "");
+      return compact.length <= 130 ? `要点: ${compact}。` : `要点: ${compact.slice(0, 126).trim()}…`;
+    }
+  }
   const incidence = akiPercent?.[1] || akiPercent?.[2] || dialysisPercent?.[1] || dialysisPercent?.[2];
   if (asksRenal && incidence) {
     const outcome = akiPercent ? "術後AKI" : "術後透析";
@@ -351,6 +379,7 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
   const asksRenal = context.outcomeTags.some((tag) => tag === "renal-failure" || tag === "dialysis");
   const asksMesenteric = context.outcomeTags.some((tag) => tag === "mesenteric-ischemia" || tag === "visceral-malperfusion");
   const asksArds = context.outcomeTags.some((tag) => tag === "ards" || tag === "respiratory-complication");
+  const asksTracheostomy = context.outcomeTags.some((tag) => tag === "tracheostomy" || tag === "prolonged-ventilation");
   const asksStroke = context.outcomeTags.some((tag) => tag === "stroke" || tag === "neurologic-dysfunction");
   const asksMortality = context.outcomeTags.includes("mortality");
   const asksBleeding = context.outcomeTags.some((tag) => tag === "bleeding" || tag === "reoperation");
@@ -404,6 +433,22 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     else if (/respiratory|pulmonary|lung/.test(title)) score += 6;
     else score += 2;
     if (/risk factor|predictive model|nomogram|incidence|outcome|mechanical ventilation|oxygenation/.test(combined)) score += 4;
+  }
+  if (asksTracheostomy) {
+    const hasAcuteTypeADissectionContext = /acute (?:type a )?aortic dissection|type a aortic dissection|\bataad\b/.test(combined);
+    if (asksAorticDissection && !hasAcuteTypeADissectionContext) return Number.NEGATIVE_INFINITY;
+    const hasTracheostomy = /tracheostomy|tracheotomy|prolonged mechanical ventilation|prolonged ventilation/.test(combined);
+    if (!hasTracheostomy) return Number.NEGATIVE_INFINITY;
+    const broadAneurysmContextOnly = /aneurysm|thoracoabdominal|endovascular/.test(title)
+      && !/aortic dissection|type a aortic dissection|\bataad\b/.test(title);
+    if (broadAneurysmContextOnly) return Number.NEGATIVE_INFINITY;
+    const titleFocusesOtherOutcome = /mortality in acute|mesenteric|visceral|stroke|inflammatory|malperfusion|tavi/.test(title)
+      && !/tracheostomy|tracheotomy|prolonged (?:mechanical )?ventilation/.test(title);
+    if (titleFocusesOtherOutcome) return Number.NEGATIVE_INFINITY;
+    if (/tracheostomy|tracheotomy/.test(title)) score += 14;
+    else if (/prolonged (?:mechanical )?ventilation/.test(title)) score += 12;
+    else score += 4;
+    if (/risk factor|predictor|incidence|outcome|associated|mortality|pneumonia|respiratory failure/.test(combined)) score += 4;
   }
   if (asksStroke) {
     const hasStroke = /stroke|neurologic|neurological|cerebral/.test(combined);
