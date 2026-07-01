@@ -73,41 +73,41 @@ describe("Gemini adapter evidence guardrails", () => {
     expect(result.requiresDoctorReview).toBe(true);
   });
 
-  it("runs source-bounded span extraction before synthesizing the final answer", async () => {
+  it("answers deterministic selected-source spans before live extraction to avoid production abstain/latency", async () => {
     const uploaded = createPhysicianUploadedEvidence({
-      title: "Neurocognitive recovery note",
-      fileName: "neurocognitive-recovery.pdf",
-      extractedText: "Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery.",
-      keyFindings: ["Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery."],
+      title: "Mesenteric malperfusion in acute type A aortic dissection",
+      fileName: "mesenteric-malperfusion.pdf",
+      extractedText:
+        "Preoperative malperfusion occurred in 27.7% of cases. Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).",
+      keyFindings: [
+        "Preoperative malperfusion occurred in 27.7% of cases.",
+        "Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).",
+      ],
+      outcomeTags: ["organ-malperfusion"],
     });
 
+    let extractorCalled = false;
     const result = await generateQA(
-      "術後に頭がぼーっとすることはどれくらいありますか？",
+      "腸管虚血のリスクは？",
       {
-        diagnosis: "術後回復",
-        plannedSurgery: "未指定の手術",
-        risks: ["せん妄"],
+        diagnosis: "急性A型大動脈解離",
+        plannedSurgery: "緊急上行大動脈人工血管置換術",
+        risks: ["腸管虚血"],
         selectedEvidence: [uploaded],
         facilityAnswerTemplates: [],
       },
-      async () => ({
-        answerable: true,
-        confidence: "moderate",
-        reason: "Selected source directly reports postoperative delirium frequency.",
-        supportingSpans: [
-          {
-            evidenceId: uploaded.evidenceId,
-            chunkId: "chunk-1",
-            span: "Postoperative delirium occurred in 22% of patients during the first 48 hours after surgery.",
-          },
-        ],
-      }),
+      async () => {
+        extractorCalled = true;
+        return { answerable: false, confidence: "low", reason: "should not be called", supportingSpans: [] };
+      },
     );
 
-    expect(result.answer).toContain("22%");
+    expect(extractorCalled).toBe(false);
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("27.7%");
+    expect(result.answer).toContain("OR 1.82");
     expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
-    expect(result.supportingSpans?.[0]?.text).toContain("Postoperative delirium");
-    expect(result.extractionMode).toBe("agentic-source-bounded");
+    expect(result.extractionMode).toBe("deterministic-source-bounded");
   });
 
   it("passes a MedEvidence-style source-bounded search plan into the agentic extractor", async () => {

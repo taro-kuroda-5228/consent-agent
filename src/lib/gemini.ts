@@ -507,9 +507,18 @@ export async function generateQA(
 
   const resolvedContext = { ...context, selectedEvidence };
   const searchPlan = buildSourceBoundedSearchPlan(question, selectedEvidence);
+  const deterministicResult = synthesizeEvidenceBoundQA(question, resolvedContext);
 
   if (!shouldUseLiveGemini() && spanExtractor === extractSupportingSpansWithGemini) {
-    return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
+    return { ...deterministicResult, extractionMode: "deterministic-source-bounded" };
+  }
+
+  const shouldTrustDeterministicSelectedSourceAnswer =
+    (deterministicResult.evidenceReferences?.length ?? 0) > 0 &&
+    deterministicResult.safetyLabel !== "doctor-review" &&
+    /リスク|危険|可能性|どれくらい|どのくらい|頻度|発生|発生率|確率|割合|何%|何％|%|％|risk|probability|frequency|incidence|rate|occur/i.test(question);
+  if (shouldTrustDeterministicSelectedSourceAnswer) {
+    return { ...deterministicResult, extractionMode: "deterministic-source-bounded" };
   }
 
   try {
