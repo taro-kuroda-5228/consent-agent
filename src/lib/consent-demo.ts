@@ -717,6 +717,7 @@ export type SupportingSpanExtraction = {
   answerable: boolean;
   confidence: "high" | "moderate" | "low";
   reason: string;
+  familyAnswer?: string;
   supportingSpans: Array<{ evidenceId: string; span: string; chunkId?: string }>;
   abstainReason?: string;
 };
@@ -980,6 +981,8 @@ function mentionsArchProcedurePair(question: string): boolean {
 
 function translateCommonMedicalTerm(value: string): string {
   return value
+    .replace(/mesenteric malperfusion/gi, "腸間膜の血流障害")
+    .replace(/preoperative malperfusion/gi, "手術前の血流障害")
     .replace(/hemiarch replacement/gi, "ヘミアーチ置換")
     .replace(/total arch replacement/gi, "全弓部置換")
     .replace(/hemiarch/gi, "ヘミアーチ")
@@ -1023,7 +1026,19 @@ function makeFamilyFriendlyMedicalText(span: string): string {
   const comparativeRewrite = rewriteCommonComparativeOutcomeSentence(span);
   if (comparativeRewrite) return comparativeRewrite;
 
-  return span
+  const translated = translateCommonMedicalTerm(span);
+  const preoperativeOccurrenceMatch = translated.match(/^手術前の血流障害\s+occurred in\s+(\d+(?:\.\d+)?\s*[％%])\s+of cases\.?$/i);
+  if (preoperativeOccurrenceMatch) {
+    return `この資料では、手術前の血流障害は${preoperativeOccurrenceMatch[1].replace("％", "%")}にみられたと報告されています。`;
+  }
+
+  const associatedMortalityMatch = translated.match(/^(.+?)\s+was associated with mortality\s*\((?:odds ratio|OR),?\s*([^;)]+)(?:;\s*95%\s*CI,?\s*([^)]+))?\)\.?$/i);
+  if (associatedMortalityMatch) {
+    const [, subject, oddsRatio] = associatedMortalityMatch;
+    return `${subject}は死亡リスク上昇と関連していました（関連の強さを示す数値: ${oddsRatio.trim()}）。`;
+  }
+
+  return translated
     .replace(/全弓部置換\s*\+\s*FET/g, "全弓部置換術とフローズン・エレファント・トランク法")
     .replace(/FET/g, "フローズン・エレファント・トランク法")
     .replace(/95\s*%\s*CI\s*/gi, "95%信頼区間")
@@ -1103,14 +1118,6 @@ function extractRenalDialysisNumericFinding(span: string): string | undefined {
 
 function makeCitationLabel(source: EvidenceCard): string {
   return source.citation || [source.title, source.pmid ? `PMID: ${source.pmid}` : undefined].filter(Boolean).join(" ");
-}
-
-function makeAnswerWithCitation(answer: string, source: EvidenceCard, span: string): string {
-  if (/根拠論文:|引用箇所:/.test(answer)) return answer;
-  const normalizedAnswer = answer.endsWith("。") || answer.endsWith(".”") || answer.endsWith("」") ? answer : `${answer}。`;
-  const citation = makeCitationLabel(source);
-  const quote = cleanFamilyAnswerSpan(normalizeEvidenceSpan(span));
-  return `${normalizedAnswer}\n根拠論文: ${citation}\n引用箇所: “${quote}”`;
 }
 
 function selectBestCitationSpanForQuestion(question: string, source: EvidenceCard): string {
@@ -1367,10 +1374,9 @@ function summarizeGenericSourceBoundedRiskFromEvidence(question: string, evidenc
     .replace(/odds ratio,?\s*/gi, "OR ")
     .replace(/95\s*%\s*CI/gi, "95%信頼区間");
   const answer = `${readable}${readable.endsWith("。") ? "" : "。"}`;
-  const citation = makeCitationLabel(source);
   const citationSpan = candidateSpans.map((candidate) => candidate.span).join(" ");
   return {
-    answer: `${answer}\n根拠論文: ${citation}\n引用箇所: “${citationSpan}”`,
+    answer,
     source,
     span: citationSpan,
   };
@@ -1624,6 +1630,38 @@ function answerFromSupportingSpans(spans: Array<{ text: string }>): string {
   return normalizedAnswer.length <= 260 ? normalizedAnswer : `${normalizedAnswer.slice(0, 257)}...`;
 }
 
+function normalizeGroundingNumber(value: string): string {
+  return value.replace(/[％]/g, "%").replace(/\s+/g, "").toLowerCase();
+}
+
+function makePatientFriendlyAnswer(answer: string): string {
+  return answer
+    .replace(/（\s*(?:OR|RR|HR|odds ratio|risk ratio|hazard ratio)[^）)]*(?:95%\s*(?:信頼区間|CI)[^）)]*)?[）)]/gi, "")
+    .replace(/\s+/g, " ")
+    .replace(/。。+/g, "。")
+    .trim();
+}
+
+function extractGroundingNumbers(text: string): string[] {
+  const matches = [
+    ...(text.match(/\d+(?:\.\d+)?\s*[％%]/g) ?? []),
+    ...(text.match(/\b\d+(?:\.\d+)?(?:\s*[-–]\s*\d+(?:\.\d+)?)?\b/g) ?? []),
+  ];
+  return Array.from(new Set(matches.map(normalizeGroundingNumber).filter((item) => item.length > 0)));
+}
+
+function isGroundedPatientFriendlyAnswer(answer: string | undefined, verifiedSpans: Array<{ text: string }>): answer is string {
+  if (!answer) return false;
+  const normalizedAnswer = answer.replace(/\s+/g, " ").trim();
+  if (normalizedAnswer.length < 12 || normalizedAnswer.length > 520) return false;
+  if (/選択済み参考資料内には|直接答えられる記載が見つかりません|根拠論文:|引用箇所:/.test(normalizedAnswer)) return false;
+
+  const supportingText = verifiedSpans.map((item) => item.text).join(" ");
+  const supportingNumbers = new Set(extractGroundingNumbers(supportingText));
+  const answerNumbers = extractGroundingNumbers(normalizedAnswer);
+  return answerNumbers.every((number) => supportingNumbers.has(number));
+}
+
 export function synthesizeEvidenceBoundQAFromSupportingSpans(
   question: string,
   context: ConsentQAContext,
@@ -1674,10 +1712,10 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
   }
 
   const evidenceById = new Map(verifiedSpans.map((item) => [item.evidence.evidenceId, item.evidence]));
-  const primarySpan = verifiedSpans[0];
-  const answer = primarySpan
-    ? makeAnswerWithCitation(answerFromSupportingSpans(verifiedSpans), primarySpan.evidence, primarySpan.text)
-    : answerFromSupportingSpans(verifiedSpans);
+  const groundedPatientFriendlyAnswer = isGroundedPatientFriendlyAnswer(extraction.familyAnswer, verifiedSpans)
+    ? makePatientFriendlyAnswer(extraction.familyAnswer)
+    : undefined;
+  const answer = groundedPatientFriendlyAnswer ?? answerFromSupportingSpans(verifiedSpans);
   return {
     answer,
     safetyLabel: extraction.confidence === "low" ? "doctor-review" : "general",
@@ -1759,7 +1797,7 @@ export function synthesizeEvidenceBoundQA(
     const genericStatement = matchedPolicy ? undefined : summarizeGenericSourceBoundedStatementFromEvidence(question, context.selectedEvidence);
     if (genericStatement) {
       return {
-        answer: makeAnswerWithCitation(genericStatement.answer, genericStatement.source, genericStatement.span),
+        answer: genericStatement.answer,
         safetyLabel: "general",
         requiresDoctorReview: false,
         retrievalMode: "physician-curated-only",
@@ -1805,9 +1843,7 @@ export function synthesizeEvidenceBoundQA(
     isComparativeQuestion(question) ||
     isLongTermPrognosisQuestion(question) ||
     isSexDifferenceQuestion(question);
-  const answer = shouldAppendCitation && primaryAnswerSource && primaryCitationSpan
-    ? makeAnswerWithCitation(baseAnswer, primaryAnswerSource, primaryCitationSpan)
-    : baseAnswer;
+  const answer = baseAnswer;
   const supportingSpans = shouldAppendCitation && primaryAnswerSource && primaryCitationSpan
     ? [{ evidenceId: primaryAnswerSource.evidenceId, text: primaryCitationSpan }]
     : undefined;

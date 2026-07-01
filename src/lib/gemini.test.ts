@@ -105,7 +105,8 @@ describe("Gemini adapter evidence guardrails", () => {
     expect(extractorCalled).toBe(false);
     expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
     expect(result.answer).toContain("27.7%");
-    expect(result.answer).toContain("OR 1.82");
+    expect(result.answer).toContain("死亡リスク上昇と関連");
+    expect(result.answer).not.toContain("OR 1.82");
     expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(result.extractionMode).toBe("deterministic-source-bounded");
   });
