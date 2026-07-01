@@ -981,7 +981,12 @@ function mentionsArchProcedurePair(question: string): boolean {
 
 function translateCommonMedicalTerm(value: string): string {
   return value
-    .replace(/mesenteric malperfusion/gi, "腸間膜の血流障害")
+    .replace(/mesenteric malperfusion|\bMMP\b/gi, "腸間膜の血流障害")
+    .replace(/bowel necrosis/gi, "腸管壊死")
+    .replace(/multiorgan failure/gi, "多臓器不全")
+    .replace(/in-hospital mortality/gi, "入院中の死亡")
+    .replace(/postoperative AKI/gi, "術後の急性腎障害（AKI）")
+    .replace(/acute kidney injury\s*\(AKI\)/gi, "急性腎障害（AKI）")
     .replace(/preoperative malperfusion/gi, "手術前の血流障害")
     .replace(/hemiarch replacement/gi, "ヘミアーチ置換")
     .replace(/total arch replacement/gi, "全弓部置換")
@@ -1025,6 +1030,22 @@ function summarizeLongTermPrognosisFromEvidence(evidence: EvidenceCard[]): { ans
 function makeFamilyFriendlyMedicalText(span: string): string {
   const comparativeRewrite = rewriteCommonComparativeOutcomeSentence(span);
   if (comparativeRewrite) return comparativeRewrite;
+
+  const normalized = span.replace(/\s+/g, " ").trim();
+  const postoperativeAkiMatch = normalized.match(/^The synthesized incidence of postoperative AKI was (\d+(?:\.\d+)?\s*[％%])\.?$/i);
+  if (postoperativeAkiMatch) {
+    return `選択された論文では、大動脈解離術後の急性腎障害（AKI）の発生率は${postoperativeAkiMatch[1].replace("％", "%")}と報告されています。透析そのものの発生率ではなく、透析につながり得る術後腎合併症の数値として説明します。`;
+  }
+
+  const mmpPrevalenceMatch = normalized.match(/\b(?:aTAAD|acute type A aortic dissection)[^.]*\b(?:MMP|mesenteric malperfusion)[^.]*overall prevalence of\s+(\d+(?:\.\d+)?\s*[％%])\.?$/i);
+  if (mmpPrevalenceMatch) {
+    return `選択された論文では、急性A型大動脈解離に腸間膜の血流障害を伴う頻度は${mmpPrevalenceMatch[1].replace("％", "%")}と報告されています。`;
+  }
+
+  const inHospitalMortalityMatch = normalized.match(/^The overall in-hospital mortality amongst these patients was\s+(\d+(?:\.\d+)?\s*[％%]),\s+and\s+bowel necrosis and\/or multiorgan failure were the major causes of death\.?$/i);
+  if (inHospitalMortalityMatch) {
+    return `この資料では、入院中に亡くなった方は${inHospitalMortalityMatch[1].replace("％", "%")}と報告されています。主な原因として腸管壊死や多臓器不全が挙げられています。`;
+  }
 
   const translated = translateCommonMedicalTerm(span);
   const preoperativeOccurrenceMatch = translated.match(/^手術前の血流障害\s+occurred in\s+(\d+(?:\.\d+)?\s*[％%])\s+of cases\.?$/i);
@@ -1116,10 +1137,6 @@ function extractRenalDialysisNumericFinding(span: string): string | undefined {
   );
 }
 
-function makeCitationLabel(source: EvidenceCard): string {
-  return source.citation || [source.title, source.pmid ? `PMID: ${source.pmid}` : undefined].filter(Boolean).join(" ");
-}
-
 function selectBestCitationSpanForQuestion(question: string, source: EvidenceCard): string {
   if (isEmergencySurgeryNeedQuestion(question)) {
     const emergencySpan = source.keyFindings?.find((finding) => /破裂/.test(finding) && /心タンポナーデ/.test(finding));
@@ -1185,9 +1202,7 @@ function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: Evid
   if (!best || best.score < 80) return undefined;
 
   const supportingSpan = best.numericFinding ?? best.span;
-  const body = translateRenalDialysisFindingForFamily(supportingSpan);
-  const citation = makeCitationLabel(best.item);
-  const answer = `${body}\n根拠論文: ${citation}\n引用箇所: “${supportingSpan}”`;
+  const answer = translateRenalDialysisFindingForFamily(supportingSpan);
   return { answer: answer.length <= 520 ? answer : `${answer.slice(0, 517)}...`, source: best.item, span: supportingSpan };
 }
 
@@ -1356,15 +1371,23 @@ function summarizeGenericSourceBoundedRiskFromEvidence(question: string, evidenc
   if (evidence.length !== 1) return undefined;
 
   const source = evidence[0];
+  const seenSpans = new Set<string>();
   const candidateSpans = splitEvidenceSpans(source)
     .map((span, index) => {
       const numeric = containsNumericRisk(span) || /odds ratio|risk ratio|\bOR\b|\bRR\b|confidence interval|95\s*%\s*CI/i.test(span);
-      const outcome = /risk|mortality|death|outcome|complication|incidence|occurred|associated|odds ratio|risk ratio|malperfusion|ischemia|灌流|虚血|死亡|発生|合併/i.test(span);
-      const score = (numeric ? 100 : 0) + (outcome ? 60 : 0) - index * 0.01;
+      const outcome = /risk|mortality|death|outcome|complication|incidence|prevalence|occurred|associated|odds ratio|risk ratio|malperfusion|ischemia|bowel|MMP|灌流|虚血|腸管|死亡|発生|合併/i.test(span);
+      const bowelBoost = /腸管|腸間膜|bowel|mesenteric|MMP|malperfusion|ischemia/i.test(span) ? 25 : 0;
+      const score = (numeric ? 100 : 0) + (outcome ? 60 : 0) + bowelBoost - index * 0.01;
       return { span, score };
     })
     .filter((candidate) => candidate.score >= 120)
     .sort((a, b) => b.score - a.score)
+    .filter((candidate) => {
+      const key = candidate.span.toLowerCase().replace(/\s+/g, " ").trim();
+      if (seenSpans.has(key)) return false;
+      seenSpans.add(key);
+      return true;
+    })
     .slice(0, 2);
 
   if (candidateSpans.length === 0) return undefined;
@@ -1636,12 +1659,13 @@ function normalizeGroundingNumber(value: string): string {
 
 function makePatientFriendlyAnswer(answer: string): string {
   return answer
+    .replace(/\n?根拠論文:[\s\S]*$/g, "")
+    .replace(/\n?引用箇所:[\s\S]*$/g, "")
     .replace(/（\s*(?:OR|RR|HR|odds ratio|risk ratio|hazard ratio)[^）)]*(?:95%\s*(?:信頼区間|CI)[^）)]*)?[）)]/gi, "")
     .replace(/\s+/g, " ")
     .replace(/。。+/g, "。")
     .trim();
 }
-
 function extractGroundingNumbers(text: string): string[] {
   const matches = [
     ...(text.match(/\d+(?:\.\d+)?\s*[％%]/g) ?? []),
@@ -1650,11 +1674,15 @@ function extractGroundingNumbers(text: string): string[] {
   return Array.from(new Set(matches.map(normalizeGroundingNumber).filter((item) => item.length > 0)));
 }
 
+function isIndividualPrognosisQuestion(normalizedQuestion: string): boolean {
+  return /成功率|助か|生きて|帰れ|生存|個別.*予後/.test(normalizedQuestion);
+}
+
 function isGroundedPatientFriendlyAnswer(answer: string | undefined, verifiedSpans: Array<{ text: string }>): answer is string {
   if (!answer) return false;
   const normalizedAnswer = answer.replace(/\s+/g, " ").trim();
   if (normalizedAnswer.length < 12 || normalizedAnswer.length > 520) return false;
-  if (/選択済み参考資料内には|直接答えられる記載が見つかりません|根拠論文:|引用箇所:/.test(normalizedAnswer)) return false;
+  if (/選択済み参考資料内には|直接答えられる記載が見つかりません|根拠論文:|引用箇所:|PMID|Wang et al\.|The synthesized|A total of|overall in-hospital mortality/i.test(normalizedAnswer)) return false;
 
   const supportingText = verifiedSpans.map((item) => item.text).join(" ");
   const supportingNumbers = new Set(extractGroundingNumbers(supportingText));
@@ -1683,9 +1711,9 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
     };
   }
 
-  if (normalized.includes("成功率") || normalized.includes("助か")) {
+  if (isIndividualPrognosisQuestion(normalized)) {
     return {
-      answer: "選択済み参考資料内だけでは、個別の成功率や死亡率は断定できません。担当医が患者さんの状態に合わせて直接補足します。",
+      answer: "その質問は患者さんごとの状態で大きく変わるため、選択済み参考資料だけでAIが断定することはできません。担当医が今の状態と手術リスクを見ながら直接説明します。",
       safetyLabel: "individual-prognosis",
       requiresDoctorReview: true,
       retrievalMode: "physician-curated-only",
@@ -1754,9 +1782,9 @@ export function synthesizeEvidenceBoundQA(
     };
   }
 
-  if (normalized.includes("成功率") || normalized.includes("助か")) {
+  if (isIndividualPrognosisQuestion(normalized)) {
     return {
-      answer: "選択済み参考資料内だけでは、個別の成功率や死亡率は断定できません。担当医が患者さんの状態に合わせて直接補足します。",
+      answer: "その質問は患者さんごとの状態で大きく変わるため、選択済み参考資料だけでAIが断定することはできません。担当医が今の状態と手術リスクを見ながら直接説明します。",
       safetyLabel: "individual-prognosis",
       requiresDoctorReview: true,
       retrievalMode: "physician-curated-only",

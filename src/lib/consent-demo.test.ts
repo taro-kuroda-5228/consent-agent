@@ -168,6 +168,22 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("routes survival questions to a warm doctor-review answer instead of a cold no-source message", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("生きて帰れますか？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "上行大動脈人工血管置換術",
+      risks: ["死亡", "破裂"],
+      selectedEvidence: evidence,
+    });
+
+    expect(result.answer).toContain("患者さんごとの状態");
+    expect(result.answer).toContain("担当医");
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.safetyLabel).toBe("individual-prognosis");
+    expect(result.requiresDoctorReview).toBe(true);
+  });
+
   it("answers default stroke risk questions directly instead of returning a disease definition or broad complication summary", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
     const result = synthesizeEvidenceBoundQA("脳梗塞のリスクについて、もっと教えてください", {
@@ -245,9 +261,10 @@ describe("consent demo utilities", () => {
     expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
     expect(result.answer).toContain("50.7%");
     expect(result.answer).toContain("急性腎障害（AKI）の発生率");
-    expect(result.answer).toContain("根拠論文:");
-    expect(result.answer).toContain("引用箇所:");
-    expect(result.answer).toContain("The synthesized incidence of postoperative AKI was 50.7%.");
+    expect(result.answer).not.toContain("根拠論文:");
+    expect(result.answer).not.toContain("引用箇所:");
+    expect(result.answer).not.toContain("The synthesized incidence of postoperative AKI was 50.7%.");
+    expect(result.answer).toContain("選択された論文では");
     expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual([uploaded.evidenceId]);
     expect(result.supportingSpans).toEqual([{ evidenceId: uploaded.evidenceId, text: "The synthesized incidence of postoperative AKI was 50.7%." }]);
@@ -458,6 +475,36 @@ describe("consent demo utilities", () => {
     expect(result.answer).not.toContain("引用箇所");
     expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(result.supportingSpans?.[0]?.text).toContain("Mesenteric malperfusion");
+  });
+
+  it("rewrites English PubMed bowel malperfusion spans into family-friendly Japanese without raw paper quotes", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Risk factors and outcomes of mesenteric malperfusion in acute type A aortic dissection",
+      fileName: "PMID-39076744-mmp.txt",
+      extractedText:
+        "A total of 352 patients, mean age: 58.4 ± 11.9 years, diagnosed with aTAAD complicated with MMP were included with an overall prevalence of 4%. The overall in-hospital mortality amongst these patients was 43.5%, and bowel necrosis and/or multiorgan failure were the major causes of death.",
+      keyFindings: [
+        "A total of 352 patients, mean age: 58.4 ± 11.9 years, diagnosed with aTAAD complicated with MMP were included with an overall prevalence of 4%.",
+        "The overall in-hospital mortality amongst these patients was 43.5%, and bowel necrosis and/or multiorgan failure were the major causes of death.",
+      ],
+      outcomeTags: ["organ-malperfusion", "mortality"],
+    });
+
+    const result = synthesizeEvidenceBoundQA("腸管虚血のリスクは？", {
+      diagnosis: "急性A型大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["腸管虚血"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).toContain("腸間膜の血流障害を伴う頻度は4%");
+    expect(result.answer).toContain("入院中に亡くなった方は43.5%");
+    expect(result.answer).toContain("腸管壊死や多臓器不全");
+    expect(result.answer).not.toContain("The overall in-hospital mortality");
+    expect(result.answer).not.toContain("A total of 352");
+    expect(result.answer).not.toContain("根拠論文");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
   });
 
   it("accepts a source-grounded patient-friendly Gemini answer when every numeric claim is supported by verified selected-source spans", () => {
