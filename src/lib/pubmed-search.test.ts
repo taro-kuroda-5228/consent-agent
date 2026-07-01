@@ -93,6 +93,84 @@ describe("PubMed natural-language evidence search", () => {
     expect(plan.outcomeTags).toEqual(expect.arrayContaining(["tracheostomy", "prolonged-ventilation"]));
   });
 
+  it("expands a representative outcome matrix beyond the initially reported words", () => {
+    const cases = [
+      { query: "大動脈解離術後の脊髄虚血リスクについて言及している論文", terms: ["spinal cord ischemia", "paraplegia"], tags: ["spinal-cord-ischemia"] },
+      { query: "大動脈解離術後の再開胸リスクについて言及している論文", terms: ["reoperation", "re-exploration"], tags: ["reoperation", "bleeding"] },
+      { query: "大動脈解離術後のICU滞在期間について言及している論文", terms: ["intensive care unit", "ICU length of stay"], tags: ["icu-stay"] },
+      { query: "大動脈解離術後感染リスクについて言及している論文", terms: ["infection", "pneumonia"], tags: ["infection"] },
+    ];
+
+    for (const testCase of cases) {
+      const plan = buildPubMedNaturalLanguageSearch(testCase.query);
+      expect(plan.pubmedTerm).toContain("aortic dissection");
+      for (const term of testCase.terms) expect(plan.pubmedTerm).toContain(term);
+      expect(plan.outcomeTags).toEqual(expect.arrayContaining(testCase.tags));
+      expect(plan.rankingPolicy).toContain("answerability");
+    }
+  });
+
+  it("uses a generic answerability gate for unseen outcome wording instead of returning broad ATAAD papers", () => {
+    const plan = buildPubMedNaturalLanguageSearch("大動脈解離術後の脊髄虚血リスクについて言及している論文");
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "weak-mortality-registry",
+        title: "Mortality in acute type A aortic dissection - A systematic review based on contemporary registries.",
+        abstractText: "We included registry-based studies reporting in-hospital, 30-day, operative or 48-hour mortality following ATAAD. In-hospital mortality ranged from 5% to 29%.",
+        journal: "Registry review",
+        year: "2025",
+        authors: [],
+      },
+      {
+        pmid: "weak-stroke-list",
+        title: "Neurological complications after acute type A aortic dissection repair.",
+        abstractText: "Stroke occurred in 12% of cases. The outcome list included renal failure, respiratory failure, and spinal cord ischemia as collected variables, without incidence or risk factor results for spinal cord ischemia.",
+        journal: "Aorta",
+        year: "2024",
+        authors: [],
+      },
+      {
+        pmid: "direct-spinal-cord",
+        title: "Spinal cord ischemia after acute type A aortic dissection repair: incidence and risk factors.",
+        abstractText: "Among patients undergoing acute type A aortic dissection repair, spinal cord ischemia occurred in 2.4%. Predictors included prolonged circulatory arrest and extensive arch repair.",
+        journal: "Journal of aortic surgery",
+        year: "2024",
+        authors: ["Ito K"],
+      },
+    ], { originalQuery: plan.originalQuery, outcomeTags: plan.outcomeTags });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-direct-spinal-cord"]);
+    expect(cards[0].clinicianSummary).toContain("脊髄虚血");
+    expect(cards[0].clinicianSummary).toContain("2.4%");
+    expect(cards[0].clinicianSummary).not.toMatch(/^要点: We included/);
+  });
+
+  it("omits etiologic infection papers when the clinician asks for postoperative infection risk", () => {
+    const plan = buildPubMedNaturalLanguageSearch("大動脈解離術後感染リスクについて言及している論文");
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "weak-infection-cause",
+        title: "Chronic Q fever infection associated with acute aortic dissection.",
+        abstractText: "Chronic Q fever infection is associated with cardiovascular complications and can present with aortic dissection. This paper discusses infectious etiology, not postoperative infection after repair.",
+        journal: "Infection",
+        year: "2011",
+        authors: [],
+      },
+      {
+        pmid: "direct-postoperative-infection",
+        title: "Postoperative infection after acute type A aortic dissection repair: incidence and risk factors.",
+        abstractText: "Among patients undergoing acute type A aortic dissection repair, postoperative infection occurred in 8.1%. Risk factors included prolonged operative time and transfusion.",
+        journal: "Aorta",
+        year: "2024",
+        authors: ["Kato M"],
+      },
+    ], { originalQuery: plan.originalQuery, outcomeTags: plan.outcomeTags });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-direct-postoperative-infection"]);
+    expect(cards[0].clinicianSummary).toContain("感染");
+    expect(cards[0].clinicianSummary).toContain("8.1%");
+  });
+
   it("ranks directly answer-bearing postoperative ARDS papers and summarizes clinical risk", () => {
     const cards = convertPubMedArticlesToEvidenceCards([
       {
@@ -394,7 +472,7 @@ describe("PubMed natural-language evidence search", () => {
       },
     ], { originalQuery: "大動脈解離の透析リスクについて言及している論文", outcomeTags: ["renal-failure", "dialysis"] });
 
-    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-strong", "PUBMED-weak"]);
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-strong"]);
     expect(cards[0].clinicianSummary).toContain("8.2%");
   });
 });
