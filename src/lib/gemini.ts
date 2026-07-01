@@ -410,6 +410,7 @@ function parseSupportingSpanExtraction(text: string): SupportingSpanExtraction {
     answerable: parsed.answerable === true,
     confidence: parsed.confidence === "high" || parsed.confidence === "moderate" || parsed.confidence === "low" ? parsed.confidence : "low",
     reason: typeof parsed.reason === "string" ? parsed.reason : "",
+    familyAnswer: typeof parsed.familyAnswer === "string" ? parsed.familyAnswer : undefined,
     supportingSpans: Array.isArray(parsed.supportingSpans)
       ? parsed.supportingSpans
           .filter((item) => typeof item?.evidenceId === "string" && typeof item?.span === "string")
@@ -434,7 +435,13 @@ export async function extractSupportingSpansWithGemini(
 【最重要ルール】
 - 以下の【医師が選択したソース】に含まれる文字列だけを根拠にする。
 - 選択されていない文献、一般知識、推測、外部検索は禁止。
-- supportingSpans[].span は、ソース内の文を原文のままコピーする。要約・翻訳・言い換えは禁止。
+- supportingSpans[].span は、ソース内の短い根拠句または文を原文のままコピーする。要約・翻訳・言い換えは禁止。
+- familyAnswer は、supportingSpans の内容だけを使って、患者・家族向けの日本語で分かりやすく説明する。医学用語は必要に応じて短く補足する。
+- familyAnswer は、非医療者に対するやさしい説明を優先する。科学的根拠を前面に出しすぎず、まず結論と意味を短く伝える。
+- オッズ比・リスク比・信頼区間・p値などの研究者向け指標は、質問で明示的に聞かれた場合以外は本文に出さず、「リスクが高くなることと関連」などの自然な表現にする。
+- ただし、発生率・割合など家族の理解に役立つ数字は、supportingSpans に存在する場合だけ、過度に断定せず「この資料では〜と報告されています」と表現する。
+- familyAnswer に、supportingSpans に存在しない数値・割合・OR/RR・信頼区間・比較結果を追加してはいけない。
+- 根拠が英語でも、familyAnswer は患者・家族が読める自然な日本語にする。
 - 直接答える記載がない場合は answerable=false にする。
 - 施設資料または医師アップロード資料が直接答えられる場合は、それを最優先する。
 - 個別の成功率・同意判断を求める質問は、スパンがあっても慎重に扱うため confidence=low にする。
@@ -459,6 +466,7 @@ JSONのみを返してください。
   "answerable": true,
   "confidence": "high | moderate | low",
   "reason": "質問とスパンが直接対応する理由。なければ不足理由。",
+  "familyAnswer": "answerable=true の場合のみ。supportingSpans だけに基づく患者・家族向けのやさしい日本語説明。研究者向け指標は前面に出しすぎない。",
   "supportingSpans": [
     { "evidenceId": "SOURCE_ID", "chunkId": "chunk-1", "span": "ソース内の文を原文コピー" }
   ],

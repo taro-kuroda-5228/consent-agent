@@ -452,11 +452,92 @@ describe("consent demo utilities", () => {
 
     expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
     expect(result.answer).toContain("27.7%");
-    expect(result.answer).toContain("OR 1.82");
-    expect(result.answer).toContain("根拠論文");
-    expect(result.answer).toContain("引用箇所");
+    expect(result.answer).toContain("死亡リスク上昇と関連");
+    expect(result.answer).not.toContain("OR 1.82");
+    expect(result.answer).not.toContain("根拠論文");
+    expect(result.answer).not.toContain("引用箇所");
     expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(result.supportingSpans?.[0]?.text).toContain("Mesenteric malperfusion");
+  });
+
+  it("accepts a source-grounded patient-friendly Gemini answer when every numeric claim is supported by verified selected-source spans", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Mesenteric malperfusion in acute type A aortic dissection",
+      fileName: "mesenteric-malperfusion.pdf",
+      extractedText:
+        "Preoperative malperfusion occurred in 27.7% of cases. Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).",
+      keyFindings: [
+        "Preoperative malperfusion occurred in 27.7% of cases.",
+        "Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).",
+      ],
+      outcomeTags: ["organ-malperfusion"],
+    });
+
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "腸管虚血のリスクは？",
+      {
+        diagnosis: "急性A型大動脈解離",
+        plannedSurgery: "緊急上行大動脈人工血管置換術",
+        risks: ["腸管虚血"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      },
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "The selected source directly reports malperfusion prevalence and mortality association.",
+        familyAnswer:
+          "選択された論文では、手術前の血流障害は27.7%にみられ、腸間膜の血流障害は死亡リスク上昇と関連していました（OR 1.82、95%信頼区間1.45-2.28）。",
+        supportingSpans: [
+          { evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "Preoperative malperfusion occurred in 27.7% of cases." },
+          { evidenceId: uploaded.evidenceId, chunkId: "chunk-2", span: "Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28)." },
+        ],
+      },
+    );
+
+    expect(result.answer).toContain("手術前の血流障害は27.7%");
+    expect(result.answer).toContain("死亡リスク上昇と関連");
+    expect(result.answer).not.toContain("OR 1.82");
+    expect(result.answer).not.toContain("根拠論文");
+    expect(result.answer).not.toContain("引用箇所");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.extractionMode).toBe("agentic-source-bounded");
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
+  it("rejects a patient-friendly Gemini answer when it adds unsupported numeric claims outside verified selected-source spans", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Mesenteric malperfusion in acute type A aortic dissection",
+      fileName: "mesenteric-malperfusion.pdf",
+      extractedText: "Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28).",
+      keyFindings: ["Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28)."],
+      outcomeTags: ["organ-malperfusion"],
+    });
+
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "腸管虚血のリスクは？",
+      {
+        diagnosis: "急性A型大動脈解離",
+        plannedSurgery: "緊急上行大動脈人工血管置換術",
+        risks: ["腸管虚血"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      },
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "The selected source reports mortality association.",
+        familyAnswer: "腸管虚血は30%に起こり、死亡リスクはOR 1.82と報告されています。",
+        supportingSpans: [
+          { evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "Mesenteric malperfusion was associated with mortality (odds ratio, 1.82; 95% CI, 1.45-2.28)." },
+        ],
+      },
+    );
+
+    expect(result.answer).not.toContain("30%");
+    expect(result.answer).toContain("1.82");
+    expect(result.answer).not.toContain("根拠論文");
+    expect(result.requiresDoctorReview).toBe(false);
   });
 
   it("uses generic selected-source RAG to quote non-numeric clinical statements without using model prior knowledge", () => {
@@ -483,8 +564,8 @@ describe("consent demo utilities", () => {
     expect(result.answer).toContain("persistent metabolic acidosis");
     expect(result.answer).toContain("bowel resection");
     expect(result.answer).not.toContain("renal replacement therapy");
-    expect(result.answer).toContain("根拠論文");
-    expect(result.answer).toContain("引用箇所");
+    expect(result.answer).not.toContain("根拠論文");
+    expect(result.answer).not.toContain("引用箇所");
     expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(result.supportingSpans?.[0]?.text).toContain("Mesenteric malperfusion");
     expect(result.requiresDoctorReview).toBe(false);

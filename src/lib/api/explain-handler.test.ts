@@ -61,7 +61,8 @@ describe('explain and qa handlers persistence', () => {
     expect(qa.body.metadata.selectedEvidenceSource).toBe('database');
     expect(qa.body.answer).not.toContain('直接答えられる記載が見つかりません');
     expect(qa.body.answer).toContain('27.7%');
-    expect(qa.body.answer).toContain('OR 1.82');
+    expect(qa.body.answer).toContain('死亡リスク上昇と関連');
+    expect(qa.body.answer).not.toContain('OR 1.82');
     expect(qa.body.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(qa.body.supportingSpans?.[0]?.text).toContain('Mesenteric malperfusion');
   });
