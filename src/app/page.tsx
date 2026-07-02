@@ -540,14 +540,36 @@ export default function ConsentAgent() {
   };
 
   const submitToDoctor = async () => {
-    setSummary({
+    const localSummary = {
       concerns: concerns.trim() ? [concerns.trim()] : [],
       familyQuestions: qaLog.map((q) => ({
         question: q.question,
         answer: q.answer,
         needsDoctorFollowUp: q.safetyLabel === "doctor-review" || q.safetyLabel === "individual-prognosis",
       })),
-    });
+    };
+
+    // The in-page demo summary and the shareable /doctor/{sessionId}/summary page must read the same source of truth.
+    // This path has no explicit consent-intent picker, so keep the handoff review-gated by recording "undecided".
+    if (sessionId) {
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}/responses`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answers: UNDERSTANDING_QUESTIONS.map((q) => ({ questionId: q.id, selectedIndex: understandingAnswers[q.id] })),
+            concerns: concerns.trim(),
+            intent: "undecided",
+            familyToken: familyToken ?? undefined,
+          }),
+        });
+        if (!res.ok) throw new Error("family response persistence failed");
+      } catch (error) {
+        console.warn("Family response persistence failed; local summary is shown but session summary may lag", error);
+      }
+    }
+
+    setSummary(localSummary);
     setStep(4);
   };
 

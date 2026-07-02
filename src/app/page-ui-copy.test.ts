@@ -160,4 +160,12 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("追加説明が必要なこと");
     expect(pageSource).not.toContain("回答に使った根拠ID");
   });
+
+  it("persists the in-page family concerns handoff before opening the session doctor summary", () => {
+    expect(pageSource).toContain("fetch(`/api/sessions/${sessionId}/responses`");
+    expect(pageSource).toContain("answers: UNDERSTANDING_QUESTIONS.map((q) => ({ questionId: q.id, selectedIndex: understandingAnswers[q.id] }))");
+    expect(pageSource).toContain("concerns: concerns.trim()");
+    expect(pageSource).toContain("intent: \"undecided\"");
+    expect(pageSource).toContain("familyToken: familyToken ?? undefined");
+  });
 });
