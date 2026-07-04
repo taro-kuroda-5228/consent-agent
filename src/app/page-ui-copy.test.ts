@@ -168,11 +168,18 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("pubMedResult.plan.pubmedTerm");
   });
 
-  it("keeps the physician start screen judge-friendly: three obvious actions first and advanced controls collapsed", () => {
-    expect(renderScreen1Source).toContain("1. 症例を選ぶ");
-    expect(renderScreen1Source).toContain("2. 根拠は自動選択");
-    expect(renderScreen1Source).toContain("3. 家族説明を開始");
+  it("keeps the physician start screen simple: current case first and advanced controls collapsed", () => {
+    expect(renderScreen1Source).toContain("今回の説明");
+    expect(renderScreen1Source).toContain("症例を変更する");
+    expect(renderScreen1Source).toContain("詳細を編集する（必要時のみ）");
     expect(renderScreen1Source).toContain("医師向け詳細設定");
+    expect(renderScreen1Source).toContain("家族説明を開始");
+    expect(renderScreen1Source).not.toContain("30秒で始める");
+    expect(renderScreen1Source).not.toContain("最短30秒");
+    expect(renderScreen1Source).not.toContain("通常は開かなくてOK");
+    expect(renderScreen1Source).not.toContain("1. 症例を選ぶ");
+    expect(renderScreen1Source).not.toContain("2. 根拠は自動選択");
+    expect(renderScreen1Source).not.toContain("3. 家族説明を開始");
     expect(renderScreen1Source).not.toContain(" open>");
     expect(renderScreen1Source).not.toContain("border-cyan-200 bg-cyan-50 p-3\" open>");
     expect(renderScreen1Source).not.toContain("施設別テンプレ回答（医師は必要時だけ修正）\" open>");

@@ -63,6 +63,9 @@ const INTENT_OPTIONS = [
   { value: "declines", label: "現時点では同意しません", color: "border-red-500 bg-red-50 text-red-900" },
 ] as const;
 
+const familyQaCardClass = "border-slate-200 bg-white text-slate-900 shadow-sm";
+const familyQaTextareaClass = "bg-white text-slate-900 placeholder:text-slate-500";
+
 type IntentValue = (typeof INTENT_OPTIONS)[number]["value"];
 
 type SpeechRecognitionLike = {
@@ -96,7 +99,6 @@ export default function QAPage() {
   const [submitting, setSubmitting] = useState(false);
   const [decision, setDecision] = useState<ConsentDecisionResult | null>(null);
   const [listening, setListening] = useState(false);
-  const [voiceSupported] = useState<boolean>(() => getSpeechRecognition() !== null);
 
   const startVoiceInput = () => {
     const SpeechRecognitionImpl = getSpeechRecognition();
@@ -210,8 +212,8 @@ export default function QAPage() {
 
   if (loadState === "not-found") {
     return (
-      <div className="min-h-screen bg-slate-50 p-4">
-        <Card className="max-w-lg mx-auto mt-10 border-amber-200 bg-amber-50">
+      <div className="min-h-screen bg-slate-50 p-4 text-slate-900">
+        <Card className="max-w-lg mx-auto mt-10 border-amber-200 bg-amber-50 text-amber-950">
           <CardContent className="py-8 text-center space-y-2">
             <p className="text-sm font-bold text-amber-900">セッションが見つかりません</p>
             <p className="text-xs text-amber-800">担当医師から案内されたリンクからアクセスしてください。</p>
@@ -224,9 +226,9 @@ export default function QAPage() {
   if (decision) {
     const ready = decision.decision === "consent_ready";
     return (
-      <div className="min-h-screen bg-slate-50 p-4">
+      <div className="min-h-screen bg-slate-50 p-4 text-slate-900">
         <div className="max-w-lg mx-auto mt-10 space-y-3">
-          <Card className={ready ? "border-green-300 bg-green-50" : "border-amber-300 bg-amber-50"}>
+          <Card className={ready ? "border-green-300 bg-green-50 text-green-950" : "border-amber-300 bg-amber-50 text-amber-950"}>
             <CardContent className="py-8 text-center space-y-3">
               <p className="text-3xl">{ready ? "✅" : "🧑‍⚕️"}</p>
               <p className="text-base font-bold">
@@ -258,7 +260,7 @@ export default function QAPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 text-slate-900">
       <header className="bg-white border-b px-4 py-3 sticky top-0 z-10">
         <h1 className="text-lg font-bold text-gray-900">質問 & 確認</h1>
 
@@ -266,7 +268,7 @@ export default function QAPage() {
 
       <div className="max-w-lg mx-auto p-4 space-y-3 pb-24">
         {/* 質問 */}
-        <Card>
+        <Card className={familyQaCardClass}>
           <CardHeader className="pb-1 pt-3 px-4">
             <CardTitle className="text-sm">❓ よくある家族の質問</CardTitle>
           </CardHeader>
@@ -276,7 +278,7 @@ export default function QAPage() {
                 key={question}
                 onClick={() => askQuestion(question)}
                 disabled={loading || loadState !== "ready"}
-                className="w-full text-left px-3 py-2.5 text-sm rounded-lg border border-gray-200 bg-white hover:bg-blue-50 hover:border-blue-300 disabled:opacity-50"
+                className="w-full text-left px-3 py-2.5 text-sm rounded-lg border border-gray-200 bg-white text-slate-900 hover:bg-blue-50 hover:border-blue-300 disabled:opacity-50"
               >
                 {question}
               </button>
@@ -285,7 +287,7 @@ export default function QAPage() {
         </Card>
 
         {/* 自由質問 */}
-        <Card>
+        <Card className={familyQaCardClass}>
           <CardHeader className="pb-1 pt-3 px-4">
             <CardTitle className="text-sm">✏️ 自由に質問する</CardTitle>
           </CardHeader>
@@ -295,22 +297,21 @@ export default function QAPage() {
               value={freeQuestion}
               onChange={(e) => setFreeQuestion(e.target.value)}
               rows={2}
+              className={familyQaTextareaClass}
             />
             <div className="flex gap-2">
-              {voiceSupported && (
-                <Button
-                  onClick={startVoiceInput}
-                  variant="outline"
-                  className={`shrink-0 ${listening ? "border-red-400 bg-red-50 text-red-700" : ""}`}
-                  disabled={loading || loadState !== "ready" || listening}
-                  aria-label="音声で質問する"
-                >
-                  {listening ? "🎙️ 聞き取り中..." : "🎤 音声で質問"}
-                </Button>
-              )}
+              <Button
+                onClick={startVoiceInput}
+                variant="outline"
+                className={`shrink-0 border-slate-900 bg-slate-900 text-white hover:bg-slate-800 hover:text-white ${listening ? "border-red-400 bg-red-50 text-red-700" : ""}`}
+                disabled={loading || loadState !== "ready" || listening}
+                aria-label="音声で質問する"
+              >
+                {listening ? "🎙️ 聞き取り中..." : "🎤 音声で質問"}
+              </Button>
               <Button
                 onClick={() => askQuestion(freeQuestion)}
-                className="flex-1 bg-blue-600 hover:bg-blue-700"
+                className="flex-1 bg-blue-600 text-white hover:bg-blue-700"
                 disabled={!freeQuestion.trim() || loading || loadState !== "ready"}
               >
                 {loading ? "⏳ 選択済み資料を確認中..." : "質問する"}
@@ -351,7 +352,7 @@ export default function QAPage() {
         <Separator />
 
         {/* 理解度チェック */}
-        <Card>
+        <Card className={familyQaCardClass}>
           <CardHeader className="pb-1 pt-3 px-4">
             <CardTitle className="text-sm">📝 理解度チェック</CardTitle>
           </CardHeader>
@@ -361,7 +362,7 @@ export default function QAPage() {
             )}
             {questions.map((q, qIdx) => (
               <div key={q.id} className="space-y-1.5">
-                <p className="text-sm font-medium">
+                <p className="text-sm font-medium text-slate-900">
                   Q{qIdx + 1}: {q.question}
                 </p>
                 <div className="space-y-1">
@@ -374,7 +375,7 @@ export default function QAPage() {
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm border transition-colors ${
                           selected
                             ? "bg-blue-100 border-blue-500 text-blue-800"
-                            : "bg-white border-gray-200 hover:bg-gray-50"
+                            : "bg-white border-gray-200 text-slate-900 hover:bg-gray-50"
                         }`}
                       >
                         {opt}
@@ -388,7 +389,7 @@ export default function QAPage() {
         </Card>
 
         {/* 不安 */}
-        <Card>
+        <Card className={familyQaCardClass}>
           <CardHeader className="pb-1 pt-3 px-4">
             <CardTitle className="text-sm">😰 不安・医師に確認したいこと</CardTitle>
           </CardHeader>
@@ -398,6 +399,7 @@ export default function QAPage() {
               value={concerns}
               onChange={(e) => setConcerns(e.target.value)}
               rows={2}
+              className={familyQaTextareaClass}
             />
             <p className="mt-1 text-[11px] text-gray-500">
               記入された内容はそのまま担当医師に届きます。
@@ -406,7 +408,7 @@ export default function QAPage() {
         </Card>
 
         {/* 同意意思 */}
-        <Card>
+        <Card className={familyQaCardClass}>
           <CardHeader className="pb-1 pt-3 px-4">
             <CardTitle className="text-sm">🤝 現時点でのお気持ち</CardTitle>
           </CardHeader>
@@ -416,7 +418,7 @@ export default function QAPage() {
                 key={option.value}
                 onClick={() => setIntent(option.value)}
                 className={`w-full text-left px-3 py-2.5 rounded-lg text-sm border-2 transition-colors ${
-                  intent === option.value ? option.color : "bg-white border-gray-200 hover:bg-gray-50"
+                  intent === option.value ? option.color : "bg-white border-gray-200 text-slate-900 hover:bg-gray-50"
                 }`}
               >
                 {option.label}
@@ -430,7 +432,7 @@ export default function QAPage() {
 
         <Button
           onClick={handleSubmit}
-          className="w-full bg-green-600 hover:bg-green-700 text-base py-5"
+          className="w-full bg-green-600 text-white hover:bg-green-700 text-base py-5"
           size="lg"
           disabled={!canSubmit}
         >

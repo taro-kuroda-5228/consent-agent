@@ -87,6 +87,8 @@ const UNDERSTANDING_QUESTIONS = [
   { id: "q4", question: "最終的な判断は誰がしますか？", options: ["AI", "家族", "担当医師", "看護師"], correctIndex: 2 },
 ];
 
+const DEFAULT_QUICK_CASE = PHYSICIAN_QUICK_CASES[0];
+
 type Step = 1 | 2 | 3 | 4;
 
 // ---- Main Component ----
@@ -119,16 +121,16 @@ export default function ConsentAgent() {
   const [newFacilityTemplateAnswer, setNewFacilityTemplateAnswer] = useState("当院では、脳梗塞・出血・腎不全などの主な合併症リスクを、患者さんの状態に合わせて担当医が説明します。");
   const [facilityTemplateMessage, setFacilityTemplateMessage] = useState("");
   const selectedFacilityTemplates = facilityTemplates.filter((item) => enabledFacilityTemplateIds.includes(item.templateId));
-  const [age, setAge] = useState("");
-  const [sex, setSex] = useState("");
-  const [diagnosis, setDiagnosis] = useState("");
-  const [urgency, setUrgency] = useState("");
-  const [plannedSurgery, setPlannedSurgery] = useState("");
-  const [purpose, setPurpose] = useState("");
-  const [cardiopulmonaryBypass, setCardiopulmonaryBypass] = useState(false);
-  const [transfusion, setTransfusion] = useState("");
-  const [risks, setRisks] = useState<string[]>([]);
-  const [notes, setNotes] = useState("");
+  const [age, setAge] = useState(DEFAULT_QUICK_CASE.age);
+  const [sex, setSex] = useState(DEFAULT_QUICK_CASE.sex);
+  const [diagnosis, setDiagnosis] = useState(DEFAULT_QUICK_CASE.diagnosis);
+  const [urgency, setUrgency] = useState(DEFAULT_QUICK_CASE.urgency);
+  const [plannedSurgery, setPlannedSurgery] = useState(DEFAULT_QUICK_CASE.plannedSurgery);
+  const [purpose, setPurpose] = useState(DEFAULT_QUICK_CASE.purpose);
+  const [cardiopulmonaryBypass, setCardiopulmonaryBypass] = useState(DEFAULT_QUICK_CASE.cardiopulmonaryBypass);
+  const [transfusion, setTransfusion] = useState(DEFAULT_QUICK_CASE.transfusion);
+  const [risks, setRisks] = useState<string[]>(DEFAULT_QUICK_CASE.risks);
+  const [notes, setNotes] = useState(DEFAULT_QUICK_CASE.notes);
   const [loading1, setLoading1] = useState(false);
 
   // Screen 2 state
@@ -544,44 +546,6 @@ export default function ConsentAgent() {
     <div className="space-y-4">
       <div className="text-center space-y-1 mb-2">
         <h2 className="text-lg font-bold">医師入力</h2>
-        <p className="text-xs text-gray-500">まずプリセットを選ぶだけ。個人情報は入れないデモ症例です。</p>
-      </div>
-
-      <div className="rounded-[28px] border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm">
-        <p className="text-sm font-black text-blue-950">30秒で始める</p>
-        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
-          <div className="rounded-2xl bg-white p-3 font-bold text-slate-900 shadow-sm">1. 症例を選ぶ</div>
-          <div className="rounded-2xl bg-white p-3 font-bold text-slate-900 shadow-sm">2. 根拠は自動選択</div>
-          <div className="rounded-2xl bg-blue-600 p-3 font-bold text-white shadow-sm">3. 家族説明を開始</div>
-        </div>
-        <p className="mt-3 text-xs font-semibold leading-relaxed text-blue-800">まず下のデモ症例を押すだけ。PubMed・施設テンプレ・資料追加は「医師向け詳細設定」に閉じています。</p>
-      </div>
-
-      <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 shadow-sm">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-bold text-blue-950">最短30秒</p>
-            <p className="text-[11px] leading-relaxed text-blue-800">症例プリセット → 根拠確認 → 家族説明開始</p>
-          </div>
-          <span className="rounded-full bg-white px-2 py-1 text-[10px] font-bold text-blue-700">医師は必要時だけ修正</span>
-        </div>
-        <div className="mt-3 grid gap-2">
-          {PHYSICIAN_QUICK_CASES.map((quickCase) => (
-            <button
-              key={quickCase.id}
-              type="button"
-              onClick={() => applyQuickCase(quickCase)}
-              className={`rounded-xl border px-3 py-3 text-left transition-colors ${
-                diagnosis === quickCase.diagnosis && plannedSurgery === quickCase.plannedSurgery
-                  ? "border-blue-600 bg-white shadow-sm"
-                  : "border-blue-100 bg-white/80 hover:border-blue-400"
-              }`}
-            >
-              <span className="block text-sm font-bold text-slate-950">{quickCase.label}</span>
-              <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-600">{quickCase.description}</span>
-            </button>
-          ))}
-        </div>
       </div>
 
       {diagnosis || plannedSurgery ? (
@@ -596,6 +560,27 @@ export default function ConsentAgent() {
           </div>
         </div>
       ) : null}
+
+      <details className="rounded-xl border border-slate-200 bg-white p-3">
+        <summary className="cursor-pointer text-sm font-bold text-slate-900">症例を変更する</summary>
+        <div className="mt-3 grid gap-2">
+          {PHYSICIAN_QUICK_CASES.map((quickCase) => (
+            <button
+              key={quickCase.id}
+              type="button"
+              onClick={() => applyQuickCase(quickCase)}
+              className={`rounded-xl border px-3 py-3 text-left transition-colors ${
+                diagnosis === quickCase.diagnosis && plannedSurgery === quickCase.plannedSurgery
+                  ? "border-blue-600 bg-blue-50 shadow-sm"
+                  : "border-slate-200 bg-white hover:border-blue-400"
+              }`}
+            >
+              <span className="block text-sm font-bold text-slate-950">{quickCase.label}</span>
+              <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-600">{quickCase.description}</span>
+            </button>
+          ))}
+        </div>
+      </details>
 
       <details className="rounded-xl border border-slate-200 bg-white p-3">
         <summary className="cursor-pointer text-sm font-bold text-slate-900">詳細を編集する（必要時のみ）</summary>
@@ -655,7 +640,6 @@ export default function ConsentAgent() {
         <details className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
           <summary className="cursor-pointer text-sm font-black text-slate-950">
             医師向け詳細設定（根拠・施設テンプレ・資料追加）
-            <span className="ml-2 text-xs font-semibold text-slate-500">通常は開かなくてOK</span>
           </summary>
           <div className="mt-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
@@ -1343,11 +1327,6 @@ export default function ConsentAgent() {
           {screens[step]()}
         </main>
 
-        <footer className="px-2 pb-4 text-center">
-          <p className="text-[11px] leading-relaxed text-slate-500">
-            デモデータのみ。実在患者の個人情報・医療情報は使用していません。最終説明・治療判断・同意確認は資格を持つ医師が行います。
-          </p>
-        </footer>
       </div>
     </div>
   );
