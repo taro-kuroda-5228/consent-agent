@@ -264,7 +264,8 @@ describe("consent demo utilities", () => {
     expect(result.answer).not.toContain("根拠論文:");
     expect(result.answer).not.toContain("引用箇所:");
     expect(result.answer).not.toContain("The synthesized incidence of postoperative AKI was 50.7%.");
-    expect(result.answer).toContain("選択された論文では");
+    expect(result.answer).not.toContain("選択された論文では");
+    expect(result.answer).not.toContain("この資料では");
     expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual([uploaded.evidenceId]);
     expect(result.supportingSpans).toEqual([{ evidenceId: uploaded.evidenceId, text: "The synthesized incidence of postoperative AKI was 50.7%." }]);
