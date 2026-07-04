@@ -343,11 +343,17 @@ export function createAutoPhysicianUrlEvidence(input: {
   const keyFindings = inferKeyFindings(text);
   const clinicalScope = inferClinicalScope(text, title);
 
+  const sourceGroundedText = [text, familyEvidence]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
   return createPhysicianUploadedEvidence({
     title,
     fileName,
     sourceUrl,
-    extractedText: familyEvidence,
+    extractedText: sourceGroundedText,
     clinicianSummary: `${title}。${clinicalScope}に関する医師採用前のAI自動抽出根拠カードです。`,
     clinicalScope,
     keyFindings,
@@ -1034,23 +1040,23 @@ function makeFamilyFriendlyMedicalText(span: string): string {
   const normalized = span.replace(/\s+/g, " ").trim();
   const postoperativeAkiMatch = normalized.match(/^The synthesized incidence of postoperative AKI was (\d+(?:\.\d+)?\s*[％%])\.?$/i);
   if (postoperativeAkiMatch) {
-    return `選択された論文では、大動脈解離術後の急性腎障害（AKI）の発生率は${postoperativeAkiMatch[1].replace("％", "%")}と報告されています。透析そのものの発生率ではなく、透析につながり得る術後腎合併症の数値として説明します。`;
+    return `大動脈解離術後の急性腎障害（AKI）の発生率は${postoperativeAkiMatch[1].replace("％", "%")}と報告されています。透析そのものの発生率ではなく、透析につながり得る術後腎合併症の数値として説明します。`;
   }
 
   const mmpPrevalenceMatch = normalized.match(/\b(?:aTAAD|acute type A aortic dissection)[^.]*\b(?:MMP|mesenteric malperfusion)[^.]*overall prevalence of\s+(\d+(?:\.\d+)?\s*[％%])\.?$/i);
   if (mmpPrevalenceMatch) {
-    return `選択された論文では、急性A型大動脈解離に腸間膜の血流障害を伴う頻度は${mmpPrevalenceMatch[1].replace("％", "%")}と報告されています。`;
+    return `急性A型大動脈解離に腸間膜の血流障害を伴う頻度は${mmpPrevalenceMatch[1].replace("％", "%")}と報告されています。`;
   }
 
   const inHospitalMortalityMatch = normalized.match(/^The overall in-hospital mortality amongst these patients was\s+(\d+(?:\.\d+)?\s*[％%]),\s+and\s+bowel necrosis and\/or multiorgan failure were the major causes of death\.?$/i);
   if (inHospitalMortalityMatch) {
-    return `この資料では、入院中に亡くなった方は${inHospitalMortalityMatch[1].replace("％", "%")}と報告されています。主な原因として腸管壊死や多臓器不全が挙げられています。`;
+    return `入院中に亡くなった方は${inHospitalMortalityMatch[1].replace("％", "%")}と報告されています。主な原因として腸管壊死や多臓器不全が挙げられています。`;
   }
 
   const translated = translateCommonMedicalTerm(span);
   const preoperativeOccurrenceMatch = translated.match(/^手術前の血流障害\s+occurred in\s+(\d+(?:\.\d+)?\s*[％%])\s+of cases\.?$/i);
   if (preoperativeOccurrenceMatch) {
-    return `この資料では、手術前の血流障害は${preoperativeOccurrenceMatch[1].replace("％", "%")}にみられたと報告されています。`;
+    return `手術前の血流障害は${preoperativeOccurrenceMatch[1].replace("％", "%")}にみられたと報告されています。`;
   }
 
   const associatedMortalityMatch = translated.match(/^(.+?)\s+was associated with mortality\s*\((?:odds ratio|OR),?\s*([^;)]+)(?:;\s*95%\s*CI,?\s*([^)]+))?\)\.?$/i);
@@ -1073,6 +1079,9 @@ function makeFamilyFriendlyMedicalText(span: string): string {
 
 function cleanFamilyAnswerSpan(span: string): string {
   const cleaned = span
+    .replace(/^この資料では、\s*/, "")
+    .replace(/^選択された(?:資料|論文|ガイドライン)では、\s*/, "")
+    .replace(/^選択済み参考資料では、\s*/, "")
     .replace(/^参考資料では、\s*/, "")
     .replace(/^PubMed掲載の(?:FET)?メタ解析では、\s*/, "")
     .replace(/^PubMed掲載の(?:IRAD)?研究では、\s*/, "")
@@ -1116,7 +1125,7 @@ function summarizeEmergencyNeedFromEvidence(evidence: EvidenceCard[]): { answer:
 function isRenalDialysisRiskQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
   const asksRenal = /透析|腎|腎不全|急性腎障害|aki|renal|kidney|dialysis/.test(normalized);
-  const asksRisk = /リスク|risk|起こ|合併症|可能性|危険|について/.test(normalized);
+  const asksRisk = /リスク|risk|起こ|合併症|可能性|危険|問題|困|について/.test(normalized);
   return asksRenal && asksRisk;
 }
 
@@ -1137,6 +1146,28 @@ function extractRenalDialysisNumericFinding(span: string): string | undefined {
   );
 }
 
+function extractRenalGuidelineFinding(span: string): string | undefined {
+  const normalized = span.replace(/\s+/g, " ").trim();
+  const directDialysis = normalized.match(/[^。\n]{0,120}(?:透析|dialysis|renal replacement|腎代替療法)[^。\n]{0,220}/i)?.[0]?.trim();
+  if (directDialysis) return directDialysis;
+
+  const guidelineFindings = Array.from(normalized.matchAll(/腎機能低下・腎不全患者に対する[^。\n]{0,420}/g))
+    .map((match) => match[0]?.trim())
+    .filter(Boolean)
+    .sort((a, b) => {
+      const aToc = /--\s*[1-9]\s+of\s+\d+\s+--/.test(a) || (a.match(/\bPQ\s*\d+/g)?.length ?? 0) >= 2;
+      const bToc = /--\s*[1-9]\s+of\s+\d+\s+--/.test(b) || (b.match(/\bPQ\s*\d+/g)?.length ?? 0) >= 2;
+      return Number(aToc) - Number(bToc);
+    });
+  if (guidelineFindings[0]) return guidelineFindings[0];
+
+  const renalIndex = normalized.search(/急性腎障害|\bAKI\b|腎不全|renal failure|kidney injury|\bCKD\b|腎機能低下|CIN|造影/i);
+  if (renalIndex < 0) return undefined;
+  const start = Math.max(0, renalIndex - 120);
+  const end = Math.min(normalized.length, renalIndex + 520);
+  return normalized.slice(start, end).trim();
+}
+
 function selectBestCitationSpanForQuestion(question: string, source: EvidenceCard): string {
   if (isEmergencySurgeryNeedQuestion(question)) {
     const emergencySpan = source.keyFindings?.find((finding) => /破裂/.test(finding) && /心タンポナーデ/.test(finding));
@@ -1154,10 +1185,22 @@ function translateRenalDialysisFindingForFamily(finding: string): string {
   const percent = normalized.match(/\d+(?:\.\d+)?\s*[％%]/)?.[0]?.replace("％", "%");
   const isDirectDialysis = /dialysis|透析|renal replacement|腎代替療法/i.test(normalized);
   if (percent && isDirectDialysis) {
-    return `大動脈解離術後に透析または腎代替療法が必要になるリスクは、選択された論文では${percent}と報告されています。`;
+    return `大動脈解離術後に透析または腎代替療法が必要になるリスクは${percent}と報告されています。`;
+  }
+  if (percent && /CIN|contrast|造影|CT/i.test(normalized)) {
+    return `腎機能低下・腎不全がある場合、造影CTなどで造影剤腎症（CIN）に注意する必要があり、CINは${percent}と記載されています。透析が必要になるかは、この箇所だけでは断定せず、患者さんの腎機能と治療内容を医師が確認します。`;
   }
   if (percent && /acute kidney injury|\bAKI\b|急性腎障害|腎不全|renal failure|kidney injury/i.test(normalized)) {
-    return `選択された論文では、大動脈解離術後の急性腎障害（AKI）の発生率は${percent}と報告されています。透析そのものの発生率ではなく、透析につながり得る術後腎合併症の数値として説明します。`;
+    return `急性腎障害（AKI）の発生率または腎不全に関する数値として${percent}が記載されています。透析そのものの発生率ではなく、透析につながり得る腎合併症の数値として医師確認つきで説明します。`;
+  }
+  if (/dialysis|透析|renal replacement|腎代替療法/i.test(normalized)) {
+    return "腎不全が重くなると、透析や集中治療が必要になる場合があります。これは患者さんの腎機能や全身状態によって変わるため、担当医が個別に確認して説明します。";
+  }
+  if (/急性腎障害|\bAKI\b|腎不全|renal failure|kidney injury|\bCKD\b|腎機能低下|CIN|造影/i.test(normalized)) {
+    if (/TEVAR|EVAR|造影|contrast|CIN/i.test(normalized)) {
+      return "腎機能低下・腎不全がある場合、TEVAR/EVARや造影CTで急性腎障害（AKI）や造影剤腎症（CIN）に注意が必要です。患者さんごとの腎機能、造影剤使用、術式を医師が確認して説明します。";
+    }
+    return "腎不全・急性腎障害は、大動脈疾患の治療で注意すべき合併症です。重症度によって治療方針や術後管理に影響するため、患者さんの腎機能を確認しながら医師が説明します。";
   }
   return cleanFamilyAnswerSpan(normalized);
 }
@@ -1184,24 +1227,27 @@ function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: Evid
       evidenceIndex * 0.01;
     const spans = splitEvidenceSpans(item).map((span, spanIndex) => {
       const numericFinding = extractRenalDialysisNumericFinding(span);
+      const renalFinding = numericFinding ?? extractRenalGuidelineFinding(span);
       const normalizedSpan = span.toLowerCase();
-      const normalizedFinding = numericFinding?.toLowerCase() ?? "";
+      const normalizedFinding = renalFinding?.toLowerCase() ?? "";
       const spanScore =
         (/透析|dialysis|renal replacement/.test(normalizedSpan) ? 80 : 0) +
         (/急性腎障害|aki|renal|kidney|腎不全|腎障害/.test(normalizedSpan) ? 60 : 0) +
         (/risk factors?|リスク因子|incidence|発生|mortality|死亡/.test(normalizedSpan) ? 25 : 0) +
         (numericFinding ? 120 : 0) +
+        (renalFinding ? 60 : 0) +
         (/透析|dialysis|renal replacement/.test(normalizedFinding) ? 40 : 0) -
+        ((/--\s*[1-9]\s+of\s+\d+\s+--/.test(span) || (span.match(/\bPQ\s*\d+/g)?.length ?? 0) >= 2) ? 90 : 0) -
         spanIndex * 0.001;
-      return { item, span, numericFinding, score: sourceScore + spanScore };
+      return { item, span, renalFinding, score: sourceScore + spanScore };
     });
-    return spans.length > 0 ? spans : [{ item, span: item.displayForFamily, numericFinding: extractRenalDialysisNumericFinding(item.displayForFamily), score: sourceScore }];
+    return spans.length > 0 ? spans : [{ item, span: item.displayForFamily, renalFinding: extractRenalDialysisNumericFinding(item.displayForFamily) ?? extractRenalGuidelineFinding(item.displayForFamily), score: sourceScore }];
   });
 
   const best = candidates.sort((a, b) => b.score - a.score)[0];
   if (!best || best.score < 80) return undefined;
 
-  const supportingSpan = best.numericFinding ?? best.span;
+  const supportingSpan = best.renalFinding ?? best.span;
   const answer = translateRenalDialysisFindingForFamily(supportingSpan);
   return { answer: answer.length <= 520 ? answer : `${answer.slice(0, 517)}...`, source: best.item, span: supportingSpan };
 }
@@ -1251,6 +1297,40 @@ function summarizeStrokeRiskFromEvidence(question: string, evidence: EvidenceCar
   return { answer: answer.length <= 180 ? answer : `${answer.slice(0, 177)}...`, source: descriptiveSource };
 }
 
+function findNearestCitationPrefix(part: string, position: number): string | undefined {
+  const contextPattern = /(?:\[章\/節:[^\]]+\]\s*)?--\s*\d+\s+of\s+\d+\s*--(?:\s*\d+)?(?:\s*第\s*\d+\s*章[^。!?？.!?]{0,80})?/g;
+  let last: string | undefined;
+  for (const match of Array.from(part.matchAll(contextPattern))) {
+    const index = match.index ?? 0;
+    if (index > position) break;
+    last = match[0].replace(/\s+/g, " ").trim();
+  }
+  return last;
+}
+
+function splitEvidencePartIntoSpans(part: string): string[] {
+  const spans: string[] = [];
+  let sectionCursor = 0;
+  for (const rawSection of part.split(/\s+---\s+/)) {
+    const sectionIndex = part.indexOf(rawSection, sectionCursor);
+    sectionCursor = sectionIndex >= 0 ? sectionIndex + rawSection.length : sectionCursor;
+    let sentenceCursor = 0;
+    for (const rawSegment of rawSection.split(/(?<=[。!?？])\s*|(?<=[.!?])\s+(?=[A-Z])/)) {
+      const localIndex = rawSection.indexOf(rawSegment, sentenceCursor);
+      sentenceCursor = localIndex >= 0 ? localIndex + rawSegment.length : sentenceCursor;
+      const index = (sectionIndex >= 0 ? sectionIndex : 0) + (localIndex >= 0 ? localIndex : sentenceCursor);
+      const sentence = rawSegment.replace(/\s+/g, " ").trim();
+      if (sentence.length < 8) continue;
+      const prefix = findNearestCitationPrefix(part, index);
+      const span = prefix && !sentence.includes(prefix) && !/^--\s*\d+\s+of\s+\d+\s*--/.test(sentence)
+        ? `${prefix} ${sentence}`
+        : sentence;
+      spans.push(span.replace(/\s+/g, " ").trim());
+    }
+  }
+  return spans;
+}
+
 function splitEvidenceSpans(item: EvidenceCard): string[] {
   const textParts = [
     ...(item.keyFindings ?? []),
@@ -1261,8 +1341,7 @@ function splitEvidenceSpans(item: EvidenceCard): string[] {
   ].filter(Boolean) as string[];
 
   return textParts
-    .flatMap((part) => part.split(/(?<=[。!?？])\s*|(?<=[.!?])\s+(?=[A-Z])/))
-    .map((part) => part.replace(/\s+/g, " ").trim())
+    .flatMap(splitEvidencePartIntoSpans)
     .filter((part, index, parts) => part.length >= 8 && parts.indexOf(part) === index);
 }
 
@@ -1362,7 +1441,7 @@ function summarizeBroadComplicationRatesFromEvidence(question: string, evidence:
 
   const firstSource = selected[0].item;
   const joined = selected.map((candidate) => candidate.clause).join("、");
-  const answer = `選択済み参考資料では、${joined}と記載されています。`;
+  const answer = `${joined}と記載されています。`;
   return { answer: answer.length <= 300 ? answer : `${answer.slice(0, 297)}...`, source: firstSource };
 }
 
@@ -1419,7 +1498,78 @@ function isGenericSourceBoundedFallbackQuestion(question: string): boolean {
   );
 }
 
+function buildPatientFriendlyUploadedGuidelineAnswer(question: string, span: string): string {
+  const normalizedQuestion = question.toLowerCase();
+  if (/脊髄|対麻痺|下半身|spinal|paraplegia/i.test(normalizedQuestion)) {
+    return "足のまひにつながる脊髄の血流低下を避けるため、手術中から術後まで血流を保つ配慮と早期発見が大切です。足が動かしにくい、感覚が弱いなどの変化があれば、すぐに担当医が確認します。";
+  }
+  if (/妊娠|出産|妊婦|pregnan/i.test(normalizedQuestion)) {
+    return "妊娠中の場合は、お母さんと赤ちゃんの状態をあわせて見ながら、治療方針を個別に判断する必要があります。実際にどの治療を選ぶかは、担当医が今の状態を確認して説明します。";
+  }
+  if (/腸|腹|腸管|腸間膜|malperfusion|mesenteric|bowel|visceral|ischemia/i.test(normalizedQuestion)) {
+    return "腸への血流が悪くなることは重い合併症です。お腹の痛みや血流の状態を見ながら、手術や集中治療で早く対応する必要があるため、担当医が現在の所見に合わせて説明します。";
+  }
+  if (/遺伝|マルファン|marfan|家族|大動脈径/i.test(normalizedQuestion)) {
+    return "マルファン症候群など体質や家族歴が関わる場合は、通常より慎重に大動脈の大きさや経過を見て治療方針を考える必要があります。患者さんに当てはまるかは担当医が確認します。";
+  }
+  if (/腎|透析|尿|renal|kidney|aki|dialysis/.test(normalizedQuestion)) {
+    return "腎臓の働きが悪くなることは重要な合併症です。必要に応じて透析や集中治療を行うことがあり、患者さんの検査値や尿量を見ながら担当医が説明します。";
+  }
+  const excerpt = cleanFamilyAnswerSpan(span).replace(/^--\s*\d+\s+of\s+\d+\s+--\s*/, "");
+  const clipped = excerpt.length <= 180 ? excerpt : `${excerpt.slice(0, 177)}...`;
+  return `${clipped}${clipped.endsWith("。") ? "" : "。"}患者さんごとの意味は、担当医が今の状態に合わせて確認します。`;
+}
+
+function summarizeUploadedGuidelineQuestionSpan(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
+  const candidates = evidence.flatMap((item, evidenceIndex) => {
+    if (item.origin !== "physician-upload") return [];
+    const sourceLabel = `${item.title} ${item.citation} ${item.uploadedFileName ?? ""} ${item.sourceUrl ?? ""}`;
+    const isUploadedGuideline = item.sourceType === "Guideline" || /ガイドライン|guideline|JCS\d{4}|j-circ/i.test(sourceLabel);
+    if (!isUploadedGuideline) return [];
+    const normalizedQuestion = question.toLowerCase();
+    const isSpinalPreventionQuestion = /脊髄|対麻痺|下半身|spinal|paraplegia/i.test(normalizedQuestion) && /防ぐ|予防|気をつけ|avoid|prevent/i.test(normalizedQuestion);
+    const tokens = extractQuestionSearchTokens(question).map((token) => token.toLowerCase());
+    return splitEvidenceSpans(item).map((span, spanIndex) => {
+      const normalizedSpan = span.toLowerCase();
+      const directHits = tokens.filter((token) => normalizedSpan.includes(token)).length;
+      const specificTokens = tokens.filter((token) => !/^(急性|stanford|大動脈|大動脈解離|解離|治療|方針|手術|資料|記載|ありますか|何|問題|場合|ですか|変わりますか)$/.test(token));
+      const directSpecificHits = specificTokens.filter((token) => normalizedSpan.includes(token)).length;
+      const spinalConceptHit = isSpinalPreventionQuestion && /脊髄|対麻痺|\bSCI\b|spinal|paraplegia/i.test(span);
+      const preventionSignal = isSpinalPreventionQuestion && /予防|防止|保護|温存|再建|配慮|保つ|灌流|ドレナージ|CSFD|術後|モニタリング/i.test(span);
+      const clinicalSignal = /associated|association|occurred|reported|observed|need for|required|linked|risk|outcome|complication|malperfusion|ischemia|bowel|mesenteric|marfan|aortopathy|\bSCI\b|spinal|paraplegia|rehabilitation|関連|伴|必要|発生|認め|リスク|合併|虚血|腸管|腸間膜|マルファン|遺伝|大動脈瘤|適応|脊髄|対麻痺|脊髄保護|灌流|リハビリ/i.test(span);
+      const figureOrTocPenalty =
+        (/--\s*[1-9]\s+of\s+\d+\s+--/.test(span) ? 18 : 0) +
+        ((span.match(/\bPQ\s*\d+/g)?.length ?? 0) >= 2 ? 35 : 0) +
+        ((span.match(/\b\d{1,4}\b/g)?.length ?? 0) >= 65 ? 15 : 0);
+      const score =
+        scoreSpanForQuestion(question, span, 12) +
+        directHits * 24 +
+        (clinicalSignal ? 18 : 0) +
+        (spinalConceptHit ? 90 : 0) +
+        (preventionSignal ? 140 : 0) -
+        (spinalConceptHit && !preventionSignal && /Adamkiewicz|前脊髄動脈|artery|radicular|椎骨動脈|アーケード/i.test(span) ? 80 : 0) -
+        figureOrTocPenalty - evidenceIndex * 0.01 - spanIndex * 0.001;
+      return { item, span, directHits, directSpecificHits, spinalConceptHit, preventionSignal, clinicalSignal, score };
+    });
+  });
+
+  const filteredCandidates = candidates.filter((candidate) => (candidate.directSpecificHits > 0 || candidate.spinalConceptHit) && candidate.clinicalSignal && candidate.score >= 26);
+  const preventionCandidates = filteredCandidates.filter((candidate) => candidate.preventionSignal);
+  const best = (preventionCandidates.length > 0 ? preventionCandidates : filteredCandidates)
+    .sort((a, b) => b.score - a.score)[0];
+
+  if (!best) return undefined;
+  const answer = buildPatientFriendlyUploadedGuidelineAnswer(question, best.span);
+  return {
+    answer,
+    source: best.item,
+    span: best.span,
+  };
+}
+
 function summarizeGenericSourceBoundedStatementFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
+  const uploadedGuideline = summarizeUploadedGuidelineQuestionSpan(question, evidence);
+  if (uploadedGuideline) return uploadedGuideline;
   if (!isGenericSourceBoundedFallbackQuestion(question)) return undefined;
   const candidates = evidence.flatMap((item, evidenceIndex) => {
     const sourcePriority = item.origin === "facility-document" || item.origin === "physician-upload" ? 10 : 0;
@@ -1661,6 +1811,7 @@ function makePatientFriendlyAnswer(answer: string): string {
   return answer
     .replace(/\n?根拠論文:[\s\S]*$/g, "")
     .replace(/\n?引用箇所:[\s\S]*$/g, "")
+    .replace(/^\s*(?:この資料では|選択された(?:資料|論文|ガイドライン)では|選択済み参考資料では|参考資料では)、\s*/g, "")
     .replace(/（\s*(?:OR|RR|HR|odds ratio|risk ratio|hazard ratio)[^）)]*(?:95%\s*(?:信頼区間|CI)[^）)]*)?[）)]/gi, "")
     .replace(/\s+/g, " ")
     .replace(/。。+/g, "。")
@@ -1683,6 +1834,7 @@ function isGroundedPatientFriendlyAnswer(answer: string | undefined, verifiedSpa
   const normalizedAnswer = answer.replace(/\s+/g, " ").trim();
   if (normalizedAnswer.length < 12 || normalizedAnswer.length > 520) return false;
   if (/選択済み参考資料内には|直接答えられる記載が見つかりません|根拠論文:|引用箇所:|PMID|Wang et al\.|The synthesized|A total of|overall in-hospital mortality/i.test(normalizedAnswer)) return false;
+  if (/^(?:この資料では|選択された(?:資料|論文|ガイドライン)では|選択済み参考資料では|参考資料では)、/.test(normalizedAnswer)) return false;
 
   const supportingText = verifiedSpans.map((item) => item.text).join(" ");
   const supportingNumbers = new Set(extractGroundingNumbers(supportingText));

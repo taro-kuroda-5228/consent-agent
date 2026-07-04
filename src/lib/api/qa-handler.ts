@@ -1,5 +1,6 @@
 import { generateQA } from '../gemini';
 import { resolveEvidenceSelectionForRequest, retrieveMockEvidence, type EvidenceCard } from '../consent-demo';
+import { refreshPhysicianSourceEvidenceSetForQuestion } from '../source-url-evidence';
 import { inMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
 import type { ConsentSessionRepository } from '../repositories/consent-session-repository';
 
@@ -56,6 +57,8 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
   } else {
     selectedEvidence = resolveEvidenceSelectionForRequest([...retrieveMockEvidence(input.diagnosis || ''), ...requestCustomEvidence], input.selectedEvidenceIds);
   }
+
+  selectedEvidence = await refreshPhysicianSourceEvidenceSetForQuestion(selectedEvidence, input.question);
 
   const result = await generateQA(input.question, {
     diagnosis: input.diagnosis || '',

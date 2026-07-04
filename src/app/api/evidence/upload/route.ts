@@ -1,82 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createRequire } from "module";
-import { pathToFileURL } from "url";
 import { createAutoPhysicianUrlEvidence } from "../../../../lib/consent-demo";
+import {
+  extractPdfText,
+  fetchSourceUrl,
+  normalizePhysicianSourceUrl,
+  selectRelevantEvidenceText,
+} from "../../../../lib/source-url-evidence";
 import { inspectEvidenceUploadText } from "../../../../lib/storage/evidence-upload";
 
 export const runtime = "nodejs";
 
 const MAX_UPLOAD_BYTES = 45 * 1024 * 1024;
-const MAX_URL_BYTES = 50 * 1024 * 1024;
 
-async function extractPdfText(buffer: Buffer): Promise<string> {
-  const { PDFParse } = await import("pdf-parse");
-  const require = createRequire(`${process.cwd()}/package.json`);
-  PDFParse.setWorker(pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).toString());
-  const parser = new PDFParse({ data: new Uint8Array(buffer) });
-  try {
-    const parsed = await parser.getText();
-    return String(parsed.text || "").replace(/\s+/g, " ").trim();
-  } finally {
-    await parser.destroy();
-  }
-}
+export { normalizePhysicianSourceUrl };
 
-function selectRelevantEvidenceText(text: string): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  const keywords = ["急性A型", "Stanford A", "大動脈解離", "脳梗塞", "脳卒中", "死亡", "腎不全", "出血", "再手術", "手術死亡"];
-  const snippets: string[] = [];
-
-  for (const keyword of keywords) {
-    const index = normalized.indexOf(keyword);
-    if (index >= 0) {
-      const start = Math.max(0, index - 500);
-      const end = Math.min(normalized.length, index + 1400);
-      const snippet = normalized.slice(start, end);
-      if (!snippets.some((existing) => existing.includes(keyword))) {
-        snippets.push(snippet);
-      }
-    }
-  }
-
-  const selected = snippets.join("\n\n---\n\n") || normalized;
-  return selected.slice(0, 12000);
-}
-
-export function normalizePhysicianSourceUrl(input: string): string {
-  const trimmed = input.trim();
-  const match = trimmed.match(/https:\/\/\S+/i);
-  return (match?.[0] || trimmed).replace(/[\])}>,。、，]+$/, "");
-}
-
-function isKnownInstantEvidenceUrl(sourceUrl: string): boolean {
+function isKnownPublicGuidelineUrl(sourceUrl: string): boolean {
   const normalized = sourceUrl.toLowerCase();
   return normalized.includes("j-circ.or.jp") && normalized.includes("jcs2020_ogino.pdf");
-}
-
-function fileNameFromSourceUrl(sourceUrl: string): string {
-  const url = new URL(sourceUrl);
-  return decodeURIComponent(url.pathname.split("/").pop() || "source-evidence.pdf");
-}
-
-async function fetchSourceUrl(sourceUrl: string): Promise<{ buffer: Buffer; fileName: string; contentType: string }> {
-  const url = new URL(normalizePhysicianSourceUrl(sourceUrl));
-  if (url.protocol !== "https:") throw new Error("Only HTTPS source URLs are allowed");
-
-  const response = await fetch(url, { headers: { "User-Agent": "MedEvidenceConsentAgent/0.1" } });
-  if (!response.ok) throw new Error(`source fetch failed: ${response.status}`);
-
-  const contentLength = Number(response.headers.get("content-length") || 0);
-  if (contentLength && contentLength > MAX_URL_BYTES) throw new Error("source file is too large");
-
-  const arrayBuffer = await response.arrayBuffer();
-  if (arrayBuffer.byteLength > MAX_URL_BYTES) throw new Error("source file is too large");
-
-  return {
-    buffer: Buffer.from(arrayBuffer),
-    fileName: decodeURIComponent(url.pathname.split("/").pop() || "source-evidence.pdf"),
-    contentType: response.headers.get("content-type") || "application/pdf",
-  };
 }
 
 export async function POST(req: NextRequest) {
@@ -88,21 +28,6 @@ export async function POST(req: NextRequest) {
 
     if (!(file instanceof File) && !sourceUrl) {
       return NextResponse.json({ error: "file or sourceUrl is required" }, { status: 400 });
-    }
-
-    if (!(file instanceof File) && isKnownInstantEvidenceUrl(sourceUrl)) {
-      const fileName = fileNameFromSourceUrl(sourceUrl);
-      const evidenceCard = createAutoPhysicianUrlEvidence({ sourceUrl, fileName, extractedText: "" });
-      return NextResponse.json({
-        fileName,
-        fileSize: undefined,
-        sourceUrl,
-        extractionStatus: "extracted",
-        extractedText: evidenceCard.displayForFamily,
-        evidenceCard,
-        warning: undefined,
-        privacyNote: "既知の公開ガイドラインURLとして、PDF全文抽出を待たずに医師確認用の根拠カードを作成しました。PHI/PIIを含む資料は使わないでください。",
-      });
     }
 
     let buffer: Buffer;
@@ -153,8 +78,9 @@ export async function POST(req: NextRequest) {
       ? createAutoPhysicianUrlEvidence({ sourceUrl, fileName, extractedText })
       : undefined;
 
-    const phiInspection = inspectEvidenceUploadText(extractedText || fileName);
-    if (!phiInspection.allowed) {
+    const shouldInspectPhi = !(sourceUrl && isKnownPublicGuidelineUrl(sourceUrl));
+    const phiInspection = shouldInspectPhi ? inspectEvidenceUploadText(extractedText || fileName) : { allowed: true as const, sanitizedText: extractedText || fileName };
+    if (phiInspection.allowed === false) {
       return NextResponse.json({
         error: "PHI-like content blocked for anonymous demo upload",
         category: phiInspection.category,

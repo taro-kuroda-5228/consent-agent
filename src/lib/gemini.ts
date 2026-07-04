@@ -439,7 +439,8 @@ export async function extractSupportingSpansWithGemini(
 - familyAnswer は、supportingSpans の内容だけを使って、患者・家族向けの日本語で分かりやすく説明する。医学用語は必要に応じて短く補足する。
 - familyAnswer は、非医療者に対するやさしい説明を優先する。科学的根拠を前面に出しすぎず、まず結論と意味を短く伝える。
 - オッズ比・リスク比・信頼区間・p値などの研究者向け指標は、質問で明示的に聞かれた場合以外は本文に出さず、「リスクが高くなることと関連」などの自然な表現にする。
-- ただし、発生率・割合など家族の理解に役立つ数字は、supportingSpans に存在する場合だけ、過度に断定せず「この資料では〜と報告されています」と表現する。
+- ただし、発生率・割合など家族の理解に役立つ数字は、supportingSpans に存在する場合だけ、過度に断定せず自然な説明文として表現する。
+- familyAnswer の本文には「この資料では」「選択された資料では」「根拠論文」「引用箇所」のような根拠提示ラベルを書かない。根拠の原文は supportingSpans に残す。
 - familyAnswer に、supportingSpans に存在しない数値・割合・OR/RR・信頼区間・比較結果を追加してはいけない。
 - 根拠が英語でも、familyAnswer は患者・家族が読める自然な日本語にする。
 - 直接答える記載がない場合は answerable=false にする。
