@@ -4,12 +4,18 @@ import { describe, expect, it } from "vitest";
 
 const readSource = (relativePath: string) => readFileSync(join(process.cwd(), relativePath), "utf8");
 const pageSource = readSource("src/app/page.tsx");
+const renderScreen1Source = pageSource.slice(
+  pageSource.indexOf("const renderScreen1 = () =>"),
+  pageSource.indexOf("const renderScreen2 = () =>"),
+);
 const renderScreen2Source = pageSource.slice(
   pageSource.indexOf("const renderScreen2 = () =>"),
   pageSource.indexOf("const renderScreen3 = () =>"),
 );
+const familyExplanationSource = readSource("src/app/family/[caseId]/page.tsx");
 const visibleAppSources = [
   pageSource,
+  familyExplanationSource,
   readSource("src/app/family/[caseId]/qa/page.tsx"),
   readSource("src/app/doctor/[caseId]/summary/page.tsx"),
 ].join("\n");
@@ -68,17 +74,27 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(renderScreen2Source).not.toContain("<h3 className=\"text-3xl font-black text-slate-950\">質問する</h3>");
     expect(renderScreen2Source).not.toContain("よくある家族の質問");
     expect(renderScreen2Source).not.toContain("handleFreeQuestion");
-    expect(renderScreen2Source).toContain("説明内容を聞いたので質問・理解確認へ進む");
+    expect(renderScreen2Source).toContain("質問・理解確認へ進む");
     expect(renderScreen2Source).toContain("家族説明");
     expect(renderScreen2Source).not.toContain("Gemini Omni説明");
     expect(renderScreen2Source).not.toContain("Gemini Omni");
     expect(renderScreen2Source).not.toContain("動画・音声・字幕で順番に説明します");
     expect(renderScreen2Source).not.toContain("音声・字幕付き動画");
-    expect(renderScreen2Source).toContain("playAudioNarration(card.id)");
     expect(pageSource).not.toContain("speechSynthesis");
     expect(pageSource).not.toContain("createOscillator");
-    expect(renderScreen2Source).toContain("data-testid=\"audio-playback-status\"");
+    expect(renderScreen2Source).not.toContain("data-testid=\"audio-playback-status\"");
     expect(pageSource).toContain("<CardTitle className=\"text-sm\">✏️ 自由に質問する");
+  });
+
+  it("shows the tokenized family explanation screen with video and no redundant card list", () => {
+    expect(familyExplanationSource).toContain("data-testid=\"family-explanation-video\"");
+    expect(familyExplanationSource).toContain("/media/aortic-dissection-explanation.mp4");
+    expect(familyExplanationSource).toContain("急性A型大動脈解離の3D説明動画");
+    expect(familyExplanationSource).toContain("動画と音声付き説明");
+    expect(familyExplanationSource).not.toContain("view.explanation.map");
+    expect(familyExplanationSource).not.toContain("section.audioNarration");
+    expect(familyExplanationSource).not.toContain("🔊 聞く");
+    expect(familyExplanationSource).toContain("お使いのブラウザでは動画を再生できません。");
   });
 
   it("makes the Gemini explanation section the real clinical AI explanation screen rather than a preview/storyboard", () => {
@@ -94,10 +110,12 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(renderScreen2Source).not.toContain("/media/aortic-dissection-explanation.vtt");
     expect(renderScreen2Source).toContain("controls");
     expect(renderScreen2Source).toContain("playsInline");
-    expect(renderScreen2Source).toContain("sm:grid-cols-2");
+    expect(renderScreen2Source).not.toContain("sm:grid-cols-2");
     expect(renderScreen2Source).not.toContain("根拠と安全境界");
-    expect(renderScreen2Source).toContain("確認");
-    expect(renderScreen2Source).toContain("playAudioNarration(card.id)");
+    expect(renderScreen2Source).not.toContain("説明カードを作成しました");
+    expect(renderScreen2Source).not.toContain("この動画はハッカソン用デモの補助説明です");
+    expect(renderScreen2Source).not.toContain("explanation.map");
+    expect(renderScreen2Source).toContain("動画を見たあと、分からないことは次の質問・理解確認でそのまま聞けます。");
     expect(renderScreen2Source).not.toContain("{card.visualId");
     expect(renderScreen2Source).not.toContain("ataad-clinical-explanation");
     expect(renderScreen2Source).not.toContain("匿名模式図:</span>");
@@ -148,6 +166,33 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("検索意図:");
     expect(pageSource).not.toContain("PubMed式:");
     expect(pageSource).not.toContain("pubMedResult.plan.pubmedTerm");
+  });
+
+  it("keeps the physician start screen judge-friendly: three obvious actions first and advanced controls collapsed", () => {
+    expect(renderScreen1Source).toContain("1. 症例を選ぶ");
+    expect(renderScreen1Source).toContain("2. 根拠は自動選択");
+    expect(renderScreen1Source).toContain("3. 家族説明を開始");
+    expect(renderScreen1Source).toContain("医師向け詳細設定");
+    expect(renderScreen1Source).not.toContain(" open>");
+    expect(renderScreen1Source).not.toContain("border-cyan-200 bg-cyan-50 p-3\" open>");
+    expect(renderScreen1Source).not.toContain("施設別テンプレ回答（医師は必要時だけ修正）\" open>");
+  });
+
+  it("keeps the QR link copy CTA readable on a light background", () => {
+    expect(renderScreen2Source).toContain("家族用リンクを発行しました");
+    expect(renderScreen2Source).toContain("📋 リンクをコピー");
+    expect(renderScreen2Source).toContain("bg-white text-sm font-bold text-emerald-900 shadow-sm");
+    expect(renderScreen2Source).not.toContain("font-mono text-xs text-slate-700 break-all");
+    expect(renderScreen2Source).not.toContain("rounded-full border-emerald-300 text-sm font-bold text-emerald-900");
+  });
+
+  it("keeps the family explanation page simple: video, one sentence, then Q&A", () => {
+    expect(familyExplanationSource).toContain("data-testid=\"family-friendly-summary\"");
+    expect(familyExplanationSource).toContain("動画を見たあと、分からないことは次の質問・理解確認でそのまま聞けます。");
+    expect(familyExplanationSource).toContain("❓ 質問・理解確認へ進む");
+    expect(familyExplanationSource).not.toContain("詳しい説明を読む");
+    expect(familyExplanationSource).not.toContain("説明カード");
+    expect(familyExplanationSource).not.toContain("音声で聞く内容");
   });
 
   it("shows a physician summary focused on patient/family worries and questions", () => {
