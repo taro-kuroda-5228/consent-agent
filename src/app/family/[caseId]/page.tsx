@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,33 +30,6 @@ export default function FamilyExplanation() {
 
   const [view, setView] = useState<SessionView | null>(null);
   const [loadState, setLoadState] = useState<"loading" | "ready" | "not-found" | "error">("loading");
-  const [playingCardId, setPlayingCardId] = useState<string | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-
-  const videoStartByCardId: Record<string, number> = {
-    "disease-mechanism": 0,
-    "emergency-need": 10,
-    procedure: 21,
-    "major-risks": 32,
-    "no-surgery": 42,
-    "doctor-confirmation": 50,
-  };
-
-  const playNarration = async (card: ExplanationCard) => {
-    const video = videoRef.current;
-    if (!video || playingCardId) return;
-    setPlayingCardId(card.id);
-    const startAt = videoStartByCardId[card.id] ?? 0;
-    try {
-      video.currentTime = Number.isFinite(video.duration)
-        ? Math.min(startAt, Math.max(0, video.duration - 1))
-        : startAt;
-      video.scrollIntoView({ behavior: "smooth", block: "center" });
-      await video.play();
-    } catch {
-      setPlayingCardId(null);
-    }
-  };
   const [familyToken] = useState<string | null>(() =>
     typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("t"),
   );
@@ -118,50 +91,24 @@ export default function FamilyExplanation() {
         {loadState === "ready" && view && (
           <>
             <Card className="overflow-hidden border-blue-100 bg-white shadow-sm" data-testid="family-explanation-video">
+              <CardHeader className="pb-2 pt-4 px-4">
+                <CardTitle className="text-sm font-bold text-slate-950">🎥 動画と音声付き説明</CardTitle>
+                <p className="text-xs leading-relaxed text-slate-600">まず動画で全体像を確認できます。</p>
+              </CardHeader>
               <video
-                ref={videoRef}
                 className="block aspect-video w-full bg-slate-950"
                 controls
                 playsInline
                 preload="metadata"
-                onPause={() => setPlayingCardId(null)}
-                onEnded={() => setPlayingCardId(null)}
                 aria-label="急性A型大動脈解離の3D説明動画"
               >
                 <source src="/media/aortic-dissection-explanation.mp4" type="video/mp4" />
+                お使いのブラウザでは動画を再生できません。
               </video>
-              <CardContent className="px-4 py-3 text-xs leading-relaxed text-slate-600">
-                まず動画で全体像を確認し、その下の説明カードで要点を順番に確認できます。
-                この動画はデモ用の補助説明で、説明カードと質問回答は担当医が選択した根拠資料に基づく下書きです。最終確認は担当医が行います。
+              <CardContent className="px-4 py-3 text-sm font-semibold leading-relaxed text-slate-700" data-testid="family-friendly-summary">
+                動画を見たあと、分からないことは次の質問・理解確認でそのまま聞けます。
               </CardContent>
             </Card>
-
-            {view.explanation.map((section, idx) => (
-              <Card key={section.id} className="border-l-4 border-l-blue-400">
-                <CardHeader className="pb-1 pt-3 px-4">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <span className="text-lg">{section.icon ?? "💬"}</span>
-                    <span>{section.title}</span>
-                    <span className="ml-auto text-xs text-gray-400">
-                      {idx + 1}/{view.explanation.length}
-                    </span>
-                    <button
-                      onClick={() => playNarration(section)}
-                      disabled={playingCardId !== null}
-                      aria-label={`${section.title}の動画場面を再生`}
-                      className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                    >
-                      {playingCardId === section.id ? "🔊 再生中" : "🔊 聞く"}
-                    </button>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-3">
-                  <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
-                    {section.content}
-                  </p>
-                </CardContent>
-              </Card>
-            ))}
 
             <Separator className="my-3" />
 

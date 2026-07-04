@@ -132,10 +132,8 @@ export default function ConsentAgent() {
   const [loading1, setLoading1] = useState(false);
 
   // Screen 2 state
-  const [explanation, setExplanation] = useState<ExplanationCard[]>([]);
+  const [, setExplanation] = useState<ExplanationCard[]>([]);
   const [aiSource, setAiSource] = useState<"idle" | "gemini" | "fallback">("idle");
-  const [activeAudioCardId, setActiveAudioCardId] = useState<string | null>(null);
-  const [audioStatus, setAudioStatus] = useState("音声は未再生です");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [familyToken, setFamilyToken] = useState<string | null>(null);
   const [familyQr, setFamilyQr] = useState<string | null>(null);
@@ -388,39 +386,6 @@ export default function ConsentAgent() {
     setPubMedSearchMessage(`追加しました: ${candidate.evidenceId}。患者説明用根拠として選択済みです。`);
   };
 
-  const playAudioNarration = (cardId: string) => {
-    if (typeof window === "undefined") {
-      setAudioStatus("この環境では音声再生を利用できません。動画を確認してください。");
-      return;
-    }
-    const video = document.querySelector<HTMLVideoElement>('[data-testid="generated-explanation-video"] video');
-    if (!video) {
-      setAudioStatus("説明動画を読み込めませんでした。画面を再読み込みしてください。");
-      return;
-    }
-    const videoStartByCardId: Record<string, number> = {
-      "disease-mechanism": 0,
-      "emergency-need": 10,
-      procedure: 21,
-      "major-risks": 32,
-      "no-surgery": 42,
-      "doctor-confirmation": 50,
-    };
-    const startAt = videoStartByCardId[cardId] ?? 0;
-    if (Number.isFinite(video.duration)) {
-      video.currentTime = Math.min(startAt, Math.max(0, video.duration - 1));
-    } else {
-      video.currentTime = startAt;
-    }
-    setActiveAudioCardId(cardId);
-    setAudioStatus("3D説明動画の該当場面を自然音声で再生中です");
-    video.scrollIntoView({ behavior: "smooth", block: "center" });
-    video.play().catch(() => {
-      setActiveAudioCardId(null);
-      setAudioStatus("動画の再生ボタンを押して音声を確認してください。");
-    });
-  };
-
   const startExplanation = async () => {
     const startCase = resolveExplanationStartCase({
       age,
@@ -440,8 +405,6 @@ export default function ConsentAgent() {
 
     setFreeAnswer(null);
     setFreeQuestion("");
-    setActiveAudioCardId(null);
-    setAudioStatus("説明カードを作成しました。上の3D動画の再生ボタンで自然音声を確認できます。");
     setLoading1(true);
     try {
       const res = await fetchWithTimeout("/api/explain", {
@@ -584,6 +547,16 @@ export default function ConsentAgent() {
         <p className="text-xs text-gray-500">まずプリセットを選ぶだけ。個人情報は入れないデモ症例です。</p>
       </div>
 
+      <div className="rounded-[28px] border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm">
+        <p className="text-sm font-black text-blue-950">30秒で始める</p>
+        <div className="mt-3 grid gap-2 text-sm sm:grid-cols-3">
+          <div className="rounded-2xl bg-white p-3 font-bold text-slate-900 shadow-sm">1. 症例を選ぶ</div>
+          <div className="rounded-2xl bg-white p-3 font-bold text-slate-900 shadow-sm">2. 根拠は自動選択</div>
+          <div className="rounded-2xl bg-blue-600 p-3 font-bold text-white shadow-sm">3. 家族説明を開始</div>
+        </div>
+        <p className="mt-3 text-xs font-semibold leading-relaxed text-blue-800">まず下のデモ症例を押すだけ。PubMed・施設テンプレ・資料追加は「医師向け詳細設定」に閉じています。</p>
+      </div>
+
       <div className="rounded-2xl border border-blue-100 bg-blue-50 p-3 shadow-sm">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -679,11 +652,17 @@ export default function ConsentAgent() {
       </details>
 
       <div className="space-y-2">
+        <details className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+          <summary className="cursor-pointer text-sm font-black text-slate-950">
+            医師向け詳細設定（根拠・施設テンプレ・資料追加）
+            <span className="ml-2 text-xs font-semibold text-slate-500">通常は開かなくてOK</span>
+          </summary>
+          <div className="mt-4 space-y-3">
         <div className="flex items-center justify-between gap-2">
           <Label className="text-sm">家族説明で引用する根拠</Label>
           <span className="text-[11px] text-blue-700 font-medium">医師選択のみ引用</span>
         </div>
-        <details className="rounded-xl border border-cyan-200 bg-cyan-50 p-3" open>
+        <details className="rounded-xl border border-cyan-200 bg-cyan-50 p-3">
           <summary className="cursor-pointer text-xs font-bold text-cyan-950">
             PubMedを内容でAI検索
           </summary>
@@ -916,7 +895,7 @@ export default function ConsentAgent() {
         </p>
 
 
-        <details className="rounded-xl border border-violet-200 bg-violet-50 p-3" open>
+        <details className="rounded-xl border border-violet-200 bg-violet-50 p-3">
           <summary className="cursor-pointer text-sm font-bold text-violet-950">
             施設別テンプレ回答（医師は必要時だけ修正）
           </summary>
@@ -997,6 +976,8 @@ export default function ConsentAgent() {
             })}
           </div>
         </details>
+          </div>
+        </details>
       </div>
 
       <div className="pt-2">
@@ -1033,48 +1014,8 @@ export default function ConsentAgent() {
             </video>
           </div>
         </div>
-        <div className="mt-3 rounded-2xl border border-blue-100 bg-white p-3 text-sm font-black text-blue-950" aria-live="polite" data-testid="audio-playback-status">
-          🔊 {audioStatus}
-        </div>
-        <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-relaxed text-amber-900">
-          この動画はハッカソン用デモの補助説明です。説明カードと質問回答は担当医が選択した根拠資料に基づく下書きで、最終確認は担当医が行います。
-        </p>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          {explanation.map((card, index) => (
-              <article key={card.id} className="rounded-2xl border border-sky-100 bg-white p-3 shadow-sm">
-                <div className="flex items-start gap-2">
-                  <span className="text-2xl">{card.icon}</span>
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge className="bg-slate-100 text-slate-700">{index + 1}</Badge>
-                      <p className="text-sm font-black text-slate-950">{card.title}</p>
-                    </div>
-                    <p className="text-xs font-semibold leading-relaxed text-slate-700">{card.content}</p>
-                    <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 p-2">
-                      <button
-                        type="button"
-                        onClick={() => playAudioNarration(card.id)}
-                        className="rounded-full bg-blue-600 px-3 py-1.5 text-xs font-black text-white hover:bg-blue-700"
-                        aria-label={`${card.title}の音声を再生`}
-                      >
-                        {activeAudioCardId === card.id ? "動画を再生中" : "動画音声を再生"}
-                      </button>
-                      <span className="text-xs font-bold text-blue-950">上の3D動画の自然音声を再生します</span>
-                    </div>
-                    <details className="rounded-2xl border border-slate-200 bg-slate-50 p-2 text-xs font-semibold leading-relaxed text-slate-700">
-                      <summary className="cursor-pointer font-black text-slate-950">確認</summary>
-                      {card.evidenceIds?.length ? <p className="mt-2"><span className="font-black text-slate-950">根拠ID:</span> {card.evidenceIds.join(" / ")}</p> : null}
-                      <p className="mt-1"><span className="font-black text-slate-950">確認:</span> {card.safetyNote ?? "疑問が残る場合は次の質問・理解確認画面で記載してください。"}</p>
-                    </details>
-                  </div>
-                </div>
-              </article>
-            ))}
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm font-semibold leading-relaxed text-slate-700">
-          疑問が残る場合は次の質問・理解確認画面で記載してください。
+        <div className="mt-4 rounded-2xl border border-sky-200 bg-white p-4 text-sm font-bold leading-relaxed text-slate-800">
+          動画を見たあと、分からないことは次の質問・理解確認でそのまま聞けます。
         </div>
       </section>
 
@@ -1093,13 +1034,13 @@ export default function ConsentAgent() {
               <img src={familyQr} alt="家族用リンクのQRコード" className="rounded-2xl border border-emerald-200 bg-white p-2" />
             </div>
           )}
-          <div className="rounded-2xl border border-emerald-200 bg-white p-3 font-mono text-xs text-slate-700 break-all">
-            {familyPath}
+          <div className="rounded-2xl border border-emerald-200 bg-white p-3 text-center text-sm font-black text-emerald-950">
+            家族用リンクを発行しました
           </div>
           <div className="flex gap-2">
             <Button
               variant="outline"
-              className="flex-1 rounded-full border-emerald-300 text-sm font-bold text-emerald-900"
+              className="flex-1 rounded-full border-emerald-300 bg-white text-sm font-bold text-emerald-900 shadow-sm hover:bg-emerald-100 hover:text-emerald-950"
               onClick={async () => {
                 await navigator.clipboard.writeText(`${window.location.origin}${familyPath}`);
               }}
@@ -1117,7 +1058,7 @@ export default function ConsentAgent() {
       )}
 
       <Button onClick={() => setStep(3)} className="w-full rounded-full bg-slate-950 py-7 text-xl font-black text-white hover:bg-slate-800">
-        説明内容を聞いたので質問・理解確認へ進む
+        質問・理解確認へ進む
       </Button>
     </div>
   );
