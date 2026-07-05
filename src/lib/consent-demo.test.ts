@@ -941,6 +941,31 @@ describe("consent demo utilities", () => {
     expect(result.retrievedEvidence[0].citation).toContain("jcs-acute-aortic-dissection-guideline.pdf");
   });
 
+  it("answers non-PubMed guideline questions from arbitrary selected-source complication spans, not only prebuilt quick-question topics", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "日本循環器学会 大動脈疾患診療ガイドライン PDF",
+      fileName: "JCS2020_Ogino.pdf",
+      sourceUrl: "https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf",
+      extractedText:
+        "急性A型大動脈解離の手術では出血に対する輸血、感染症、呼吸不全、腎不全などの術後合併症に注意する。感染症を疑う発熱や創部の変化があれば早期に評価する。",
+      clinicianSummary: "日本の診療ガイドラインPDF。非PubMed資料として医師が選択した長文ガイドラインから関連箇所を使う。",
+    });
+
+    const infection = synthesizeEvidenceBoundQA("感染症の可能性について教えてください", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "上行大動脈人工血管置換術",
+      risks: ["感染症"],
+      selectedEvidence: [uploaded],
+    });
+
+    expect(infection.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(infection.answer).toContain("感染症");
+    expect(infection.answer).toContain("担当医");
+    expect(infection.answer).not.toContain("JCS2020_Ogino.pdf");
+    expect(infection.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(infection.supportingSpans?.[0]?.text).toContain("感染症");
+  });
+
   it("redacts MRN and numeric patient identifiers before storing physician-uploaded evidence", () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "MRN-123456 術前説明メモ",

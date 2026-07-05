@@ -248,6 +248,17 @@ describe("JCS URL auto evidence import", () => {
     expect(result.supportingSpans?.[0]?.text).toContain("大動脈基部置換術");
   });
 
+  it("keeps postoperative infection questions away from unrelated infected-aneurysm guideline spans", () => {
+    const selected = selectRelevantEvidenceText([
+      "-- 90 of 225 -- 第5章 EVAR 感染性大動脈瘤 定義と疫学 bacterial translocation infected aneurysm mycotic aneurysm",
+      "-- 131 of 225 -- 第7章 大動脈手術に伴う諸問題 術後合併症として感染症に注意し、発熱、創部の変化、抗菌薬治療の必要性を確認する。",
+    ].join("\n\n---\n\n"), "感染症の可能性について教えてください");
+
+    expect(selected).toContain("術後合併症として感染症");
+    expect(selected).toContain("発熱");
+    expect(selected).not.toContain("感染性大動脈瘤 定義と疫学");
+  });
+
   it("does not answer tracheostomy questions from unrelated JCS guideline spans", () => {
     const evidence = createAutoPhysicianUrlEvidence({
       sourceUrl: "https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf",
@@ -269,5 +280,80 @@ describe("JCS URL auto evidence import", () => {
     expect(result.answer).toContain("直接答えられる気管切開や人工呼吸管理に関する記載が見つかりません");
     expect(result.evidenceReferences).toEqual([]);
     expect(result.supportingSpans).toBeUndefined();
+  });
+
+  it("uses generic intent scoring so postoperative pain questions do not match presentation-only pain spans", () => {
+    const evidence = createAutoPhysicianUrlEvidence({
+      sourceUrl: "https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf",
+      fileName: "JCS2020_Ogino.pdf",
+      extractedText: [
+        "-- 40 of 225 -- 急性大動脈解離は突然の胸背部痛で発症することが多く、早期診断が重要である。",
+        "-- 132 of 225 -- 第7章 大動脈手術に伴う諸問題 術後疼痛については、鎮痛薬を用いて痛みを評価しながら調整する。創部痛や咳嗽時痛にも注意する。",
+      ].join(" --- "),
+    });
+
+    const result = synthesizeEvidenceBoundQA("手術後の痛みはどう対応しますか？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["疼痛"],
+      selectedEvidence: [evidence],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.supportingSpans?.[0]?.text).toContain("術後疼痛");
+    expect(result.supportingSpans?.[0]?.text).toContain("鎮痛薬");
+    expect(result.supportingSpans?.[0]?.text).not.toContain("突然の胸背部痛で発症");
+  });
+
+  it("uses generic intent scoring so readmission questions do not match admission/mortality noise", () => {
+    const evidence = createAutoPhysicianUrlEvidence({
+      sourceUrl: "https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf",
+      fileName: "JCS2020_Ogino.pdf",
+      extractedText: [
+        "-- 54 of 225 -- 急性A型大動脈解離では入院中死亡や脳梗塞など重篤な転帰が問題となる。",
+        "-- 160 of 225 -- 退院後は外来で画像フォローを行い、再入院が必要になる症状や血圧変動があれば早めに受診する。",
+      ].join(" --- "),
+    });
+
+    const result = synthesizeEvidenceBoundQA("退院後に再入院が必要になることはありますか？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["再入院"],
+      selectedEvidence: [evidence],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.supportingSpans?.[0]?.text).toContain("退院後");
+    expect(result.supportingSpans?.[0]?.text).toContain("再入院");
+    expect(result.supportingSpans?.[0]?.text).not.toContain("入院中死亡");
+  });
+
+  it("uses generic Japanese intent tokenization to answer rehabilitation questions without per-query hard-coding", () => {
+    const extractedText = [
+      "-- 80 of 225 -- A型大動脈解離では術前診断と搬送体制が重要である。",
+      "-- 150 of 225 -- 術後管理では、循環と呼吸が安定した段階で早期離床とリハビリテーションを進め、日常生活動作の回復を確認する。",
+    ].join(" --- ");
+    const selected = selectRelevantEvidenceText(extractedText, "リハビリはいつから始まりますか？");
+    expect(selected).toContain("早期離床");
+    expect(selected).toContain("リハビリテーション");
+    expect(selected).not.toContain("術前診断と搬送体制");
+
+    const evidence = createAutoPhysicianUrlEvidence({
+      sourceUrl: "https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf",
+      fileName: "JCS2020_Ogino.pdf",
+      extractedText,
+    });
+
+    const result = synthesizeEvidenceBoundQA("リハビリはいつから始まりますか？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["ADL低下"],
+      selectedEvidence: [evidence],
+    });
+
+    expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+    expect(result.supportingSpans?.[0]?.text).toContain("早期離床");
+    expect(result.supportingSpans?.[0]?.text).toContain("リハビリテーション");
+    expect(result.supportingSpans?.[0]?.text).not.toContain("術前診断");
   });
 });

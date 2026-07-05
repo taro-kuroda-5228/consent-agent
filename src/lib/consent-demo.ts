@@ -135,7 +135,7 @@ const evidenceCards: EvidenceCard[] = [
     claim:
       "The facility consent document explains emergency surgery purpose, major complications, and physician-led consent boundaries.",
     displayForFamily:
-      "当院の説明資料では、大動脈解離は大動脈の壁の内側に裂け目ができ、壁の中へ血液が入り込む病気です。A型では破裂や心タンポナーデ、臓器への血流障害を防ぐため緊急手術を行う方針と、出血・脳梗塞・腎障害などの重要なリスクを説明します。",
+      "当院の説明資料では、大動脈解離は大動脈の壁の内側に裂け目ができ、壁の中へ血液が入り込む病気です。A型では破裂や心タンポナーデ、臓器への血流障害を防ぐため緊急手術を行う方針と、出血・輸血・脳梗塞・腎障害などの重要なリスクを説明します。",
     confidence: "high",
     citation: "施設IC資料 v2026.05 / FAC-001",
     pmid: "FAC-001",
@@ -148,7 +148,7 @@ const evidenceCards: EvidenceCard[] = [
     keyFindings: [
       "大動脈解離は、大動脈の壁の内側に裂け目ができ、壁の中へ血液が入り込む病気です。A型では心臓に近い大動脈に及ぶため、破裂や心タンポナーデ、臓器への血流障害などで命に関わることがあります。",
       "破裂・心タンポナーデ・臓器血流障害の予防目的",
-      "出血・脳梗塞・腎障害など重大リスクを明示",
+      "手術では出血が多くなる場合があり、輸血や追加の止血処置が必要になる可能性があるため、担当医が個別の状態に合わせて説明します。脳梗塞・腎障害などの重大リスクも確認します。",
     ],
     outcomeTags: ["consent", "disease-definition", "bleeding", "stroke", "renal-failure"],
   },
@@ -757,11 +757,14 @@ const GENERIC_MEDICAL_CONCEPT_TERMS: string[][] = [
   ["退院", "退院時", "退院後", "discharge", "at discharge", "post-discharge", "after discharge"],
   ["集中治療", "icu", "intensive care", "critical care", "icu-stay"],
   ["入院", "在院", "入院期間", "length of stay", "hospital stay", "hospitalization", "length-of-stay"],
+  ["出血", "輸血", "止血", "再開胸", "bleeding", "hemorrhage", "transfusion", "hemostasis"],
   ["感染", "感染症", "infection", "sepsis"],
+  ["呼吸", "呼吸不全", "肺", "肺合併症", "人工呼吸", "respiratory", "pulmonary", "ventilation", "oxygen"],
   ["妊娠", "妊孕性", "不妊", "fertility", "pregnancy", "reproductive", "fertility-pregnancy"],
   ["生活の質", "qol", "quality of life", "adl", "日常生活", "quality-of-life"],
   ["痛み", "疼痛", "pain"],
   ["再入院", "readmission", "rehospitalization"],
+  ["リハビリ", "リハビリテーション", "早期離床", "離床", "日常生活動作", "rehabilitation", "mobilization", "early mobilization"],
 ];
 
 function isMortalityRateQuestion(question: string): boolean {
@@ -964,8 +967,14 @@ function extractQuestionSearchTokens(question: string): string[] {
   const latinPhrases = normalized.match(/[a-z]+\s*[a-z0-9]+/g) ?? [];
   const japaneseTokens = normalized
     .split(/[\s、。・？?（）()]+/)
-    .flatMap((token) => token.split(/[とや]|(?:vs)/i))
+    .flatMap((token) => token.split(/(?:は|が|を|に|で|へ|から|まで|として|について|とは|なら|だと|ですか|ますか|れる|する|した|して|と|や|vs)/i))
     .map((token) => token.trim())
+    .flatMap((token) => {
+      const variants = [token];
+      if (token.endsWith("リハ")) variants.push("リハビリ");
+      if (token.endsWith("テーション")) variants.push(token.replace(/テーション$/, ""));
+      return variants;
+    })
     .filter((token) => token.length >= 2 && !/[？?。]/.test(token));
 
   return Array.from(new Set([...latinPhrases, ...latinTokens, ...japaneseTokens, ...getQuestionTerms(question)].filter((token) => token.length >= 2)));
@@ -1529,6 +1538,15 @@ function buildPatientFriendlyUploadedGuidelineAnswer(question: string, span: str
   if (/腸|腹|腸管|腸間膜|malperfusion|mesenteric|bowel|visceral|ischemia/i.test(normalizedQuestion)) {
     return "腸への血流が悪くなることは重い合併症です。お腹の痛みや血流の状態を見ながら、手術や集中治療で早く対応する必要があるため、担当医が現在の所見に合わせて説明します。";
   }
+  if (/出血|輸血|止血|bleed|hemorrhage|transfusion/i.test(normalizedQuestion)) {
+    return "手術では出血が多くなる場合があり、輸血や追加の止血処置が必要になる可能性があります。実際の見込みや対応は、担当医が今の状態に合わせて説明します。";
+  }
+  if (/感染|発熱|創部|infection|sepsis|fever|wound/i.test(normalizedQuestion)) {
+    return "手術後には感染症に注意します。発熱、創部の変化、全身状態の変化などを見ながら早く評価し、必要な治療を行うため、担当医が現在の状態に合わせて説明します。";
+  }
+  if (/呼吸|肺|人工呼吸|酸素|respiratory|pulmonary|ventilat|oxygen/i.test(normalizedQuestion)) {
+    return "手術後は肺や呼吸の状態が不安定になることがあり、酸素投与や人工呼吸管理が必要になる場合があります。どの程度注意が必要かは、担当医が全身状態に合わせて説明します。";
+  }
   if (/遺伝|マルファン|marfan|家族|大動脈径/i.test(normalizedQuestion)) {
     return "マルファン症候群などの遺伝性の大動脈疾患が関わる場合は、大動脈基部を含めて広がりや大きさを慎重に見て、手術範囲や再手術の必要性を検討します。患者さんに当てはまるか、今回どこまで置き換えるかは担当医が確認して説明します。";
   }
@@ -1558,7 +1576,7 @@ function summarizeUploadedGuidelineQuestionSpan(question: string, evidence: Evid
       const geneticConceptHit = /遺伝|マルファン|marfan|家族|大動脈径/i.test(normalizedQuestion) && /遺伝|遺伝性|マルファン|marfan|FBN1|家族歴|familial|genetic|aortopathy|結合組織|大動脈基部|基部/i.test(span);
       const preventionSignal = isSpinalPreventionQuestion && /予防|防止|保護|温存|再建|配慮|保つ|灌流|ドレナージ|CSFD|術後|モニタリング/i.test(span);
       const geneticTreatmentSignal = geneticConceptHit && /手術適応|置換術|再手術|大動脈基部|基部|瘤径|大動脈径|mm|VSRR|Bentall|治療|術式|範囲/i.test(span);
-      const clinicalSignal = /associated|association|occurred|reported|observed|need for|required|linked|risk|outcome|complication|malperfusion|ischemia|bowel|mesenteric|marfan|aortopathy|\bSCI\b|spinal|paraplegia|rehabilitation|関連|伴|必要|発生|認め|リスク|合併|虚血|腸管|腸間膜|マルファン|遺伝|大動脈瘤|適応|脊髄|対麻痺|脊髄保護|灌流|リハビリ/i.test(span);
+      const clinicalSignal = /associated|association|occurred|reported|observed|need for|required|linked|risk|outcome|complication|malperfusion|ischemia|bowel|mesenteric|marfan|aortopathy|\bSCI\b|spinal|paraplegia|rehabilitation|mobilization|bleeding|hemorrhage|transfusion|infection|sepsis|respiratory|pulmonary|ventilation|oxygen|関連|伴|必要|発生|認め|リスク|合併|虚血|腸管|腸間膜|マルファン|遺伝|大動脈瘤|適応|脊髄|対麻痺|脊髄保護|灌流|リハビリ|離床|日常生活動作|出血|輸血|止血|感染|感染症|呼吸不全|人工呼吸|肺合併症/i.test(span);
       const figureOrTocPenalty =
         (/--\s*[1-9]\s+of\s+\d+\s+--/.test(span) ? 18 : 0) +
         ((span.match(/\bPQ\s*\d+/g)?.length ?? 0) >= 2 ? 35 : 0) +
@@ -1599,7 +1617,7 @@ function summarizeGenericSourceBoundedStatementFromEvidence(question: string, ev
   const candidates = evidence.flatMap((item, evidenceIndex) => {
     const sourcePriority = item.origin === "facility-document" || item.origin === "physician-upload" ? 10 : 0;
     return splitEvidenceSpans(item).map((span, spanIndex) => {
-      const clinicalSignal = /associated|association|occurred|reported|observed|need for|required|linked|risk|outcome|complication|malperfusion|ischemia|bowel|mesenteric|resection|acidosis|関連|伴|必要|発生|認め|リスク|合併|虚血|腸管|切除/i.test(span);
+      const clinicalSignal = /associated|association|occurred|reported|observed|need for|required|linked|risk|outcome|complication|malperfusion|ischemia|bowel|mesenteric|resection|acidosis|bleeding|hemorrhage|transfusion|infection|sepsis|respiratory|pulmonary|ventilation|oxygen|rehabilitation|mobilization|関連|伴|必要|発生|認め|リスク|合併|虚血|腸管|切除|出血|輸血|止血|感染|感染症|呼吸不全|人工呼吸|肺合併症|リハビリ|離床|日常生活動作/i.test(span);
       const score = scoreSpanForQuestion(question, span, sourcePriority) + (clinicalSignal ? 18 : 0) - evidenceIndex * 0.01 - spanIndex * 0.001;
       return { item, span, score, clinicalSignal };
     });

@@ -32,6 +32,34 @@ describe('explain and qa handlers persistence', () => {
     expect(summary?.events.map(e => e.eventType)).toContain('qa_answered');
   });
 
+  it('answers family-link bleeding/transfusion quick question from the persisted session with patient-facing wording', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const explained = await handleExplainRequest({
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      selectedEvidenceIds: ['FAC-001', 'AAD-003', 'AAD-005'],
+    }, repo);
+    const sessionId = String(explained.body.sessionId);
+
+    const qa = await handleQaRequest({
+      sessionId,
+      question: '出血や輸血の可能性はありますか？',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+    }, repo);
+
+    expect(qa.status).toBe(200);
+    if ('error' in qa.body) throw new Error(qa.body.error);
+    expect(qa.body.metadata.selectedEvidenceSource).toBe('database');
+    expect(qa.body.answer).toContain('出血');
+    expect(qa.body.answer).toContain('輸血');
+    expect(qa.body.answer).toContain('可能性');
+    expect(qa.body.answer).toContain('担当医');
+    expect(qa.body.answer).not.toContain('重大リスクを明示');
+    expect(qa.body.answer).not.toContain('FAC-001');
+    expect(qa.body.evidenceReferences).toContain('FAC-001');
+  });
+
   it('answers persisted physician-selected evidence through source-bounded Q&A when Japanese wording differs from the English source terms', async () => {
     const repo = new InMemoryConsentSessionRepository();
     const session = await repo.createSession({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術' });
