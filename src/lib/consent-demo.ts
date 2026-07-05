@@ -738,6 +738,7 @@ type ConsentQAContext = {
 
 const QUESTION_TERMS: Array<{ terms: string[]; safetyLabel: EvidenceBoundQAResult["safetyLabel"]; requiresDoctorReview: boolean }> = [
   { terms: ["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "female", "male", "women", "men"], safetyLabel: "doctor-review", requiresDoctorReview: true },
+  { terms: ["気管切開", "気切", "人工呼吸", "呼吸器", "tracheostomy", "tracheotomy", "ventilator", "mechanical ventilation"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["死亡率", "死亡", "院内死亡", "mortality", "death"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia"], safetyLabel: "doctor-review", requiresDoctorReview: true },
   { terms: ["脳梗塞", "脳卒中", "stroke", "後遺症"], safetyLabel: "doctor-review", requiresDoctorReview: true },
@@ -793,6 +794,9 @@ function getQuestionTerms(question: string): string[] {
   }
   if (["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) => normalized.includes(term.toLowerCase()))) {
     return Array.from(new Set(["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "sex-difference", "female sex", "male sex", "female", "male", "women", "men", "女性", "男性", ...genericTerms]));
+  }
+  if (["気管切開", "気切", "人工呼吸", "呼吸器", "tracheostomy", "tracheotomy", "ventilator"].some((term) => normalized.includes(term.toLowerCase()))) {
+    return Array.from(new Set(["気管切開", "気切", "人工呼吸", "人工呼吸器", "呼吸器", "呼吸管理", "tracheostomy", "tracheotomy", "ventilator", "mechanical ventilation", "prolonged ventilation", ...genericTerms]));
   }
   if (["遺伝", "マルファン", "marfan", "家族歴", "結合組織", "大動脈基部"].some((term) => normalized.includes(term.toLowerCase()))) {
     return Array.from(new Set(["遺伝", "遺伝性", "マルファン", "Marfan", "marfan", "FBN1", "家族歴", "familial", "genetic", "aortopathy", "結合組織", "大動脈基部", "基部", "手術適応", "置換術", "大動脈径", ...genericTerms]));
@@ -900,6 +904,19 @@ function isSexDifferenceQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
   return ["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) =>
     normalized.includes(term.toLowerCase()),
+  );
+}
+
+function isTracheostomyQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  return ["気管切開", "気切", "人工呼吸", "人工呼吸器", "呼吸器", "tracheostomy", "tracheotomy", "ventilator", "mechanical ventilation"].some((term) =>
+    normalized.includes(term.toLowerCase()),
+  );
+}
+
+function hasTracheostomyEvidence(evidence: EvidenceCard[]): boolean {
+  return evidence.some((item) =>
+    splitEvidenceSpans(item).some((span) => /気管切開|気切|人工呼吸|人工呼吸器|呼吸器|tracheostomy|tracheotomy|ventilator|mechanical ventilation|prolonged ventilation/i.test(span)),
   );
 }
 
@@ -1968,6 +1985,17 @@ export function synthesizeEvidenceBoundQA(
   const matchedPolicy = QUESTION_TERMS.find((group) =>
     group.terms.some((term) => normalized.includes(term.toLowerCase())),
   );
+
+  if (isTracheostomyQuestion(question) && !hasTracheostomyEvidence(relevantEvidence)) {
+    return {
+      answer: "選択済み参考資料内には、この質問に直接答えられる気管切開や人工呼吸管理に関する記載が見つかりません。術後に気管切開が必要になるかは、呼吸状態、意識状態、感染、再手術や集中治療の経過によって変わるため、担当医が現在の状態に合わせて説明します。",
+      safetyLabel: matchedPolicy?.safetyLabel ?? "doctor-review",
+      requiresDoctorReview: true,
+      retrievalMode: "physician-curated-only",
+      evidenceReferences: [],
+      retrievedEvidence: [],
+    };
+  }
 
   if (relevantEvidence.length === 0) {
     const genericRisk = matchedPolicy || !isGenericSourceBoundedFallbackQuestion(question) ? undefined : summarizeGenericSourceBoundedRiskFromEvidence(question, context.selectedEvidence);

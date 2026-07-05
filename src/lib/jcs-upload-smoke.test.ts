@@ -247,4 +247,27 @@ describe("JCS URL auto evidence import", () => {
     expect(result.supportingSpans?.[0]?.text).toContain("Marfan症候群");
     expect(result.supportingSpans?.[0]?.text).toContain("大動脈基部置換術");
   });
+
+  it("does not answer tracheostomy questions from unrelated JCS guideline spans", () => {
+    const evidence = createAutoPhysicianUrlEvidence({
+      sourceUrl: "https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf",
+      fileName: "JCS2020_Ogino.pdf",
+      extractedText: [
+        "-- 140 of 225 -- Marfan症候群の大動脈基部置換術では、大動脈基部拡大や大動脈径をみて手術適応を検討する。",
+        "-- 206 of 225 -- Untreated distal intimal tears may be associated with paraplegia after total arch replacement and frozen elephant trunk treatment of acute Stanford type A aortic dissection.",
+      ].join(" --- "),
+    });
+
+    const result = synthesizeEvidenceBoundQA("大動脈解離術後の気管切開の可能性は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["死亡", "脳梗塞"],
+      selectedEvidence: [evidence],
+    });
+
+    expect(result.requiresDoctorReview).toBe(true);
+    expect(result.answer).toContain("直接答えられる気管切開や人工呼吸管理に関する記載が見つかりません");
+    expect(result.evidenceReferences).toEqual([]);
+    expect(result.supportingSpans).toBeUndefined();
+  });
 });
