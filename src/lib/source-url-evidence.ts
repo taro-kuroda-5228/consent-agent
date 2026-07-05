@@ -14,18 +14,92 @@ function isLikelyPdf(fileName: string, contentType: string): boolean {
   return contentType.includes("application/pdf") || fileName.toLowerCase().endsWith(".pdf");
 }
 
+class PdfDomMatrixPolyfill {
+  a: number;
+  b: number;
+  c: number;
+  d: number;
+  e: number;
+  f: number;
+  is2D = true;
+
+  constructor(init?: number[] | string) {
+    const values = Array.isArray(init) ? init : [1, 0, 0, 1, 0, 0];
+    this.a = Number(values[0] ?? 1);
+    this.b = Number(values[1] ?? 0);
+    this.c = Number(values[2] ?? 0);
+    this.d = Number(values[3] ?? 1);
+    this.e = Number(values[4] ?? 0);
+    this.f = Number(values[5] ?? 0);
+  }
+
+  get m11() { return this.a; }
+  get m12() { return this.b; }
+  get m21() { return this.c; }
+  get m22() { return this.d; }
+  get m41() { return this.e; }
+  get m42() { return this.f; }
+  get isIdentity() { return this.a === 1 && this.b === 0 && this.c === 0 && this.d === 1 && this.e === 0 && this.f === 0; }
+
+  multiplySelf() { return this; }
+  preMultiplySelf() { return this; }
+  translateSelf() { return this; }
+  scaleSelf() { return this; }
+  scale3dSelf() { return this; }
+  rotateSelf() { return this; }
+  rotateAxisAngleSelf() { return this; }
+  skewXSelf() { return this; }
+  skewYSelf() { return this; }
+  invertSelf() { return this; }
+  flipX() { return this; }
+  flipY() { return this; }
+  multiply() { return new PdfDomMatrixPolyfill(); }
+  translate() { return new PdfDomMatrixPolyfill(); }
+  scale() { return new PdfDomMatrixPolyfill(); }
+  rotate() { return new PdfDomMatrixPolyfill(); }
+  inverse() { return new PdfDomMatrixPolyfill(); }
+  transformPoint<T>(point: T) { return point; }
+  toFloat32Array() { return new Float32Array([this.a, this.b, this.c, this.d, this.e, this.f]); }
+  toFloat64Array() { return new Float64Array([this.a, this.b, this.c, this.d, this.e, this.f]); }
+  toString() { return `matrix(${this.a}, ${this.b}, ${this.c}, ${this.d}, ${this.e}, ${this.f})`; }
+
+  static fromMatrix(other?: { a?: number; b?: number; c?: number; d?: number; e?: number; f?: number }) {
+    return new PdfDomMatrixPolyfill([other?.a ?? 1, other?.b ?? 0, other?.c ?? 0, other?.d ?? 1, other?.e ?? 0, other?.f ?? 0]);
+  }
+  static fromFloat32Array(array32: Float32Array) { return new PdfDomMatrixPolyfill(Array.from(array32)); }
+  static fromFloat64Array(array64: Float64Array) { return new PdfDomMatrixPolyfill(Array.from(array64)); }
+}
+
+class PdfImageDataPolyfill {
+  data: unknown;
+  width: number;
+  height: number;
+  colorSpace = "srgb";
+  constructor(dataOrWidth: unknown, width?: number, height?: number) {
+    this.data = ArrayBuffer.isView(dataOrWidth) ? dataOrWidth : null;
+    this.width = typeof width === "number" ? width : Number(dataOrWidth || 0);
+    this.height = typeof height === "number" ? height : this.width;
+  }
+}
+
+class PdfPath2DPolyfill {
+  constructor(..._args: unknown[]) {
+    void _args;
+  }
+  addPath() {}
+}
+
 export async function extractPdfText(buffer: Buffer): Promise<string> {
   // Cloud Run's Node runtime does not provide browser canvas globals that
-  // pdfjs/pdf-parse expects. Install the same minimal polyfills locally and in
-  // production before importing pdf-parse so long public guideline PDFs can be
-  // extracted instead of falling back to manual review.
-  const require = createRequire(`${process.cwd()}/package.json`);
-  const canvas = require("@napi-rs/canvas") as { DOMMatrix: unknown; ImageData: unknown; Path2D: unknown };
+  // pdfjs/pdf-parse expects. Install minimal text-extraction polyfills before
+  // importing pdf-parse so long public guideline PDFs can be extracted instead
+  // of falling back to manual review.
   const pdfRuntimeGlobals = globalThis as Record<string, unknown>;
-  pdfRuntimeGlobals.DOMMatrix ??= canvas.DOMMatrix;
-  pdfRuntimeGlobals.ImageData ??= canvas.ImageData;
-  pdfRuntimeGlobals.Path2D ??= canvas.Path2D;
+  pdfRuntimeGlobals.DOMMatrix ??= PdfDomMatrixPolyfill;
+  pdfRuntimeGlobals.ImageData ??= PdfImageDataPolyfill;
+  pdfRuntimeGlobals.Path2D ??= PdfPath2DPolyfill;
   const { PDFParse } = await import("pdf-parse");
+  const require = createRequire(`${process.cwd()}/package.json`);
   PDFParse.setWorker(pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).toString());
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {
