@@ -1,5 +1,3 @@
-import { createRequire } from "module";
-import { pathToFileURL } from "url";
 import { createAutoPhysicianUrlEvidence, type EvidenceCard } from "./consent-demo";
 
 export const MAX_SOURCE_URL_BYTES = 50 * 1024 * 1024;
@@ -99,8 +97,6 @@ export async function extractPdfText(buffer: Buffer): Promise<string> {
   pdfRuntimeGlobals.ImageData ??= PdfImageDataPolyfill;
   pdfRuntimeGlobals.Path2D ??= PdfPath2DPolyfill;
   const { PDFParse } = await import("pdf-parse");
-  const require = createRequire(`${process.cwd()}/package.json`);
-  PDFParse.setWorker(pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).toString());
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {
     const info = await parser.getInfo({ parsePageInfo: false });
