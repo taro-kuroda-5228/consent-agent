@@ -135,8 +135,18 @@ function splitQuestionTokens(question: string): string[] {
   const normalized = question.toLowerCase();
   return Array.from(new Set([
     ...(normalized.match(/[a-z0-9]+(?:[-\s][a-z0-9]+)*/g) ?? []),
-    ...normalized.split(/[\s、。・？?（）()「」『』【】\[\],.\/]+/),
-  ].map((token) => token.trim()).filter((token) => token.length >= 2)));
+    ...normalized
+      .split(/[\s、。・？?（）()「」『』【】\[\],.\/]+/)
+      .flatMap((token) => token.split(/(?:は|が|を|に|で|へ|から|まで|として|について|とは|なら|だと|ですか|ますか|れる|する|した|して|と|や|vs)/i)),
+  ]
+    .map((token) => token.trim())
+    .flatMap((token) => {
+      const variants = [token];
+      if (token.endsWith("リハ")) variants.push("リハビリ");
+      if (token.endsWith("テーション")) variants.push(token.replace(/テーション$/, ""));
+      return variants;
+    })
+    .filter((token) => token.length >= 2)));
 }
 
 export function expandQuestionTermsForSourceSearch(question = ""): string[] {
@@ -149,12 +159,16 @@ export function expandQuestionTermsForSourceSearch(question = ""): string[] {
 
   if (/腎|透析|尿|renal|kidney|aki|dialysis|造影|cin/.test(normalized)) add(["腎", "腎不全", "腎機能", "急性腎障害", "透析", "renal", "kidney", "AKI", "dialysis", "造影", "CIN"]);
   if (/脳|麻痺|意識|stroke|neurolog/.test(normalized)) add(["脳梗塞", "脳卒中", "脳障害", "神経", "麻痺", "stroke", "neurologic"]);
+  if (/出血|輸血|止血|bleed|hemorrhage|transfusion/.test(normalized)) add(["出血", "輸血", "止血", "再開胸", "再手術", "bleeding", "hemorrhage", "transfusion", "hemostasis", "reoperation"]);
+  if (/感染|発熱|創部|膿|抗菌|infection|sepsis|fever|wound/.test(normalized)) add(["感染", "感染症", "発熱", "創部", "敗血症", "抗菌薬", "infection", "sepsis", "fever", "wound"]);
+  if (/呼吸|肺|人工呼吸|酸素|抜管|respiratory|pulmonary|ventilat|oxygen/.test(normalized)) add(["呼吸", "呼吸不全", "肺", "肺合併症", "人工呼吸", "酸素", "抜管", "respiratory", "pulmonary", "ventilation", "oxygen"]);
   if (/腸|腹|腸管|腸間膜|malperfusion|mesenteric|bowel|visceral|ischemia/.test(normalized)) add(["腸管虚血", "腸間膜", "臓器虚血", "臓器灌流障害", "malperfusion", "mesenteric", "bowel", "visceral", "ischemia"]);
   if (/脊髄|対麻痺|下半身|spinal|paraplegia/.test(normalized)) add(["脊髄", "脊髄虚血", "対麻痺", "SCI", "spinal", "paraplegia", "脊髄保護", "灌流", "ドレナージ"]);
   if (/妊娠|出産|妊婦|pregnan|reproductive/.test(normalized)) add(["妊娠", "妊婦", "出産", "pregnancy", "pregnant", "reproductive"]);
   if (/遺伝|マルファン|marfan|家族/.test(normalized)) add(["遺伝", "マルファン", "Marfan", "家族歴", "genetic", "familial"]);
   if (/ステント|tev(ar)?|open stent|frozen elephant|f(e)?t/i.test(normalized)) add(["ステント", "TEVAR", "open stent", "frozen elephant trunk", "FET"]);
   if (/降圧|血圧|β|ベータ|薬|medical|anti-hypertensive/.test(normalized)) add(["血圧", "降圧", "β遮断薬", "ベータ遮断薬", "medical treatment", "anti-hypertensive"]);
+  if (/リハビリ|離床|日常生活|adl|rehabilitation|mobilization/i.test(normalized)) add(["リハビリ", "リハビリテーション", "離床", "早期離床", "日常生活動作", "ADL", "rehabilitation", "mobilization"]);
   if (/推奨|class|エビデンス|グレード|level/.test(normalized)) add(["推奨", "Class", "Level", "エビデンス", "グレード"]);
 
   return Array.from(terms).filter((term) => term.length >= 2).slice(0, 60);
@@ -221,7 +235,10 @@ function scoreChunkForQuestion(chunk: SourceChunk, keywords: string[], question:
     (/妊娠|出産|妊婦|pregnan/i.test(normalizedQuestion) && /妊娠|出産|妊婦|pregnan/i.test(text)) ||
     (/腸|腹|腸管|腸間膜|malperfusion|mesenteric|bowel|visceral|ischemia/i.test(normalizedQuestion) && /腸管虚血|腸間膜|臓器虚血|malperfusion|mesenteric|bowel|visceral|ischemia/i.test(text)) ||
     (/脊髄|対麻痺|下半身|spinal|paraplegia/i.test(normalizedQuestion) && /脊髄|対麻痺|\bSCI\b|spinal|paraplegia/i.test(text)) ||
-    (/遺伝|マルファン|marfan|家族/i.test(normalizedQuestion) && /遺伝|マルファン|marfan|家族歴|genetic|familial/i.test(text));
+    (/遺伝|マルファン|marfan|家族/i.test(normalizedQuestion) && /遺伝|マルファン|marfan|家族歴|genetic|familial/i.test(text)) ||
+    (/リハビリ|離床|日常生活|adl|rehabilitation|mobilization/i.test(normalizedQuestion) && /リハビリ|離床|日常生活動作|ADL|rehabilitation|mobilization/i.test(text));
+  const infectionComplicationQuestion = /感染|発熱|創部|膿|抗菌|infection|sepsis|fever|wound/i.test(normalizedQuestion);
+  const infectiousAneurysmOnlyNoise = infectionComplicationQuestion && /感染性大動脈瘤|infected\s+(?:aortic\s+)?aneurysm|mycotic\s+aneurysm/i.test(text) && !/術後|手術|創部|発熱|抗菌|抗生剤|合併症|sepsis|wound|postoperative|surgical/i.test(text);
 
   return (
     keywordHits.length * 24 +
@@ -233,8 +250,10 @@ function scoreChunkForQuestion(chunk: SourceChunk, keywords: string[], question:
     (/脊髄|対麻痺|\bSCI\b|spinal|paraplegia/i.test(text) ? 35 : 0) +
     (/対麻痺|paraplegia/i.test(normalizedQuestion) && /対麻痺|paraplegia/i.test(text) ? 180 : 0) +
     (/防ぐ|予防|気をつけ|avoid|prevent/i.test(normalizedQuestion) && /予防|防止|保護|配慮|保つ|灌流|ドレナージ|CSFD|術後/i.test(text) ? 140 : 0) +
-    (/脳梗塞|脳卒中|死亡|出血|再手術|合併症/.test(text) ? 20 : 0) +
+    (/リハビリ|離床|日常生活動作|ADL|rehabilitation|mobilization/i.test(text) ? 25 : 0) +
+    (/脳梗塞|脳卒中|死亡|出血|輸血|感染|呼吸不全|再手術|合併症/.test(text) ? 20 : 0) +
     (/stanford\s*a|急性a型/i.test(lower) ? 25 : 0) -
+    (infectiousAneurysmOnlyNoise ? 260 : 0) -
     (/\b表\b|表\s*\d|分類\s*\d|より作表|References|文献/i.test(text) ? 180 : 0) -
     (isTocOrReferenceLikeChunk(chunk) ? 120 : 0) -
     chunk.index * 0.00001
@@ -257,6 +276,7 @@ export function selectRelevantEvidenceText(text: string, question = ""): string 
       /腸|腹|腸管|腸間膜|malperfusion|mesenteric|bowel|visceral|ischemia/i.test(normalizedQuestion) ? /腸管虚血|腸間膜|臓器虚血|malperfusion|mesenteric|bowel|visceral|ischemia/i :
       /脊髄|対麻痺|下半身|spinal|paraplegia/i.test(normalizedQuestion) ? /脊髄|対麻痺|\bSCI\b|spinal|paraplegia/i :
       /遺伝|マルファン|marfan|家族/i.test(normalizedQuestion) ? /遺伝|マルファン|marfan|家族歴|genetic|familial/i :
+      /感染|発熱|創部|膿|抗菌|infection|sepsis|fever|wound/i.test(normalizedQuestion) ? /感染症|発熱|創部|抗菌|抗生剤|合併症|infection|sepsis|fever|wound|postoperative/i :
       undefined;
     const conceptCandidates = conceptPattern ? candidates.filter((candidate) => conceptPattern.test(candidate.text)) : [];
     const conceptBodyCandidates = conceptCandidates.filter((candidate) => !isTocOrReferenceLikeChunk(candidate));
@@ -264,8 +284,14 @@ export function selectRelevantEvidenceText(text: string, question = ""): string 
     const spinalProtectionCandidates = isSpinalPreventionQuestion
       ? conceptBodyCandidates.filter((candidate) => /分節動脈盗血の防止と灌流|脳脊髄液ドレナージ|\bCSFD\b|脊髄保護|灌流/i.test(candidate.text))
       : [];
+    const isInfectionComplicationQuestion = /感染|発熱|創部|膿|抗菌|infection|sepsis|fever|wound/i.test(normalizedQuestion);
+    const infectionComplicationCandidates = isInfectionComplicationQuestion
+      ? conceptBodyCandidates.filter((candidate) => /術後|手術|創部|発熱|抗菌|抗生剤|合併症|sepsis|wound|postoperative|surgical/i.test(candidate.text) && !/感染性大動脈瘤|infected\s+(?:aortic\s+)?aneurysm|mycotic\s+aneurysm/i.test(candidate.text))
+      : [];
     if (spinalProtectionCandidates.length > 0) {
       candidates = spinalProtectionCandidates;
+    } else if (infectionComplicationCandidates.length > 0) {
+      candidates = infectionComplicationCandidates;
     } else if (conceptBodyCandidates.length > 0) {
       candidates = conceptBodyCandidates;
     } else if (conceptCandidates.length > 0) {
@@ -308,8 +334,14 @@ export async function refreshPhysicianSourceEvidenceForQuestion(evidence: Eviden
   if (!sourceUrl.toLowerCase().endsWith(".pdf")) return evidence;
   const extracted = await extractSourceUrlText(sourceUrl, question);
   if (!extracted.extractedText) return evidence;
+  const originalSelectedText = [
+    evidence.quotedSpan,
+    ...(evidence.keyFindings ?? []),
+    evidence.displayForFamily,
+    evidence.claim,
+  ].filter(Boolean).join("\n");
   return {
-    ...createAutoPhysicianUrlEvidence({ sourceUrl, fileName: extracted.fileName || evidence.uploadedFileName, extractedText: extracted.extractedText }),
+    ...createAutoPhysicianUrlEvidence({ sourceUrl, fileName: extracted.fileName || evidence.uploadedFileName, extractedText: `${originalSelectedText}\n${extracted.extractedText}` }),
     evidenceId: evidence.evidenceId,
     retrievalStatus: evidence.retrievalStatus,
     origin: evidence.origin,
