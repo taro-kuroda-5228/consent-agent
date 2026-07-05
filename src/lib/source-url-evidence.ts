@@ -15,8 +15,17 @@ function isLikelyPdf(fileName: string, contentType: string): boolean {
 }
 
 export async function extractPdfText(buffer: Buffer): Promise<string> {
-  const { PDFParse } = await import("pdf-parse");
+  // Cloud Run's Node runtime does not provide browser canvas globals that
+  // pdfjs/pdf-parse expects. Install the same minimal polyfills locally and in
+  // production before importing pdf-parse so long public guideline PDFs can be
+  // extracted instead of falling back to manual review.
   const require = createRequire(`${process.cwd()}/package.json`);
+  const canvas = require("@napi-rs/canvas") as { DOMMatrix: unknown; ImageData: unknown; Path2D: unknown };
+  const pdfRuntimeGlobals = globalThis as Record<string, unknown>;
+  pdfRuntimeGlobals.DOMMatrix ??= canvas.DOMMatrix;
+  pdfRuntimeGlobals.ImageData ??= canvas.ImageData;
+  pdfRuntimeGlobals.Path2D ??= canvas.Path2D;
+  const { PDFParse } = await import("pdf-parse");
   PDFParse.setWorker(pathToFileURL(require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).toString());
   const parser = new PDFParse({ data: new Uint8Array(buffer) });
   try {
