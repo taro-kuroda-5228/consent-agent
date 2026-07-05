@@ -219,4 +219,32 @@ describe("JCS URL auto evidence import", () => {
     expect(result.answer).not.toContain("引用箇所");
     expect(result.supportingSpans?.[0]?.text).toContain("Adamkiewicz動脈");
   });
+
+  it("answers Marfan/genetic guideline questions with patient-friendly wording and audited JCS span", () => {
+    const evidence = createAutoPhysicianUrlEvidence({
+      sourceUrl: "https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf",
+      fileName: "JCS2020_Ogino.pdf",
+      extractedText: [
+        "-- 25 of 225 -- 遺伝性結合織疾患による大動脈解離 Marfan FBN1 cystic medial necrosis Loeys-Dietz などを認める。",
+        "-- 140 of 225 -- 第 8 章 その他の大動脈疾患 Marfan症候群の大動脈基部置換術では、大動脈基部拡大や大動脈径をみて手術適応を検討する。",
+      ].join(" --- "),
+    });
+
+    const result = synthesizeEvidenceBoundQA("マルファン症候群のような遺伝性疾患がある場合、手術内容は変わりますか？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["死亡", "脳梗塞"],
+      selectedEvidence: [evidence],
+    });
+
+    expect(result.answer).toContain("遺伝性");
+    expect(result.answer).toContain("大動脈基部");
+    expect(result.answer).toContain("手術範囲");
+    expect(result.answer).toContain("担当医");
+    expect(result.answer).not.toContain("-- 140 of 225 --");
+    expect(result.answer).not.toContain("根拠論文");
+    expect(result.evidenceReferences).toEqual([evidence.evidenceId]);
+    expect(result.supportingSpans?.[0]?.text).toContain("Marfan症候群");
+    expect(result.supportingSpans?.[0]?.text).toContain("大動脈基部置換術");
+  });
 });

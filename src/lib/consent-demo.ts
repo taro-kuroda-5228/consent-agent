@@ -794,6 +794,9 @@ function getQuestionTerms(question: string): string[] {
   if (["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) => normalized.includes(term.toLowerCase()))) {
     return Array.from(new Set(["男女差", "性差", "男女", "女性", "男性", "sex-based", "sex difference", "sex-difference", "female sex", "male sex", "female", "male", "women", "men", "女性", "男性", ...genericTerms]));
   }
+  if (["遺伝", "マルファン", "marfan", "家族歴", "結合組織", "大動脈基部"].some((term) => normalized.includes(term.toLowerCase()))) {
+    return Array.from(new Set(["遺伝", "遺伝性", "マルファン", "Marfan", "marfan", "FBN1", "家族歴", "familial", "genetic", "aortopathy", "結合組織", "大動脈基部", "基部", "手術適応", "置換術", "大動脈径", ...genericTerms]));
+  }
   if (["対麻痺", "脊髄障害", "脊髄", "spinal", "paraplegia"].some((term) => normalized.includes(term.toLowerCase()))) {
     return Array.from(new Set(["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia", ...genericTerms]));
   }
@@ -1510,7 +1513,7 @@ function buildPatientFriendlyUploadedGuidelineAnswer(question: string, span: str
     return "腸への血流が悪くなることは重い合併症です。お腹の痛みや血流の状態を見ながら、手術や集中治療で早く対応する必要があるため、担当医が現在の所見に合わせて説明します。";
   }
   if (/遺伝|マルファン|marfan|家族|大動脈径/i.test(normalizedQuestion)) {
-    return "マルファン症候群など体質や家族歴が関わる場合は、通常より慎重に大動脈の大きさや経過を見て治療方針を考える必要があります。患者さんに当てはまるかは担当医が確認します。";
+    return "マルファン症候群などの遺伝性の大動脈疾患が関わる場合は、大動脈基部を含めて広がりや大きさを慎重に見て、手術範囲や再手術の必要性を検討します。患者さんに当てはまるか、今回どこまで置き換えるかは担当医が確認して説明します。";
   }
   if (/腎|透析|尿|renal|kidney|aki|dialysis/.test(normalizedQuestion)) {
     return "腎臓の働きが悪くなることは重要な合併症です。必要に応じて透析や集中治療を行うことがあり、患者さんの検査値や尿量を見ながら担当医が説明します。";
@@ -1535,7 +1538,9 @@ function summarizeUploadedGuidelineQuestionSpan(question: string, evidence: Evid
       const specificTokens = tokens.filter((token) => !/^(急性|stanford|大動脈|大動脈解離|解離|治療|方針|手術|資料|記載|ありますか|何|問題|場合|ですか|変わりますか)$/.test(token));
       const directSpecificHits = specificTokens.filter((token) => normalizedSpan.includes(token)).length;
       const spinalConceptHit = isSpinalPreventionQuestion && /脊髄|対麻痺|\bSCI\b|spinal|paraplegia/i.test(span);
+      const geneticConceptHit = /遺伝|マルファン|marfan|家族|大動脈径/i.test(normalizedQuestion) && /遺伝|遺伝性|マルファン|marfan|FBN1|家族歴|familial|genetic|aortopathy|結合組織|大動脈基部|基部/i.test(span);
       const preventionSignal = isSpinalPreventionQuestion && /予防|防止|保護|温存|再建|配慮|保つ|灌流|ドレナージ|CSFD|術後|モニタリング/i.test(span);
+      const geneticTreatmentSignal = geneticConceptHit && /手術適応|置換術|再手術|大動脈基部|基部|瘤径|大動脈径|mm|VSRR|Bentall|治療|術式|範囲/i.test(span);
       const clinicalSignal = /associated|association|occurred|reported|observed|need for|required|linked|risk|outcome|complication|malperfusion|ischemia|bowel|mesenteric|marfan|aortopathy|\bSCI\b|spinal|paraplegia|rehabilitation|関連|伴|必要|発生|認め|リスク|合併|虚血|腸管|腸間膜|マルファン|遺伝|大動脈瘤|適応|脊髄|対麻痺|脊髄保護|灌流|リハビリ/i.test(span);
       const figureOrTocPenalty =
         (/--\s*[1-9]\s+of\s+\d+\s+--/.test(span) ? 18 : 0) +
@@ -1546,16 +1551,19 @@ function summarizeUploadedGuidelineQuestionSpan(question: string, evidence: Evid
         directHits * 24 +
         (clinicalSignal ? 18 : 0) +
         (spinalConceptHit ? 90 : 0) +
-        (preventionSignal ? 140 : 0) -
+        (geneticConceptHit ? 90 : 0) +
+        (preventionSignal ? 140 : 0) +
+        (geneticTreatmentSignal ? 130 : 0) -
         (spinalConceptHit && !preventionSignal && /Adamkiewicz|前脊髄動脈|artery|radicular|椎骨動脈|アーケード/i.test(span) ? 80 : 0) -
         figureOrTocPenalty - evidenceIndex * 0.01 - spanIndex * 0.001;
-      return { item, span, directHits, directSpecificHits, spinalConceptHit, preventionSignal, clinicalSignal, score };
+      return { item, span, directHits, directSpecificHits, spinalConceptHit, geneticConceptHit, preventionSignal, geneticTreatmentSignal, clinicalSignal, score };
     });
   });
 
-  const filteredCandidates = candidates.filter((candidate) => (candidate.directSpecificHits > 0 || candidate.spinalConceptHit) && candidate.clinicalSignal && candidate.score >= 26);
+  const filteredCandidates = candidates.filter((candidate) => (candidate.directSpecificHits > 0 || candidate.spinalConceptHit || candidate.geneticConceptHit) && candidate.clinicalSignal && candidate.score >= 26);
   const preventionCandidates = filteredCandidates.filter((candidate) => candidate.preventionSignal);
-  const best = (preventionCandidates.length > 0 ? preventionCandidates : filteredCandidates)
+  const geneticTreatmentCandidates = filteredCandidates.filter((candidate) => candidate.geneticTreatmentSignal);
+  const best = (preventionCandidates.length > 0 ? preventionCandidates : geneticTreatmentCandidates.length > 0 ? geneticTreatmentCandidates : filteredCandidates)
     .sort((a, b) => b.score - a.score)[0];
 
   if (!best) return undefined;
