@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       warning = "PDFまたはテキストファイルのみを対象にしています。本文を手入力してください。";
     }
 
-    const evidenceCard = sourceUrl && extractedText
+    const evidenceCard = sourceUrl && (extractedText || isKnownPublicGuidelineUrl(sourceUrl))
       ? createAutoPhysicianUrlEvidence({ sourceUrl, fileName, extractedText })
       : undefined;
 
