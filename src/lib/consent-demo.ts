@@ -1198,8 +1198,10 @@ function summarizeReoperationPossibilityFromEvidence(question: string, evidence:
       const reoperationHit = /再手術|再開胸|追加手術|reoperation|re-operation|reexploration|re-exploration/.test(normalizedSpan);
       const riskSignal = /リスク|可能性|評価|報告|高い|必要|risk|reported|evaluated|greater|higher|need/.test(normalizedSpan);
       const bleedingContext = /出血|bleeding|hemorrhage/.test(normalizedSpan);
+      const directRiskSignal = /高い|greater|higher|associated|リスクが高|risk/i.test(span) && bleedingContext;
       const sourceBoost = item.origin === "medevidence-rag" || item.retrievalStatus === "pubmed-verified" ? 25 : 0;
-      const score = (reoperationHit ? 120 : 0) + (riskSignal ? 35 : 0) + (bleedingContext ? 15 : 0) + sourceBoost - evidenceIndex * 0.01 - spanIndex * 0.001;
+      const genericEvaluationPenalty = /評価されています|evaluated/i.test(span) && !directRiskSignal ? 70 : 0;
+      const score = (reoperationHit ? 120 : 0) + (riskSignal ? 35 : 0) + (bleedingContext ? 15 : 0) + (directRiskSignal ? 120 : 0) + sourceBoost - genericEvaluationPenalty - evidenceIndex * 0.01 - spanIndex * 0.001;
       return { item, span, score, reoperationHit };
     }),
   );
@@ -1208,9 +1210,12 @@ function summarizeReoperationPossibilityFromEvidence(question: string, evidence:
     .sort((a, b) => b.score - a.score)[0];
   if (!best) return undefined;
   const answerSpan = cleanFamilyAnswerSpan(best.span);
-  const answer = /可能性|リスク/.test(answerSpan)
-    ? answerSpan
-    : `再手術の可能性については、${answerSpan}`;
+  const directBleedingReoperationRisk = /男性|male/i.test(answerSpan) && /出血|bleeding/i.test(answerSpan) && /再手術|reoperation/i.test(answerSpan) && /高い|greater|higher/i.test(answerSpan);
+  const answer = directBleedingReoperationRisk
+    ? "選択された文献では、男性では術後出血による再手術リスクが高いと報告されています。患者さんごとの可能性は、出血リスクや手術中の状況を踏まえて担当医が説明します。"
+    : /可能性|リスク/.test(answerSpan)
+      ? answerSpan
+      : `再手術の可能性については、${answerSpan}`;
   const normalizedAnswer = `${answer}${answer.endsWith("。") ? "" : "。"}`;
   return { answer: normalizedAnswer.length <= 260 ? normalizedAnswer : `${normalizedAnswer.slice(0, 257)}...`, source: best.item, span: best.span };
 }
