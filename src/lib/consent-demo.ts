@@ -807,8 +807,8 @@ function getQuestionTerms(question: string): string[] {
   if (["対麻痺", "脊髄障害", "脊髄", "spinal", "paraplegia"].some((term) => normalized.includes(term.toLowerCase()))) {
     return Array.from(new Set(["対麻痺", "脊髄障害", "脊髄", "spinal cord injury", "sci", "paraplegia", ...genericTerms]));
   }
-  if (["長期", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance"].some((term) => normalized.includes(term.toLowerCase()))) {
-    return Array.from(new Set(["長期", "長期的", "予後", "遠隔期", "遠隔", "晩期", "再手術", "大動脈再手術", "経過", "フォロー", "サーベイランス", "late mortality", "late", "long-term", "surveillance", "follow-up", "aortic re-operation", "reoperation", "late-survival", ...genericTerms]));
+  if (["長期", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "再手術", "reoperation", "re-operation", "late", "long-term", "surveillance"].some((term) => normalized.includes(term.toLowerCase()))) {
+    return Array.from(new Set(["長期", "長期的", "予後", "遠隔期", "遠隔", "晩期", "再手術", "大動脈再手術", "追加手術", "経過", "フォロー", "サーベイランス", "late mortality", "late", "long-term", "surveillance", "follow-up", "aortic re-operation", "reoperation", "re-operation", "reexploration", "late-survival", ...genericTerms]));
   }
   const matchedGroups = QUESTION_TERMS.filter((group) =>
     group.terms.some((term) => normalized.includes(term.toLowerCase())),
@@ -903,6 +903,22 @@ function isEmergencySurgeryNeedQuestion(question: string): boolean {
   const asksSurgery = ["手術", "治療", "オペ", "surgery"].some((term) => normalized.includes(term.toLowerCase()));
   return asksWhy && asksUrgentTiming && asksSurgery;
 }
+
+function isNoSurgeryConsequenceQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  const asksSurgery = /手術|治療|オペ|surgery|operation/.test(normalized);
+  const asksNoSurgery = /しない|しなかった|しなければ|しない場合|受けない|やめる|no surgery|without surgery|untreated/.test(normalized);
+  const asksConsequence = /どうなる|なりますか|場合|リスク|危険|結果|consequence|happen|risk/.test(normalized);
+  return asksSurgery && asksNoSurgery && asksConsequence;
+}
+
+function isReoperationPossibilityQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  const asksReoperation = /再手術|再開胸|追加手術|reoperation|re-operation|reexploration|re-exploration/.test(normalized);
+  const asksPossibility = /可能性|リスク|起こ|ありますか|あるの|必要|頻度|確率|割合|risk|possib|need|rate|frequency/.test(normalized);
+  return asksReoperation && asksPossibility;
+}
+
 function isSexDifferenceQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
   return ["男女差", "性差", "男女", "女性", "男性", "sex", "female", "male", "women", "men"].some((term) =>
@@ -951,7 +967,7 @@ function summarizeSexDifferenceFromEvidence(evidence: EvidenceCard[]): { answer:
 
 function isLongTermPrognosisQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
-  return ["長期", "長期的", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "late", "long-term", "surveillance", "follow-up"].some((term) =>
+  return ["長期", "長期的", "予後", "遠隔", "経過", "フォロー", "サーベイランス", "再手術", "reoperation", "re-operation", "late", "long-term", "surveillance", "follow-up"].some((term) =>
     normalized.includes(term.toLowerCase()),
   );
 }
@@ -1149,6 +1165,54 @@ function summarizeEmergencyNeedFromEvidence(evidence: EvidenceCard[]): { answer:
   const answer =
     "急性A型大動脈解離では、破裂や心タンポナーデ、臓器への血流障害で命に関わる危険があります。そのため、これらを防ぐ目的で緊急手術が必要です。";
   return { answer, source };
+}
+
+function summarizeNoSurgeryConsequenceFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
+  if (!isNoSurgeryConsequenceQuestion(question)) return undefined;
+  const source = evidence.find((item) =>
+    [item.displayForFamily, item.claim, item.quotedSpan, item.clinicianSummary, ...(item.keyFindings ?? [])]
+      .join(" ")
+      .match(/破裂/) &&
+    [item.displayForFamily, item.claim, item.quotedSpan, item.clinicianSummary, ...(item.keyFindings ?? [])]
+      .join(" ")
+      .match(/心タンポナーデ/) &&
+    [item.displayForFamily, item.claim, item.quotedSpan, item.clinicianSummary, ...(item.keyFindings ?? [])]
+      .join(" ")
+      .match(/血流障害|malperfusion/),
+  );
+  if (!source) return undefined;
+  const span = source.keyFindings?.find((finding) => /破裂/.test(finding) && /心タンポナーデ/.test(finding)) ??
+    selectBestCitationSpanForQuestion(question, source);
+  return {
+    answer: "手術しない場合、急性A型大動脈解離では破裂や心タンポナーデ、臓器への血流障害が進み、命に関わる危険があります。患者さんごとの見通しは担当医が現在の状態に合わせて説明します。",
+    source,
+    span,
+  };
+}
+
+function summarizeReoperationPossibilityFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
+  if (!isReoperationPossibilityQuestion(question)) return undefined;
+  const candidates = evidence.flatMap((item, evidenceIndex) =>
+    splitEvidenceSpans(item).map((span, spanIndex) => {
+      const normalizedSpan = span.toLowerCase();
+      const reoperationHit = /再手術|再開胸|追加手術|reoperation|re-operation|reexploration|re-exploration/.test(normalizedSpan);
+      const riskSignal = /リスク|可能性|評価|報告|高い|必要|risk|reported|evaluated|greater|higher|need/.test(normalizedSpan);
+      const bleedingContext = /出血|bleeding|hemorrhage/.test(normalizedSpan);
+      const sourceBoost = item.origin === "medevidence-rag" || item.retrievalStatus === "pubmed-verified" ? 25 : 0;
+      const score = (reoperationHit ? 120 : 0) + (riskSignal ? 35 : 0) + (bleedingContext ? 15 : 0) + sourceBoost - evidenceIndex * 0.01 - spanIndex * 0.001;
+      return { item, span, score, reoperationHit };
+    }),
+  );
+  const best = candidates
+    .filter((candidate) => candidate.reoperationHit && candidate.score >= 120)
+    .sort((a, b) => b.score - a.score)[0];
+  if (!best) return undefined;
+  const answerSpan = cleanFamilyAnswerSpan(best.span);
+  const answer = /可能性|リスク/.test(answerSpan)
+    ? answerSpan
+    : `再手術の可能性については、${answerSpan}`;
+  const normalizedAnswer = `${answer}${answer.endsWith("。") ? "" : "。"}`;
+  return { answer: normalizedAnswer.length <= 260 ? normalizedAnswer : `${normalizedAnswer.slice(0, 257)}...`, source: best.item, span: best.span };
 }
 
 function isRenalDialysisRiskQuestion(question: string): boolean {
@@ -1687,6 +1751,12 @@ function summarizeFromEvidence(question: string, evidence: EvidenceCard[]): stri
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return numericRisk.answer;
 
+  const noSurgeryConsequence = summarizeNoSurgeryConsequenceFromEvidence(question, evidence);
+  if (noSurgeryConsequence) return noSurgeryConsequence.answer;
+
+  const reoperationPossibility = summarizeReoperationPossibilityFromEvidence(question, evidence);
+  if (reoperationPossibility) return reoperationPossibility.answer;
+
   const genericStatement = summarizeGenericSourceBoundedStatementFromEvidence(question, evidence);
   if (genericStatement) return genericStatement.answer;
 
@@ -1729,6 +1799,12 @@ function getAnswerEvidence(question: string, evidence: EvidenceCard[]): Evidence
 
   const numericRisk = summarizeNumericRiskFromEvidence(question, evidence);
   if (numericRisk) return [numericRisk.source];
+
+  const noSurgeryConsequence = summarizeNoSurgeryConsequenceFromEvidence(question, evidence);
+  if (noSurgeryConsequence) return [noSurgeryConsequence.source];
+
+  const reoperationPossibility = summarizeReoperationPossibilityFromEvidence(question, evidence);
+  if (reoperationPossibility) return [reoperationPossibility.source];
 
   const genericStatement = summarizeGenericSourceBoundedStatementFromEvidence(question, evidence);
   if (genericStatement) return [genericStatement.source];
@@ -2063,12 +2139,17 @@ export function synthesizeEvidenceBoundQA(
 
   const answerEvidence = getAnswerEvidence(question, relevantEvidence);
   const renalDialysisRisk = summarizeRenalDialysisRiskFromEvidence(question, answerEvidence);
-  const genericRisk = renalDialysisRisk || !isGenericSourceBoundedFallbackQuestion(question) ? undefined : summarizeGenericSourceBoundedRiskFromEvidence(question, answerEvidence);
-  const genericStatement = renalDialysisRisk || genericRisk ? undefined : summarizeGenericSourceBoundedStatementFromEvidence(question, answerEvidence);
-  const primaryAnswerSource = renalDialysisRisk?.source ?? genericRisk?.source ?? genericStatement?.source ?? answerEvidence[0];
-  const primaryCitationSpan = renalDialysisRisk?.span ?? genericRisk?.span ?? genericStatement?.span ?? (primaryAnswerSource ? selectBestCitationSpanForQuestion(question, primaryAnswerSource) : undefined);
-  const baseAnswer = renalDialysisRisk?.answer ?? genericRisk?.answer ?? genericStatement?.answer ?? summarizeFromEvidence(question, answerEvidence);
+  const noSurgeryConsequence = renalDialysisRisk ? undefined : summarizeNoSurgeryConsequenceFromEvidence(question, answerEvidence);
+  const reoperationPossibility = renalDialysisRisk || noSurgeryConsequence ? undefined : summarizeReoperationPossibilityFromEvidence(question, answerEvidence);
+  const genericRisk = renalDialysisRisk || noSurgeryConsequence || reoperationPossibility || !isGenericSourceBoundedFallbackQuestion(question) ? undefined : summarizeGenericSourceBoundedRiskFromEvidence(question, answerEvidence);
+  const genericStatement = renalDialysisRisk || noSurgeryConsequence || reoperationPossibility || genericRisk ? undefined : summarizeGenericSourceBoundedStatementFromEvidence(question, answerEvidence);
+  const primaryAnswerSource = renalDialysisRisk?.source ?? noSurgeryConsequence?.source ?? reoperationPossibility?.source ?? genericRisk?.source ?? genericStatement?.source ?? answerEvidence[0];
+  const primaryCitationSpan = renalDialysisRisk?.span ?? noSurgeryConsequence?.span ?? reoperationPossibility?.span ?? genericRisk?.span ?? genericStatement?.span ?? (primaryAnswerSource ? selectBestCitationSpanForQuestion(question, primaryAnswerSource) : undefined);
+  const baseAnswer = renalDialysisRisk?.answer ?? noSurgeryConsequence?.answer ?? reoperationPossibility?.answer ?? genericRisk?.answer ?? genericStatement?.answer ?? summarizeFromEvidence(question, answerEvidence);
   const shouldAppendCitation =
+    Boolean(renalDialysisRisk) ||
+    Boolean(noSurgeryConsequence) ||
+    Boolean(reoperationPossibility) ||
     Boolean(genericRisk) ||
     Boolean(genericStatement) ||
     isNumericRiskQuestion(question) ||
