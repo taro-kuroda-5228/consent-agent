@@ -197,10 +197,11 @@ describe("consent demo utilities", () => {
     });
 
     expect(result.answer).toContain("再手術");
-    expect(result.answer).toMatch(/可能性|リスク|評価|報告/);
-    expect(result.answer).not.toContain("緊急手術を行う方針");
+    expect(result.answer).toMatch(/男性|出血|高い/);
+    expect(result.answer).not.toMatch(/評価されています|緊急手術を行う方針/);
     expect(result.answer).not.toContain("出血・輸血・脳梗塞・腎障害などの重要なリスクを説明します");
     expect(result.evidenceReferences).toEqual(["AAD-002"]);
+    expect(result.supportingSpans?.some((span) => span.evidenceId === "AAD-002" && /男性|greater|高い/i.test(span.text))).toBe(true);
     expect(result.requiresDoctorReview).toBe(false);
   });
 
