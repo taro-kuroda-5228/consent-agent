@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { handleExplainRequest } from './explain-handler';
 import { handleQaRequest } from './qa-handler';
 import { InMemoryConsentSessionRepository, resetInMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
-import { createPhysicianUploadedEvidence, type EvidenceCard } from '../consent-demo';
+import { createAutoPhysicianUrlEvidence, createPhysicianUploadedEvidence, type EvidenceCard } from '../consent-demo';
 
 describe('explain and qa handlers persistence', () => {
   beforeEach(() => resetInMemoryConsentSessionRepository());
@@ -58,6 +58,55 @@ describe('explain and qa handlers persistence', () => {
     expect(qa.body.answer).not.toContain('重大リスクを明示');
     expect(qa.body.answer).not.toContain('FAC-001');
     expect(qa.body.evidenceReferences).toContain('FAC-001');
+  });
+
+  it('persists physician-selected long guideline URL evidence so family-link QA can cite it without showing manual summary/body fields', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      throw new Error('network intentionally disabled in unit test');
+    };
+    try {
+      const repo = new InMemoryConsentSessionRepository();
+      const guideline = createAutoPhysicianUrlEvidence({
+        sourceUrl: 'https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf',
+        fileName: 'JCS2020_Ogino.pdf',
+        extractedText: [
+          '2020年改訂版 大動脈瘤・大動脈解離診療ガイドライン。',
+          '急性A型大動脈解離では緊急手術を含む迅速な判断と治療が必要である。',
+          '治療しない場合は破裂、心タンポナーデ、臓器への血流障害など命に関わる状態が進行しうる。',
+        ].join(' '),
+      });
+
+      const explained = await handleExplainRequest({
+        diagnosis: '急性A型大動脈解離',
+        plannedSurgery: '上行大動脈人工血管置換術',
+        selectedEvidenceIds: [guideline.evidenceId],
+        customEvidence: [guideline],
+      }, repo);
+      expect(explained.status).toBe(200);
+      const sessionId = String(explained.body.sessionId);
+      const persisted = await repo.getSelectedEvidence(sessionId);
+      expect(persisted.map((item) => item.evidenceId)).toEqual([guideline.evidenceId]);
+      expect(persisted[0].sourceUrl).toBe('https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf');
+
+      const qa = await handleQaRequest({
+        sessionId,
+        question: '手術しない場合はどうなりますか？',
+        diagnosis: '急性A型大動脈解離',
+        plannedSurgery: '上行大動脈人工血管置換術',
+      }, repo);
+
+      expect(qa.status).toBe(200);
+      if ('error' in qa.body) throw new Error(qa.body.error);
+      expect(qa.body.metadata.selectedEvidenceSource).toBe('database');
+      expect(qa.body.answer).not.toContain('直接答えられる記載が見つかりません');
+      expect(qa.body.answer).toContain('手術しない場合');
+      expect(qa.body.answer).toContain('破裂');
+      expect(qa.body.evidenceReferences).toEqual([guideline.evidenceId]);
+      expect(qa.body.selectedEvidence[0].sourceUrl).toBe('https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('answers persisted physician-selected evidence through source-bounded Q&A when Japanese wording differs from the English source terms', async () => {
