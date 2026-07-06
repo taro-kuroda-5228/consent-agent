@@ -60,6 +60,34 @@ describe('explain and qa handlers persistence', () => {
     expect(qa.body.evidenceReferences).toContain('FAC-001');
   });
 
+  it('does not answer family-link administrative cost questions from clinical selected evidence', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const explained = await handleExplainRequest({
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      selectedEvidenceIds: ['FAC-001', 'AAD-002', 'AAD-003'],
+    }, repo);
+    const sessionId = String(explained.body.sessionId);
+
+    const qa = await handleQaRequest({
+      sessionId,
+      question: '手術の費用について教えてください。',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+    }, repo);
+
+    expect(qa.status).toBe(200);
+    if ('error' in qa.body) throw new Error(qa.body.error);
+    expect(qa.body.metadata.selectedEvidenceSource).toBe('database');
+    expect(qa.body.answer).toContain('手術費用');
+    expect(qa.body.answer).toContain('直接答えられる記載が見つかりません');
+    expect(qa.body.answer).toContain('医事課');
+    expect(qa.body.answer).not.toContain('緊急手術を行う方針');
+    expect(qa.body.answer).not.toContain('出血・輸血・脳梗塞・腎障害');
+    expect(qa.body.evidenceReferences).toEqual([]);
+    expect(qa.body.requiresDoctorReview).toBe(true);
+  });
+
   it('persists physician-selected long guideline URL evidence so family-link QA can cite it without showing manual summary/body fields', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () => {

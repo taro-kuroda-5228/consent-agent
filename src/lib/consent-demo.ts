@@ -1953,6 +1953,21 @@ function isIndividualPrognosisQuestion(normalizedQuestion: string): boolean {
   return /成功率|助か|生きて|帰れ|生存|個別.*予後/.test(normalizedQuestion);
 }
 
+function isAdministrativeNonEvidenceQuestion(normalizedQuestion: string): boolean {
+  return /費用|医療費|料金|支払|支払い|自己負担|保険|高額療養|請求|会計|cost|price|billing|payment|insurance/.test(normalizedQuestion);
+}
+
+function administrativeNoDirectAnswerResult(): EvidenceBoundQAResult {
+  return {
+    answer: "選択済み参考資料内には、手術費用や支払い制度に直接答えられる記載が見つかりません。費用は保険の種類、入院期間、術式、病院の制度で変わるため、病院の医事課・相談窓口または担当医に確認してください。",
+    safetyLabel: "doctor-review",
+    requiresDoctorReview: true,
+    retrievalMode: "physician-curated-only",
+    evidenceReferences: [],
+    retrievedEvidence: [],
+  };
+}
+
 function isGroundedPatientFriendlyAnswer(answer: string | undefined, verifiedSpans: Array<{ text: string }>): answer is string {
   if (!answer) return false;
   const normalizedAnswer = answer.replace(/\s+/g, " ").trim();
@@ -1972,6 +1987,10 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
   extraction: SupportingSpanExtraction,
 ): EvidenceBoundQAResult {
   const normalized = question.toLowerCase();
+
+  if (isAdministrativeNonEvidenceQuestion(normalized)) {
+    return administrativeNoDirectAnswerResult();
+  }
 
   const facilityTemplate = findMatchingFacilityTemplate(question, context.facilityAnswerTemplates);
   if (facilityTemplate) {
@@ -2044,6 +2063,10 @@ export function synthesizeEvidenceBoundQA(
   },
 ): EvidenceBoundQAResult {
   const normalized = question.toLowerCase();
+
+  if (isAdministrativeNonEvidenceQuestion(normalized)) {
+    return administrativeNoDirectAnswerResult();
+  }
 
   const facilityTemplate = findMatchingFacilityTemplate(question, context.facilityAnswerTemplates);
   if (facilityTemplate) {
