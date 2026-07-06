@@ -221,6 +221,26 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(true);
   });
 
+  it("does not force clinical or facility-template evidence into administrative cost questions", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("手術の費用について教えてください。", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "上行大動脈人工血管置換術",
+      risks: ["脳梗塞", "出血", "腎不全"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: getDefaultFacilityAnswerTemplates(),
+    });
+
+    expect(result.answer).toContain("手術費用");
+    expect(result.answer).toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("医事課");
+    expect(result.answer).not.toContain("緊急手術を行う方針");
+    expect(result.answer).not.toContain("出血・輸血・脳梗塞・腎障害");
+    expect(result.evidenceReferences).toEqual([]);
+    expect(result.retrievedEvidence).toEqual([]);
+    expect(result.requiresDoctorReview).toBe(true);
+  });
+
   it("answers default stroke risk questions directly instead of returning a disease definition or broad complication summary", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
     const result = synthesizeEvidenceBoundQA("脳梗塞のリスクについて、もっと教えてください", {
