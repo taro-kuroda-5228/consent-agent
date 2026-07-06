@@ -168,6 +168,42 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("answers no-surgery questions directly instead of repeating a surgery-purpose summary", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("手術しない場合はどうなりますか？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "上行大動脈人工血管置換術",
+      risks: ["死亡", "破裂", "心タンポナーデ", "臓器血流障害"],
+      selectedEvidence: evidence,
+    });
+
+    expect(result.answer).toContain("手術しない場合");
+    expect(result.answer).toContain("破裂");
+    expect(result.answer).toContain("心タンポナーデ");
+    expect(result.answer).toContain("臓器への血流障害");
+    expect(result.answer).not.toContain("緊急手術を行う方針");
+    expect(result.answer).not.toContain("出血・輸血・脳梗塞・腎障害などの重要なリスクを説明します");
+    expect(result.evidenceReferences).toEqual(["FAC-001"]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
+  it("answers reoperation possibility questions directly from selected reoperation evidence", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("再手術の可能性は？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "上行大動脈人工血管置換術",
+      risks: ["死亡", "脳梗塞", "出血", "腎不全", "再手術"],
+      selectedEvidence: evidence,
+    });
+
+    expect(result.answer).toContain("再手術");
+    expect(result.answer).toMatch(/可能性|リスク|評価|報告/);
+    expect(result.answer).not.toContain("緊急手術を行う方針");
+    expect(result.answer).not.toContain("出血・輸血・脳梗塞・腎障害などの重要なリスクを説明します");
+    expect(result.evidenceReferences).toEqual(["AAD-002"]);
+    expect(result.requiresDoctorReview).toBe(false);
+  });
+
   it("routes survival questions to a warm doctor-review answer instead of a cold no-source message", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
     const result = synthesizeEvidenceBoundQA("生きて帰れますか？", {
