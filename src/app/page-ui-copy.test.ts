@@ -50,7 +50,8 @@ describe("mobile demo UI copy and CTA readability", () => {
 
   it("keeps the evidence area simple for the hackathon and does not show redundant candidate/coverage panels", () => {
     expect(pageSource).toContain("PubMedを内容でAI検索");
-    expect(pageSource).toContain("日本のガイドライン・非PubMed資料URLを追加");
+    expect(pageSource).toContain("ガイドライン・非PubMed資料URLを追加");
+    expect(pageSource).not.toContain("日本のガイドライン・非PubMed資料URLを追加");
     expect(pageSource).toContain("選択中の根拠 {selectedEvidenceIds.length}件を確認・変更");
     expect(pageSource).not.toContain("MedEvidence根拠候補");
     expect(pageSource).not.toContain("根拠候補");
@@ -150,6 +151,16 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).toContain("deleteEvidence");
     expect(pageSource).toContain("を根拠一覧から削除");
     expect(pageSource).toContain("setSelectedEvidenceIds((prev) => prev.filter((id) => id !== evidenceId))");
+  });
+
+  it("keeps long guideline URL import simple and does not expose generated summary/body fields in the upload section", () => {
+    expect(renderScreen1Source).toContain("ガイドライン・非PubMed資料URLを追加");
+    expect(renderScreen1Source).toContain("https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf");
+    expect(renderScreen1Source).toContain("URLから根拠に追加");
+    expect(renderScreen1Source).not.toContain("急性A型大動脈解離 / ATAAD physician-uploaded source");
+    expect(renderScreen1Source).not.toContain("医師向け要約: ぱっと見で分かる内容を入力");
+    expect(renderScreen1Source).not.toContain("PDFから抽出された本文、または医師が貼り付けた引用可能な本文");
+    expect(renderScreen1Source).not.toContain("URLで自動作成");
   });
 
   it("lets physicians search PubMed by clinical content and add readable paper cards to selected evidence", () => {

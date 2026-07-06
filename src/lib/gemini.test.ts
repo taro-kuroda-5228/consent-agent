@@ -111,6 +111,55 @@ describe("Gemini adapter evidence guardrails", () => {
     expect(result.extractionMode).toBe("deterministic-source-bounded");
   });
 
+  it("answers family no-surgery questions deterministically before live extraction can return a broad consent summary", async () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Facility consent explanation for acute type A aortic dissection",
+      fileName: "facility-consent.txt",
+      extractedText:
+        "当院の説明資料では、A型大動脈解離で手術しない場合、破裂、心タンポナーデ、臓器への血流障害が進み、命に関わる危険が高いと説明します。出血・輸血・脳梗塞・腎障害などは手術の重要なリスクとして別に説明します。",
+      keyFindings: [
+        "A型大動脈解離で手術しない場合、破裂、心タンポナーデ、臓器への血流障害が進み、命に関わる危険が高い。",
+      ],
+      outcomeTags: ["no-surgery", "life-threatening-risk"],
+    });
+
+    let extractorCalled = false;
+    const result = await generateQA(
+      "手術しない場合はどうなりますか？",
+      {
+        diagnosis: "急性A型大動脈解離",
+        plannedSurgery: "緊急上行大動脈人工血管置換術",
+        risks: ["破裂", "心タンポナーデ", "臓器血流障害"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      },
+      async () => {
+        extractorCalled = true;
+        return {
+          answerable: true,
+          confidence: "moderate",
+          reason: "broad source summary that should not override direct deterministic no-surgery answer",
+          supportingSpans: [
+            {
+              evidenceId: uploaded.evidenceId,
+              chunkId: "chunk-1",
+              span: "当院の説明資料では、大動脈解離は大動脈の壁の内側に裂け目ができ、A型では破裂や心タンポナーデ、臓器への血流障害を防ぐため緊急手術を行う方針と、出血・輸血・脳梗塞・腎障害などの重要なリスクを説明します。",
+            },
+          ],
+        };
+      },
+    );
+
+    expect(extractorCalled).toBe(false);
+    expect(result.answer).toContain("手術しない場合");
+    expect(result.answer).toContain("破裂");
+    expect(result.answer).toContain("心タンポナーデ");
+    expect(result.answer).not.toContain("緊急手術を行う方針");
+    expect(result.answer).not.toContain("出血・輸血・脳梗塞・腎障害などの重要なリスクを説明します");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.extractionMode).toBe("deterministic-source-bounded");
+  });
+
   it("passes a MedEvidence-style source-bounded search plan into the agentic extractor", async () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "Outcomes of hemi- vs. total arch replacement in acute type A aortic dissection",

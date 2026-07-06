@@ -522,10 +522,12 @@ export async function generateQA(
     return { ...deterministicResult, extractionMode: "deterministic-source-bounded" };
   }
 
+  const directFamilyQuestionPattern =
+    /リスク|危険|可能性|どれくらい|どのくらい|頻度|発生|発生率|確率|割合|何%|何％|%|％|risk|probability|frequency|incidence|rate|occur|手術しない|しない場合|しなければ|受けない|without surgery|untreated/i;
   const shouldTrustDeterministicSelectedSourceAnswer =
     (deterministicResult.evidenceReferences?.length ?? 0) > 0 &&
     deterministicResult.safetyLabel !== "doctor-review" &&
-    /リスク|危険|可能性|どれくらい|どのくらい|頻度|発生|発生率|確率|割合|何%|何％|%|％|risk|probability|frequency|incidence|rate|occur/i.test(question);
+    directFamilyQuestionPattern.test(question);
   if (shouldTrustDeterministicSelectedSourceAnswer) {
     return { ...deterministicResult, extractionMode: "deterministic-source-bounded" };
   }

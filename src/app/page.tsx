@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
+  createAutoPhysicianUrlEvidence,
   createPhysicianUploadedEvidence,
   getDefaultSelectedEvidenceIds,
   getEvidenceCatalog,
@@ -103,11 +104,10 @@ export default function ConsentAgent() {
   const evidenceCatalog = [...baseEvidenceCatalog, ...uploadedEvidence].filter((item) => !deletedEvidenceIds.includes(item.evidenceId));
   const [selectedEvidenceIds, setSelectedEvidenceIds] = useState<string[]>(getDefaultSelectedEvidenceIds());
   const [uploadingEvidence, setUploadingEvidence] = useState(false);
-  const [uploadTitle, setUploadTitle] = useState("日本のガイドライン / 非PubMed論文PDF");
-  const [uploadSourceUrl, setUploadSourceUrl] = useState("");
-  const [uploadClinicalScope, setUploadClinicalScope] = useState("急性A型大動脈解離 / ATAAD physician-uploaded source");
+  const [uploadTitle, setUploadTitle] = useState("ガイドライン・非PubMed資料URL");
+  const [uploadSourceUrl, setUploadSourceUrl] = useState("https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf");
+  const [uploadClinicalScope, setUploadClinicalScope] = useState("医師選択済みURL資料");
   const [uploadSummary, setUploadSummary] = useState("");
-  const [uploadText, setUploadText] = useState("");
   const [uploadFileName, setUploadFileName] = useState("uploaded-evidence.pdf");
   const [uploadMessage, setUploadMessage] = useState("");
   const [pubMedQuery, setPubMedQuery] = useState("大動脈解離の透析リスクについて言及している論文");
@@ -294,7 +294,7 @@ export default function ConsentAgent() {
     setUploadingEvidence(true);
     setUploadMessage("PDF本文を抽出中です。抽出後に医師が内容を確認してください。");
     setUploadFileName(file.name);
-    if (uploadTitle === "日本のガイドライン / 非PubMed論文PDF") {
+    if (uploadTitle === "ガイドライン・非PubMed資料URL") {
       setUploadTitle(file.name.replace(/\.pdf$/i, ""));
     }
     try {
@@ -303,8 +303,18 @@ export default function ConsentAgent() {
       const res = await fetchWithTimeout("/api/evidence/upload", { method: "POST", body: form }, 15000);
       if (!res.ok) throw new Error("upload failed");
       const data: { extractedText?: string; warning?: string; privacyNote?: string } = await res.json();
-      setUploadText(data.extractedText || "");
-      setUploadMessage(data.warning || data.privacyNote || "抽出しました。医師が要約・本文・出典リンクを確認してから根拠に追加してください。");
+      const extractedText = data.extractedText || "";
+      const uploaded = createPhysicianUploadedEvidence({
+        title: uploadTitle,
+        fileName: file.name,
+        sourceUrl: uploadSourceUrl,
+        extractedText,
+        clinicianSummary: uploadSummary,
+        clinicalScope: uploadClinicalScope,
+      });
+      setUploadedEvidence((prev) => [...prev.filter((item) => item.evidenceId !== uploaded.evidenceId), uploaded]);
+      setSelectedEvidenceIds((prev) => Array.from(new Set([...prev, uploaded.evidenceId])));
+      setUploadMessage(data.warning || data.privacyNote || "PDFから根拠資料を追加し、選択済みにしました。家族QAではこの資料から直接答えられる範囲だけ回答します。");
     } catch {
       setUploadMessage("PDF抽出に失敗しました。本文または要約を貼り付けて、医師確認済み根拠として追加してください。");
     }
@@ -327,38 +337,34 @@ export default function ConsentAgent() {
         setUploadTitle(data.evidenceCard.title);
         setUploadClinicalScope(data.evidenceCard.clinicalScope || uploadClinicalScope);
         setUploadSummary(data.evidenceCard.clinicianSummary || "");
-        setUploadText(data.evidenceCard.displayForFamily || "");
         setUploadMessage("根拠カードの下書きを作成し、選択済みにしました。医師はカードを見て、不要ならチェックを外すだけです。");
         setUploadingEvidence(false);
         return;
       }
       if (data.fileName) {
         setUploadFileName(data.fileName);
-        if (uploadTitle === "日本のガイドライン / 非PubMed論文PDF") {
+        if (uploadTitle === "ガイドライン・非PubMed資料URL") {
           setUploadTitle(data.fileName.replace(/\.pdf$/i, ""));
         }
       }
-      setUploadText(data.extractedText || "");
-      setUploadMessage(data.warning || data.privacyNote || "URLから抽出しました。根拠カード作成に失敗した場合のみ、本文/要約を最小限補足してください。");
+      const extractedText = data.extractedText || "";
+      const uploaded = createAutoPhysicianUrlEvidence({
+        sourceUrl: uploadSourceUrl.trim(),
+        fileName: data.fileName || uploadFileName,
+        extractedText,
+      });
+      setUploadedEvidence((prev) => [...prev.filter((item) => item.evidenceId !== uploaded.evidenceId), uploaded]);
+      setSelectedEvidenceIds((prev) => Array.from(new Set([...prev, uploaded.evidenceId])));
+      setUploadTitle(uploaded.title);
+      setUploadClinicalScope(uploaded.clinicalScope || uploadClinicalScope);
+      setUploadSummary(uploaded.clinicianSummary || "");
+      setUploadMessage(data.warning || data.privacyNote || "URLから根拠資料を追加し、選択済みにしました。家族QAではこの資料から直接答えられる範囲だけ回答します。");
     } catch {
-      setUploadMessage("URLからのPDF抽出に失敗しました。PDFをダウンロードしてアップロードするか、本文/要約を貼り付けてください。");
+      setUploadMessage("URLからのPDF抽出に失敗しました。PDFをダウンロードしてアップロードするか、URLを確認してください。");
     }
     setUploadingEvidence(false);
   };
 
-  const addUploadedEvidence = () => {
-    const uploaded = createPhysicianUploadedEvidence({
-      title: uploadTitle,
-      fileName: uploadFileName,
-      sourceUrl: uploadSourceUrl,
-      extractedText: uploadText || uploadSummary,
-      clinicianSummary: uploadSummary,
-      clinicalScope: uploadClinicalScope,
-    });
-    setUploadedEvidence((prev) => [...prev.filter((item) => item.evidenceId !== uploaded.evidenceId), uploaded]);
-    setSelectedEvidenceIds((prev) => Array.from(new Set([...prev, uploaded.evidenceId])));
-    setUploadMessage(`追加しました: ${uploaded.evidenceId}。家族説明/Q&Aでは医師が選択した場合のみ引用されます。`);
-  };
 
   const searchPubMedEvidence = async () => {
     const query = pubMedQuery.trim();
@@ -731,11 +737,11 @@ export default function ConsentAgent() {
 
         <details className="rounded-xl border border-amber-200 bg-amber-50 p-3">
           <summary className="cursor-pointer text-xs font-bold text-amber-900">
-            日本のガイドライン・非PubMed資料URLを追加
+            ガイドライン・非PubMed資料URLを追加
           </summary>
           <div className="mt-3 space-y-2">
             <p className="text-[11px] leading-relaxed text-amber-800">
-            URLを貼るだけで要約・主要所見・outcomeタグの下書きを作成します。医師は作成されたカードを見て、使わない場合だけチェックを外してください。PHI/PIIを含む資料は使わないでください。
+            URLを貼るだけで根拠資料として追加します。長いガイドライン本文や医師向け要約はここには表示しません。医師が選択した場合のみ、家族QAで引用されます。PHI/PIIを含む資料は使わないでください。
             </p>
             <Input
               type="file"
@@ -747,7 +753,7 @@ export default function ConsentAgent() {
             <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
               <Input placeholder="資料タイトル" value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} className="bg-white text-xs" />
               <div className="flex gap-2">
-                <Input placeholder="出典元URL（任意: 学会/出版社/院内文書URL）" value={uploadSourceUrl} onChange={(e) => setUploadSourceUrl(e.target.value)} className="bg-white text-xs" />
+                <Input placeholder="https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf" value={uploadSourceUrl} onChange={(e) => setUploadSourceUrl(e.target.value)} className="bg-white text-xs" />
                 <Button
                   type="button"
                   variant="outline"
@@ -755,35 +761,11 @@ export default function ConsentAgent() {
                   onClick={handleEvidenceUrlImport}
                   disabled={uploadingEvidence || !uploadSourceUrl.trim()}
                 >
-                  URLで自動作成
+                  URLから根拠に追加
                 </Button>
               </div>
             </div>
-            <Input placeholder="対象スコープ" value={uploadClinicalScope} onChange={(e) => setUploadClinicalScope(e.target.value)} className="bg-white text-xs" />
-            <Textarea
-              placeholder="医師向け要約: ぱっと見で分かる内容を入力"
-              value={uploadSummary}
-              onChange={(e) => setUploadSummary(e.target.value)}
-              rows={2}
-              className="bg-white text-xs"
-            />
-            <Textarea
-              placeholder="PDFから抽出された本文、または医師が貼り付けた引用可能な本文"
-              value={uploadText}
-              onChange={(e) => setUploadText(e.target.value)}
-              rows={4}
-              className="bg-white text-xs"
-            />
             {uploadMessage && <p className="text-[11px] leading-relaxed text-amber-800">{uploadMessage}</p>}
-            <Button
-              type="button"
-              variant="outline"
-              className="h-8 border-amber-300 bg-white text-xs font-bold text-amber-900 hover:bg-amber-100"
-              onClick={addUploadedEvidence}
-              disabled={uploadingEvidence || (!uploadText.trim() && !uploadSummary.trim())}
-            >
-              {uploadingEvidence ? "抽出中" : "医師確認済み根拠として追加"}
-            </Button>
           </div>
         </details>
 
