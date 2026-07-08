@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Consent Agent UI mockup — intuitive workflow refresh</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:#eef4fb; color:#0f172a; }
+    button, input, textarea { font: inherit; }
+    .shell { min-height:100vh; display:grid; grid-template-columns: 300px 1fr; }
+    .left { position:sticky; top:0; height:100vh; padding:22px; background:#07111f; color:white; overflow:auto; }
+    .brand { display:flex; gap:12px; align-items:center; margin-bottom:18px; }
+    .logo { width:44px; height:44px; border-radius:16px; background:linear-gradient(135deg,#60a5fa,#22c55e); display:grid; place-items:center; font-weight:900; }
+    .brand h1 { font-size:20px; margin:0; letter-spacing:-.04em; }
+    .brand p { margin:4px 0 0; color:#b7c6d8; font-size:12px; line-height:1.5; }
+    .judge { border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); border-radius:22px; padding:16px; margin-bottom:18px; }
+    .judge strong { color:#bfdbfe; display:block; margin-bottom:8px; }
+    .judge ul { padding-left:18px; margin:0; color:#dbeafe; font-size:13px; line-height:1.75; }
+    .nav { display:grid; gap:8px; margin:16px 0; }
+    .nav button { width:100%; text-align:left; border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06); color:#dbeafe; border-radius:18px; padding:13px 14px; cursor:pointer; transition:.18s; }
+    .nav button.active { background:white; color:#07111f; border-color:white; box-shadow:0 12px 28px rgba(59,130,246,.24); }
+    .nav small { display:block; opacity:.68; margin-top:3px; }
+    .safety { font-size:12px; color:#cbd5e1; line-height:1.65; border-top:1px solid rgba(255,255,255,.14); padding-top:16px; }
+    .main { padding:28px; }
+    .topbar { max-width:1120px; margin:0 auto 18px; display:flex; justify-content:space-between; align-items:center; gap:16px; }
+    .topbar h2 { margin:0; font-size:28px; letter-spacing:-.05em; }
+    .topbar p { margin:5px 0 0; color:#475569; font-size:14px; }
+    .pill { display:inline-flex; align-items:center; gap:7px; border-radius:999px; padding:8px 12px; background:white; border:1px solid #dbeafe; color:#1e40af; font-size:12px; font-weight:800; white-space:nowrap; }
+    .canvas { max-width:1120px; margin:0 auto; display:grid; grid-template-columns: 1.08fr .92fr; gap:18px; align-items:start; }
+    .card { background:rgba(255,255,255,.94); border:1px solid #dbeafe; border-radius:28px; box-shadow:0 18px 48px rgba(15,23,42,.08); overflow:hidden; }
+    .card-pad { padding:22px; }
+    .hero { background:linear-gradient(135deg,#0f172a,#1d4ed8); color:white; padding:24px; }
+    .hero h3 { margin:0 0 8px; font-size:24px; letter-spacing:-.04em; }
+    .hero p { margin:0; color:#dbeafe; line-height:1.65; }
+    .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:18px; }
+    .step { border-radius:18px; padding:12px; background:rgba(255,255,255,.11); border:1px solid rgba(255,255,255,.16); }
+    .step b { display:block; font-size:18px; }
+    .step span { color:#bfdbfe; font-size:12px; }
+    .case-grid { display:grid; gap:12px; }
+    .case { border:2px solid #dbeafe; background:white; padding:16px; border-radius:22px; cursor:pointer; display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .case.selected { border-color:#2563eb; background:#eff6ff; }
+    .case h4 { margin:0 0 4px; font-size:17px; }
+    .case p { margin:0; color:#475569; font-size:13px; line-height:1.5; }
+    .case-action { margin-top:10px; display:inline-flex; border-radius:999px; background:#2563eb; color:#fff; padding:6px 10px; font-size:11px; font-weight:900; }
+    .badge { display:inline-flex; align-items:center; border-radius:999px; padding:5px 9px; font-size:11px; font-weight:900; background:#e0f2fe; color:#075985; white-space:nowrap; }
+    .badge.green { background:#dcfce7; color:#166534; }
+    .badge.amber { background:#fef3c7; color:#92400e; }
+    .badge.red { background:#fee2e2; color:#991b1b; }
+    .primary { border:0; border-radius:18px; background:#2563eb; color:white; padding:16px 18px; font-weight:900; cursor:pointer; width:100%; box-shadow:0 12px 24px rgba(37,99,235,.25); }
+    .secondary { border:1px solid #bfdbfe; border-radius:16px; background:#fff; color:#1d4ed8; padding:11px 13px; font-weight:900; cursor:pointer; }
+    .section-title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+    .section-title h3 { margin:0; font-size:16px; }
+    .section-title p { margin:4px 0 0; font-size:12px; color:#64748b; }
+    details { border:1px solid #e2e8f0; background:#fff; border-radius:20px; padding:14px; margin-top:10px; }
+    summary { cursor:pointer; font-weight:900; }
+    .evidence-row { display:flex; align-items:flex-start; gap:10px; border:1px solid #dbeafe; background:#f8fbff; border-radius:18px; padding:12px; margin-top:10px; }
+    .check { width:24px; height:24px; border-radius:8px; background:#2563eb; color:white; display:grid; place-items:center; font-weight:900; flex:0 0 auto; }
+    .phone-wrap { display:grid; place-items:center; padding:22px; }
+    .phone { width:min(390px,100%); background:#0f172a; border-radius:42px; padding:12px; box-shadow:0 24px 54px rgba(15,23,42,.22); }
+    .phone-screen { background:#f8fafc; border-radius:32px; overflow:hidden; min-height:690px; }
+    .phone-head { position:sticky; top:0; z-index:2; background:rgba(255,255,255,.92); backdrop-filter:blur(14px); padding:16px; border-bottom:1px solid #e2e8f0; }
+    .phone-head h3 { margin:0; font-size:18px; }
+    .phone-head p { margin:4px 0 0; color:#64748b; font-size:12px; }
+    .phone-body { padding:14px; display:grid; gap:12px; }
+    .video { aspect-ratio:16/9; border-radius:22px; background:radial-gradient(circle at 30% 30%,#38bdf8,#1e3a8a 55%,#0f172a); color:white; display:grid; place-items:center; text-align:center; padding:20px; }
+    .video b { display:block; font-size:20px; }
+    .explain-card { border:1px solid #dbeafe; border-radius:20px; background:white; padding:14px; display:flex; gap:12px; }
+    .icon { width:42px; height:42px; border-radius:15px; background:#eff6ff; display:grid; place-items:center; font-size:22px; flex:0 0 auto; }
+    .explain-card h4 { margin:0 0 5px; font-size:15px; }
+    .explain-card p { margin:0; color:#475569; font-size:14px; line-height:1.65; }
+    .quick { display:grid; gap:8px; }
+    .quick button { border:1px solid #dbeafe; background:white; border-radius:16px; padding:12px; text-align:left; cursor:pointer; font-weight:800; color:#1e3a8a; }
+    textarea { width:100%; border:1px solid #cbd5e1; border-radius:16px; padding:12px; resize:vertical; min-height:72px; background:white; }
+    .answer { border:1px solid #bbf7d0; background:#f0fdf4; color:#14532d; border-radius:18px; padding:12px; font-size:13px; line-height:1.55; }
+    .choice { border:1px solid #dbeafe; background:white; border-radius:16px; padding:12px; margin-top:8px; cursor:pointer; }
+    .choice.selected { border-color:#2563eb; background:#eff6ff; }
+    .summary-list { display:grid; gap:10px; }
+    .summary-item { border:1px solid #e2e8f0; border-radius:18px; padding:12px; background:white; }
+    .summary-item strong { display:block; margin-bottom:4px; }
+    .hidden { display:none; }
+    .muted { color:#64748b; font-size:12px; line-height:1.6; }
+    .compact-list { margin:0; padding-left:18px; color:#475569; font-size:13px; line-height:1.75; }
+    @media (max-width: 920px) { .shell { grid-template-columns:1fr; } .left { position:relative; height:auto; } .canvas { grid-template-columns:1fr; } .topbar { align-items:flex-start; flex-direction:column; } }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="left">
+      <div class="brand"><div class="logo">CA</div><div><h1>Consent Agent</h1><p>審査基準「ユーザビリティ」改善用のUIモック。既存機能は保持し、見せ方だけを再設計。</p></div></div>
+      <div class="judge"><strong>画面設計の方針</strong><ul><li>医師: 30秒で開始、詳細は折りたたむ</li><li>家族: 1画面1行動、動画→カード→質問</li><li>AI: 根拠限定・自律判定を見える化</li></ul></div>
+      <nav class="nav" aria-label="screen selector">
+        <button class="active" data-screen="doctor">医師 30秒セットアップ<small>症例・根拠・リンク発行</small></button>
+        <button data-screen="family">家族スマホ説明<small>動画とカードで直観的に理解</small></button>
+        <button data-screen="qa">質問・理解確認<small>声/テキスト、同意意思、医師戻し</small></button>
+        <button data-screen="summary">医師サマリー<small>AIが対応必要論点だけ整理</small></button>
+      </nav>
+      <p class="safety">本番適用前のデザイン専用モックです。デモ用合成症例のみ。実患者情報・秘密情報・外部送信は含みません。</p>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div><h2>文字量を減らし、「次に何をするか」が一目で分かるUI</h2><p>既存の根拠選択、PubMed検索、施設テンプレ、家族Q&A、理解確認、医師サマリー機能は残す前提。</p></div>
+        <span class="pill">🧑‍⚕️ 医師最終確認 / AIは同意を取得しない</span>
+      </div>
+
+      <section id="screen-doctor" class="screen canvas">
+        <div class="card">
+          <div class="hero"><h3>医師は「症例を選ぶ → 根拠を確認 → 家族へ渡す」だけ</h3><p>審査員にもAIエージェントの必然性が伝わるよう、自律ワークフローを3ステップで表示します。</p><div class="steps"><div class="step"><b>1</b><span>症例プリセット</span></div><div class="step"><b>2</b><span>根拠ロック</span></div><div class="step"><b>3</b><span>家族リンク</span></div></div></div>
+          <div class="card-pad">
+            <div class="section-title"><div><h3>デモ症例</h3><p>個人情報を入れずに、標準ケースを一括入力。</p></div><span class="badge green">最短30秒</span></div>
+            <div class="case-grid">
+              <button class="case selected"><div><h4>急性A型大動脈解離・緊急手術</h4><p>家族説明デモ用の標準症例。診断、術式、主要リスクを自動入力。</p><span class="case-action">✓ この症例を使用中</span></div><span class="badge red">緊急</span></button>
+              <button class="case"><div><h4>術後ICU説明・合併症フォロー</h4><p>術後の状態説明と家族質問に対応するケース。</p><span class="case-action" style="background:#e2e8f0;color:#334155">この症例を使う</span></div><span class="badge">準備中</span></button>
+            </div>
+
+            <details open><summary>医師選択済み根拠 6件（家族回答はここからだけ）</summary>
+              <div class="evidence-row"><div class="check">✓</div><div><strong>施設IC資料: A型大動脈解離</strong><p class="muted">死亡率・合併症など頻出質問は施設標準回答を優先。</p></div></div>
+              <div class="evidence-row"><div class="check">✓</div><div><strong>PubMed確認済み論文</strong><p class="muted">Title/Abstract + 医師確認済みスパンのみ引用。回答不能なら医師へ戻す。</p></div></div>
+            </details>
+            <details><summary>詳細設定（必要時のみ: PubMed検索・資料追加・施設テンプレ）</summary>
+              <p class="muted">既存機能は折りたたみ内に保持。審査デモでは主導線を邪魔しない。</p>
+              <ul class="compact-list"><li>PubMed自然文検索</li><li>PDF/URL資料追加</li><li>施設別テンプレ回答編集</li><li>引用根拠のON/OFF</li></ul>
+            </details>
+            <div style="margin-top:16px"><button class="primary" data-jump="family">家族説明リンクを発行してスマホ画面へ</button></div>
+          </div>
+        </div>
+        <div class="card card-pad">
+          <div class="section-title"><div><h3>保持する既存機能</h3><p>UI変更で壊してはいけない中核。</p></div></div>
+          <div class="summary-list">
+            <div class="summary-item"><strong>AIエージェント生成</strong><span class="muted">症例と根拠から家族向け説明カードを生成。</span></div>
+            <div class="summary-item"><strong>根拠限定Q&A</strong><span class="muted">医師が選んだ資料だけで回答。出典スパンを照合。</span></div>
+            <div class="summary-item"><strong>自律エスカレーション</strong><span class="muted">個別予後、根拠外、強い不安、理解不足を医師へ戻す。</span></div>
+            <div class="summary-item"><strong>同意意思の整理</strong><span class="muted">署名同意ではなく、医師確認前の状態を構造化。</span></div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-family" class="screen canvas hidden">
+        <div class="card phone-wrap"><div class="phone"><div class="phone-screen"><div class="phone-head"><h3>ご家族への説明</h3><p>まず動画、そのあと短いカードで確認できます。</p></div><div class="phone-body"><div class="video"><div><b>▶ 3D動画 + 音声</b><span>何が起きているかを1分で説明</span></div></div><div class="explain-card"><div class="icon">🫀</div><div><h4>何が起きていますか？</h4><p>大動脈の壁が裂け、血液が壁の中に入り込んでいます。</p></div></div><div class="explain-card"><div class="icon">⏱</div><div><h4>なぜ急ぐのですか？</h4><p>破裂や心タンポナーデで急に命に関わるため、短時間で治療方針を確認します。</p></div></div><div class="explain-card"><div class="icon">⚠️</div><div><h4>主なリスク</h4><p>出血、脳梗塞、腎不全など。個別リスクは担当医が直接補足します。</p></div></div><button class="primary" data-jump="qa">質問・理解確認へ進む</button><p class="muted">動画と回答は補助説明です。最終確認は担当医が行います。</p></div></div></div></div>
+        <div class="card card-pad"><div class="section-title"><div><h3>家族画面の改善点</h3><p>長文を「見る順番」に変換。</p></div></div><ul class="compact-list"><li>最初に動画で全体像を提示</li><li>説明カードは6枚程度、1カード1メッセージ</li><li>専門情報・引用詳細は必要時だけ開く</li><li>大きなCTAで次の行動を固定</li><li>患者・家族向けには温かい日本語、監査用根拠は裏に保持</li></ul></div>
+      </section>
+
+      <section id="screen-qa" class="screen canvas hidden">
+        <div class="card phone-wrap"><div class="phone"><div class="phone-screen"><div class="phone-head"><h3>質問・確認</h3><p>分からないことは、選択済み資料の範囲でAIが答えます。</p></div><div class="phone-body"><div class="quick"><button class="ask">なぜ今すぐ手術が必要ですか？</button><button class="ask">脳梗塞のリスクはありますか？</button><button class="ask">手術しない場合はどうなりますか？</button></div><textarea id="question" placeholder="声または文字で質問できます"></textarea><button class="primary" id="askBtn">質問する</button><div id="answer" class="answer hidden">選択済み根拠内では、手術中や解離の影響で脳への血流が悪くなる可能性があります。個別の危険度は担当医が直接説明します。<br><br><span class="badge green">出典照合済み</span> <span class="badge amber">医師確認が必要</span></div><div class="section-title"><div><h3>理解確認</h3><p>4問だけ。未理解なら医師へ戻します。</p></div></div><div class="choice selected">大動脈に起きている</div><div class="choice">肺動脈に起きている</div><textarea placeholder="まだ不安なこと、医師に直接聞きたいこと"></textarea><div class="choice selected">迷っているので、医師と話したい</div><button class="primary" data-jump="summary">回答を医師へ送る</button></div></div></div></div>
+        <div class="card card-pad"><div class="section-title"><div><h3>AIエージェント性をUIで伝える</h3><p>審査基準1にも効く見せ方。</p></div></div><div class="summary-list"><div class="summary-item"><strong>答えられるか判断</strong><span class="muted">根拠内なら回答、根拠外なら医師確認に切替。</span></div><div class="summary-item"><strong>理解・不安を判定</strong><span class="muted">回答内容から `consent_ready` / `needs_physician_followup` を判定。</span></div><div class="summary-item"><strong>医師に必要情報だけ返す</strong><span class="muted">長い会話ログではなく、未解決論点へ圧縮。</span></div></div></div>
+      </section>
+
+      <section id="screen-summary" class="screen canvas hidden">
+        <div class="card"><div class="hero"><h3>医師サマリー</h3><p>AIは家族対応を完結させず、医師が見るべき論点だけに圧縮して返します。</p></div><div class="card-pad summary-list"><div class="summary-item"><strong>判定: needs_physician_followup</strong><span class="badge amber">医師説明が必要</span><p class="muted">家族は手術の必要性は理解。脳梗塞リスクと生存可能性に強い不安あり。</p></div><div class="summary-item"><strong>未解決の質問</strong><ul class="compact-list"><li>「生きて帰れますか？」— 個別予後のため医師対応</li><li>「脳梗塞になったら戻りますか？」— 根拠外部分あり</li></ul></div><div class="summary-item"><strong>理解確認</strong><p class="muted">4問中4問回答。緊急性と術式の理解は十分。</p></div><button class="primary">医師が最終説明して記録を確認</button></div></div>
+        <div class="card card-pad"><div class="section-title"><div><h3>審査向けに強調できる体験価値</h3><p>“AIが必要な理由”が自然に伝わる。</p></div></div><ul class="compact-list"><li>医師不在時間を、根拠付き説明で安全に埋める</li><li>家族は自分のペースで理解し、質問できる</li><li>AIは判断・圧縮・エスカレーションを自律実行</li><li>最終判断は医師、という医療安全境界が明確</li></ul></div>
+      </section>
+    </main>
+  </div>
+  <script>
+    const screens = [...document.querySelectorAll('.screen')];
+    const navs = [...document.querySelectorAll('.nav button')];
+    function show(name){ screens.forEach(s=>s.classList.toggle('hidden', s.id !== 'screen-' + name)); navs.forEach(b=>b.classList.toggle('active', b.dataset.screen===name)); }
+    navs.forEach(b=>b.addEventListener('click',()=>show(b.dataset.screen)));
+    document.querySelectorAll('[data-jump]').forEach(b=>b.addEventListener('click',()=>show(b.dataset.jump)));
+    document.querySelectorAll('.ask').forEach(b=>b.addEventListener('click',()=>{ document.getElementById('question').value=b.textContent; document.getElementById('answer').classList.remove('hidden'); }));
+    document.getElementById('askBtn')?.addEventListener('click',()=>document.getElementById('answer').classList.remove('hidden'));
+  </script>
+</body>
+</html>

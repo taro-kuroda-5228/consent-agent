@@ -1,5 +1,5 @@
 import { generateQA } from '../gemini';
-import { resolveEvidenceSelectionForRequest, retrieveMockEvidence, type EvidenceCard } from '../consent-demo';
+import { resolveEvidenceSelectionForRequest, resolveNonEvidenceQAResult, retrieveMockEvidence, type EvidenceCard, type FacilityAnswerTemplate } from '../consent-demo';
 import { refreshPhysicianSourceEvidenceSetForQuestion } from '../source-url-evidence';
 import { inMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
 import type { ConsentSessionRepository } from '../repositories/consent-session-repository';
@@ -58,15 +58,26 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
     selectedEvidence = resolveEvidenceSelectionForRequest([...retrieveMockEvidence(input.diagnosis || ''), ...requestCustomEvidence], input.selectedEvidenceIds);
   }
 
-  selectedEvidence = await refreshPhysicianSourceEvidenceSetForQuestion(selectedEvidence, input.question);
+  const facilityAnswerTemplates: FacilityAnswerTemplate[] = Array.isArray(input.facilityAnswerTemplates)
+    ? input.facilityAnswerTemplates as FacilityAnswerTemplate[]
+    : [];
 
-  const result = await generateQA(input.question, {
-    diagnosis: input.diagnosis || '',
-    plannedSurgery: input.plannedSurgery || '',
-    risks: input.risks || [],
-    selectedEvidence,
-    facilityAnswerTemplates: Array.isArray(input.facilityAnswerTemplates) ? input.facilityAnswerTemplates as never[] : [],
-  });
+  // 費用などの事務質問・施設テンプレ・個別予後・同意誘導は資料検索の結果に依存しないため、
+  // 質問特化のPDF再抽出やLLM抽出を行わずに確定する。
+  const nonEvidenceResult = resolveNonEvidenceQAResult(input.question, facilityAnswerTemplates);
+  let result: Awaited<ReturnType<typeof generateQA>>;
+  if (nonEvidenceResult) {
+    result = nonEvidenceResult;
+  } else {
+    selectedEvidence = await refreshPhysicianSourceEvidenceSetForQuestion(selectedEvidence, input.question);
+    result = await generateQA(input.question, {
+      diagnosis: input.diagnosis || '',
+      plannedSurgery: input.plannedSurgery || '',
+      risks: input.risks || [],
+      selectedEvidence,
+      facilityAnswerTemplates,
+    });
+  }
 
   if (input.sessionId) {
     await repository.appendSessionEvent({

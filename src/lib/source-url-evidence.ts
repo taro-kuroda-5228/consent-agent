@@ -317,15 +317,60 @@ export function selectRelevantEvidenceText(text: string, question = ""): string 
   return selected.slice(0, question ? 24000 : 12000);
 }
 
-export async function extractSourceUrlText(sourceUrl: string, question = ""): Promise<{ fileName: string; fileSize: number; contentType: string; extractedText: string }> {
-  const fetched = await fetchSourceUrl(sourceUrl);
-  let extractedText = "";
-  if (isLikelyPdf(fetched.fileName, fetched.contentType)) {
-    extractedText = selectRelevantEvidenceText(await extractPdfText(fetched.buffer), question);
-  } else if (fetched.contentType.startsWith("text/") || fetched.fileName.toLowerCase().endsWith(".txt")) {
-    extractedText = selectRelevantEvidenceText(fetched.buffer.toString("utf8"), question);
+type CachedSourceFullText = {
+  fileName: string;
+  fileSize: number;
+  contentType: string;
+  fullText: string;
+  cachedAt: number;
+};
+
+// 家族QAは同じガイドラインPDFに対して質問ごとに再抽出するため、
+// ダウンロード+PDFパース済みの全文をインスタンス内で使い回す。
+// 質問特化のチャンク選択(selectRelevantEvidenceText)は毎回実行する。
+const SOURCE_FULL_TEXT_CACHE_TTL_MS = 15 * 60 * 1000;
+const SOURCE_FULL_TEXT_CACHE_MAX_ENTRIES = 8;
+const sourceFullTextCache = new Map<string, CachedSourceFullText>();
+
+export function clearSourceUrlTextCache(): void {
+  sourceFullTextCache.clear();
+}
+
+async function fetchSourceFullText(sourceUrl: string): Promise<CachedSourceFullText> {
+  const cacheKey = normalizePhysicianSourceUrl(sourceUrl);
+  const cached = sourceFullTextCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < SOURCE_FULL_TEXT_CACHE_TTL_MS) {
+    return cached;
   }
-  return { fileName: fetched.fileName, fileSize: fetched.buffer.byteLength, contentType: fetched.contentType, extractedText };
+
+  const fetched = await fetchSourceUrl(cacheKey);
+  let fullText = "";
+  if (isLikelyPdf(fetched.fileName, fetched.contentType)) {
+    fullText = await extractPdfText(fetched.buffer);
+  } else if (fetched.contentType.startsWith("text/") || fetched.fileName.toLowerCase().endsWith(".txt")) {
+    fullText = fetched.buffer.toString("utf8");
+  }
+
+  const entry: CachedSourceFullText = {
+    fileName: fetched.fileName,
+    fileSize: fetched.buffer.byteLength,
+    contentType: fetched.contentType,
+    fullText,
+    cachedAt: Date.now(),
+  };
+  sourceFullTextCache.delete(cacheKey);
+  sourceFullTextCache.set(cacheKey, entry);
+  if (sourceFullTextCache.size > SOURCE_FULL_TEXT_CACHE_MAX_ENTRIES) {
+    const oldestKey = sourceFullTextCache.keys().next().value;
+    if (oldestKey !== undefined) sourceFullTextCache.delete(oldestKey);
+  }
+  return entry;
+}
+
+export async function extractSourceUrlText(sourceUrl: string, question = ""): Promise<{ fileName: string; fileSize: number; contentType: string; extractedText: string }> {
+  const source = await fetchSourceFullText(sourceUrl);
+  const extractedText = source.fullText ? selectRelevantEvidenceText(source.fullText, question) : "";
+  return { fileName: source.fileName, fileSize: source.fileSize, contentType: source.contentType, extractedText };
 }
 
 export async function refreshPhysicianSourceEvidenceForQuestion(evidence: EvidenceCard, question: string): Promise<EvidenceCard> {

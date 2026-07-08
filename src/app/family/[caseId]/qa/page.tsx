@@ -8,16 +8,33 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 
+interface QAEvidenceSource {
+  evidenceId: string;
+  title: string;
+  citation?: string;
+  sourceUrl?: string;
+}
+
 interface QAResult {
   answer: string;
   safetyLabel: string;
   requiresDoctorReview: boolean;
   evidenceReferences?: string[];
+  supportingSpans?: Array<{ evidenceId: string; text: string }>;
+  retrievedEvidence?: QAEvidenceSource[];
+  selectedEvidence?: QAEvidenceSource[];
   citationVerification?: {
     requestedSpanCount: number;
     verifiedSpans: Array<{ evidenceId: string; text: string }>;
     rejectedSpans: Array<{ evidenceId: string; span: string; reason: string }>;
   };
+}
+
+function findQaEvidenceSource(result: QAResult, evidenceId: string): QAEvidenceSource | undefined {
+  return (
+    result.retrievedEvidence?.find((item) => item.evidenceId === evidenceId) ??
+    result.selectedEvidence?.find((item) => item.evidenceId === evidenceId)
+  );
 }
 
 type UnderstandingQuestion = {
@@ -150,6 +167,7 @@ export default function QAPage() {
       const res = await fetch("/api/qa", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(25000),
         body: JSON.stringify({
           question: asked,
           diagnosis: view?.diagnosis ?? "",
@@ -322,8 +340,7 @@ export default function QAPage() {
                 <p className="text-sm text-blue-900 whitespace-pre-line">{freeAnswer.answer}</p>
                 <div className="flex flex-wrap gap-1">
                   {freeAnswer.citationVerification &&
-                    freeAnswer.citationVerification.verifiedSpans.length > 0 &&
-                    freeAnswer.citationVerification.rejectedSpans.length === 0 && (
+                    freeAnswer.citationVerification.verifiedSpans.length > 0 && (
                       <Badge className="bg-emerald-600 text-white text-[10px]">
                         ✅ 出典照合済み（原文一致を機械検証）
                       </Badge>
@@ -339,6 +356,32 @@ export default function QAPage() {
                     </Badge>
                   )}
                 </div>
+                {freeAnswer.supportingSpans && freeAnswer.supportingSpans.length > 0 && (
+                  <div className="rounded-lg border border-blue-100 bg-white/80 p-2.5 space-y-2">
+                    <p className="text-[11px] font-bold text-blue-900">📖 回答の根拠（医師が選んだ資料の原文）</p>
+                    {freeAnswer.supportingSpans.map((span, index) => {
+                      const source = findQaEvidenceSource(freeAnswer, span.evidenceId);
+                      return (
+                        <div key={`${span.evidenceId}-${index}`} className="border-l-2 border-blue-300 pl-2">
+                          <p className="text-xs leading-relaxed text-slate-700">“{span.text}”</p>
+                          <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
+                            出典: {source?.title ?? span.evidenceId}
+                            {source?.sourceUrl && (
+                              <a
+                                href={source.sourceUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="ml-1.5 text-blue-700 underline underline-offset-2"
+                              >
+                                資料を開く
+                              </a>
+                            )}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {freeAnswer.requiresDoctorReview && (
                   <Badge className="bg-red-600 text-white text-xs">
                     🔴 担当医が直接説明します（質問は記録されました）

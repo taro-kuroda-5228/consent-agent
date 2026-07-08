@@ -378,6 +378,30 @@ describe("PubMed natural-language evidence search", () => {
     expect(card.keyFindings?.every((finding) => finding.length <= 180)).toBe(true);
   });
 
+  it("summarizes answer-bearing AKI incidence papers instead of echoing the title as a dialysis summary", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "42375845",
+        title: "Incidence and risk factors of acute kidney injury following Stanford type A aortic dissection surgery: a systematic review and meta-analysis.",
+        abstractText:
+          "The meta-analysis showed that the overall incidence of postoperative AKI following TAAD was 50.72%. Regarding risk factors, age (per 1-year: OR = 1.03) was associated with postoperative AKI. This study aims to synthesize the existing evidence to identify the incidence of AKI following surgery for TAAD and its primary risk factors.",
+        journal: "Frontiers in cardiovascular medicine",
+        year: "2026",
+        authors: ["Yang H"],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて", outcomeTags: ["renal-failure", "dialysis"] });
+
+    const card = cards[0];
+    expect(card.evidenceId).toBe("PUBMED-42375845");
+    expect(card.clinicianSummary).toContain("術後AKI");
+    expect(card.clinicianSummary).toContain("50.72%");
+    expect(card.clinicianSummary).toContain("高齢");
+    expect(card.clinicianSummary).not.toContain("Incidence and risk factors of acute kidney injury");
+    expect(card.clinicianSummary).not.toMatch(/^透析:/);
+    expect(card.clinicianSummary?.length).toBeLessThanOrEqual(140);
+    expect(card.keyFindings?.[0]).toContain("overall incidence of postoperative AKI following TAAD was 50.72%");
+  });
+
   it("keeps the no-abstract fallback summary compact even for long queries", () => {
     const cards = convertPubMedArticlesToEvidenceCards([
       {

@@ -32,7 +32,10 @@ export async function handleExplainRequest(input: ExplainHandlerInput, repositor
   });
 
   const physicianUploadedEvidence: EvidenceCard[] = Array.isArray(input.customEvidence)
-    ? input.customEvidence.filter((item) => item?.origin === 'physician-upload' && item?.evidenceId && item?.displayForFamily)
+    ? input.customEvidence.filter((item) => {
+        if (!item?.evidenceId || !item?.displayForFamily) return false;
+        return item.origin === 'physician-upload' || item.retrievalStatus === 'pubmed-verified' || item.evidenceId.startsWith('PUBMED-');
+      })
     : [];
   const selectedEvidence = resolveEvidenceSelectionForRequest(
     [...retrieveMockEvidence(input.diagnosis), ...physicianUploadedEvidence],

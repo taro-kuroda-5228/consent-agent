@@ -351,7 +351,7 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
   const riskHints: string[] = [];
   if (/cardiopulmonary bypass|\bCPB\b/i.test(sourceText)) riskHints.push("CPB時間");
   if (/operative time|手術時間/i.test(sourceText)) riskHints.push("手術時間");
-  if (/advanced age|elderly|高齢/i.test(sourceText)) riskHints.push("高齢");
+  if (/advanced age|elderly|\bage\b|年齢|高齢/i.test(sourceText)) riskHints.push("高齢");
   if (/transfusion|pRBC|輸血/i.test(sourceText)) riskHints.push("輸血");
   if (/body mass index|BMI/i.test(sourceText)) riskHints.push("BMI高値");
   if (/preoperative kidney injury|術前腎障害/i.test(sourceText)) riskHints.push("術前腎障害");
@@ -443,9 +443,14 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
       return compact.length <= 130 ? `要点: ${compact}。` : `要点: ${compact.slice(0, 126).trim()}…`;
     }
   }
-  const incidence = akiPercent?.[1] || akiPercent?.[2] || dialysisPercent?.[1] || dialysisPercent?.[2];
+  const akiIncidencePercent =
+    akiPercent?.[1] ||
+    akiPercent?.[2] ||
+    sourceText.match(/incidence of (?:postoperative\s+)?AKI[^.]{0,120}?(\d+(?:\.\d+)?%)/i)?.[1] ||
+    sourceText.match(/(\d+(?:\.\d+)?%)[^.]{0,120}?(?:postoperative\s+)?AKI/i)?.[1];
+  const incidence = akiIncidencePercent || dialysisPercent?.[1] || dialysisPercent?.[2];
   if (asksRenal && incidence) {
-    const outcome = akiPercent ? "術後AKI" : "術後透析";
+    const outcome = akiIncidencePercent ? "術後AKI" : "術後透析";
     const tail = [
       `${outcome} ${incidence}`,
       riskHints.length ? `主なリスク: ${riskHints.slice(0, 4).join("・")}` : "",

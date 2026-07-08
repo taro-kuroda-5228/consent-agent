@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import {
+  buildCitationVerificationForSupportingSpans,
   retrieveMockEvidence,
   resolveEvidenceSelectionForRequest,
   synthesizeEvidenceBoundQA,
@@ -334,7 +335,7 @@ function expandQuestionTargets(question: string): string[] {
   if (/\b(?:tar)\b|total\s*arch|トータルアーチ|全弓部/.test(normalized)) add(["TAR", "total arch", "total-arch", "total arch replacement", "全弓部", "全弓部置換", "トータルアーチ"]);
   if (/死亡|mortality|death/.test(normalized)) add(["死亡", "死亡率", "mortality", "death"]);
   if (/脳梗塞|脳卒中|stroke/.test(normalized)) add(["脳梗塞", "脳卒中", "stroke"]);
-  if (/腎|腎不全|急性腎障害|透析|renal|kidney|aki|dialysis/.test(normalized)) add(["腎", "腎不全", "急性腎障害", "透析", "renal", "renal failure", "kidney", "AKI", "dialysis"]);
+  if (/腎|腎不全|急性腎障害|透析|renal|kidney|aki|dialysis/.test(normalized)) add(["腎", "腎不全", "急性腎障害", "透析", "renal", "renal failure", "kidney", "kidney injury", "acute kidney injury", "postoperative AKI", "AKI", "dialysis", "renal replacement", "incidence", "risk factors"]);
   if (/せん妄|ぼーっと|混乱|delirium|confusion/.test(normalized)) add(["せん妄", "ぼーっと", "delirium", "confusion"]);
 
   return Array.from(targets).filter((term) => term.length >= 2).slice(0, 24);
@@ -343,7 +344,7 @@ function expandQuestionTargets(question: string): string[] {
 function inferQueryIntent(question: string): "direct-answer" | "comparative" | "general" {
   const normalized = question.toLowerCase();
   if (/差|違い|比較|どちら|vs|versus|compared|than/.test(normalized)) return "comparative";
-  if (/何%|何％|どれくらい|どのくらい|死亡率|発生率|率|mortality|incidence|rate/.test(normalized)) return "direct-answer";
+  if (/何%|何％|どれくらい|どのくらい|死亡率|発生率|率|リスク|可能性|起こ|なり|なる|必要|心配|危険|因子|mortality|incidence|rate|risk|probability|frequency|dialysis|aki|renal/.test(normalized)) return "direct-answer";
   return "general";
 }
 
@@ -371,7 +372,7 @@ function buildSourceBoundedSearchPlan(question: string, selectedEvidence: Eviden
       const normalizedText = text.toLowerCase();
       const termHits = targetTerms.filter((term) => normalizedText.includes(term.toLowerCase())).length;
       const comparisonBoost = intent === "comparative" && /差|違い|比較|高|低|良好|不良|higher|lower|better|worse|than|compared/i.test(text) ? 20 : 0;
-      const directAnswerBoost = intent === "direct-answer" && /\d+(?:\.\d+)?\s*[％%]|mortality|死亡率|発生率|incidence|rate/i.test(text) ? 16 : 0;
+      const directAnswerBoost = intent === "direct-answer" && /\d+(?:\.\d+)?\s*[％%]|mortality|死亡率|発生率|incidence|rate|risk factors?|acute kidney injury|\bAKI\b|dialysis|renal replacement/i.test(text) ? 16 : 0;
       const sourceBoost = priority === "facility-or-physician-upload-first" ? 6 : 0;
       const score = termHits * 8 + comparisonBoost + directAnswerBoost + sourceBoost - evidenceIndex * 0.01 - spanIndex * 0.001;
       return {
@@ -442,6 +443,9 @@ export async function extractSupportingSpansWithGemini(
 - ただし、発生率・割合など家族の理解に役立つ数字は、supportingSpans に存在する場合だけ、過度に断定せず自然な説明文として表現する。
 - familyAnswer の本文には「この資料では」「選択された資料では」「根拠論文」「引用箇所」のような根拠提示ラベルを書かない。根拠の原文は supportingSpans に残す。
 - familyAnswer に、supportingSpans に存在しない数値・割合・OR/RR・信頼区間・比較結果を追加してはいけない。
+- familyAnswer に、supportingSpans に根拠のない安心・保証表現（「心配ありません」「ご安心ください」「安全です」「ほとんどの方は回復します」など）を書かない。
+- 「リスクは低い/まれ/高い」のような程度の断定は、スパンにその数値・比較・記載がある場合だけ使う。言い換えは「やさしい言葉に直す」ことに限定し、スパンにない情報・推測・励ましを追加しない。
+- 文末は「〜と報告されています」「〜とされています」を基本とし、AIの断定にしない。
 - 根拠が英語でも、familyAnswer は患者・家族が読める自然な日本語にする。
 - 直接答える記載がない場合は answerable=false にする。
 - 施設資料または医師アップロード資料が直接答えられる場合は、それを最優先する。
@@ -517,9 +521,15 @@ export async function generateQA(
   const resolvedContext = { ...context, selectedEvidence };
   const searchPlan = buildSourceBoundedSearchPlan(question, selectedEvidence);
   const deterministicResult = synthesizeEvidenceBoundQA(question, resolvedContext);
+  const finalizeDeterministicResult = (result: typeof deterministicResult) => ({
+    ...result,
+    extractionMode: "deterministic-source-bounded" as const,
+    citationVerification: result.citationVerification
+      ?? buildCitationVerificationForSupportingSpans(result.supportingSpans, selectedEvidence),
+  });
 
   if (!shouldUseLiveGemini() && spanExtractor === extractSupportingSpansWithGemini) {
-    return { ...deterministicResult, extractionMode: "deterministic-source-bounded" };
+    return finalizeDeterministicResult(deterministicResult);
   }
 
   const directFamilyQuestionPattern =
@@ -529,7 +539,7 @@ export async function generateQA(
     deterministicResult.safetyLabel !== "doctor-review" &&
     directFamilyQuestionPattern.test(question);
   if (shouldTrustDeterministicSelectedSourceAnswer) {
-    return { ...deterministicResult, extractionMode: "deterministic-source-bounded" };
+    return finalizeDeterministicResult(deterministicResult);
   }
 
   try {
@@ -542,7 +552,7 @@ export async function generateQA(
     console.warn("Source-bounded extraction failed; falling back to deterministic selected-source retrieval", error);
   }
 
-  return { ...synthesizeEvidenceBoundQA(question, resolvedContext), extractionMode: "deterministic-source-bounded" };
+  return finalizeDeterministicResult(synthesizeEvidenceBoundQA(question, resolvedContext));
 }
 
 export type ConcernsAssessment = {
