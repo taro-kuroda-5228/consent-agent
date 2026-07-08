@@ -533,12 +533,17 @@ export async function generateQA(
   }
 
   const directFamilyQuestionPattern =
-    /リスク|危険|可能性|どれくらい|どのくらい|頻度|発生|発生率|確率|割合|何%|何％|%|％|risk|probability|frequency|incidence|rate|occur|手術しない|しない場合|しなければ|受けない|without surgery|untreated/i;
+    /リスク|危険|可能性|必要|なり|なる|悪く|悪化|心配|大丈夫|問題|因子|原因|防ぐ|予防|教えて|どれくらい|どのくらい|頻度|発生|発生率|確率|割合|何%|何％|%|％|risk|probability|frequency|incidence|rate|occur|need|required|predictor|factor|prevent|手術しない|しない場合|しなければ|受けない|without surgery|untreated/i;
   const shouldTrustDeterministicSelectedSourceAnswer =
     (deterministicResult.evidenceReferences?.length ?? 0) > 0 &&
     deterministicResult.safetyLabel !== "doctor-review" &&
     directFamilyQuestionPattern.test(question);
-  if (shouldTrustDeterministicSelectedSourceAnswer) {
+  const shouldTrustDeterministicNoDirectRenalAnswer =
+    (deterministicResult.evidenceReferences?.length ?? 0) === 0 &&
+    deterministicResult.requiresDoctorReview === true &&
+    /透析|腎|腎不全|急性腎障害|aki|renal|kidney|dialysis/i.test(question) &&
+    directFamilyQuestionPattern.test(question);
+  if (shouldTrustDeterministicSelectedSourceAnswer || shouldTrustDeterministicNoDirectRenalAnswer) {
     return finalizeDeterministicResult(deterministicResult);
   }
 
