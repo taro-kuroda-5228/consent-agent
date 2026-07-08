@@ -266,6 +266,34 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("frames raw English selected-source risk spans in Japanese instead of exposing them as the full answer", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Synthetic selected operative outcomes note",
+      fileName: "stroke-risk-smoke.txt",
+      extractedText:
+        "In this selected operative outcomes note, postoperative stroke was reported in 5% (95% CI 3-7%) of cases after emergency aortic surgery.",
+      clinicianSummary: "手術後の脳卒中リスクについて説明するための医師選択済み根拠です。",
+      keyFindings: ["Postoperative stroke was reported in 5% (95% CI 3-7%) of cases."],
+      outcomeTags: ["stroke", "postoperative-stroke"],
+    });
+
+    const result = synthesizeEvidenceBoundQA("脳梗塞のリスクは？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急大動脈手術",
+      risks: ["脳梗塞"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).toContain("医師が選んだ資料には");
+    expect(result.answer).toContain("という記載があります");
+    expect(result.answer).toContain("やさしい言葉での補足は担当医が行います");
+    expect(result.answer).toContain("5% (95%信頼区間3-7%)");
+    expect(result.answer).not.toMatch(/^Postoperative stroke was reported/);
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+    expect(result.supportingSpans).toEqual([{ evidenceId: uploaded.evidenceId, text: "Postoperative stroke was reported in 5% (95% CI 3-7%) of cases." }]);
+  });
+
   it("answers paraplegia risk questions with the selected spinal cord injury percentage source instead of a generic risk summary", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
     const result = synthesizeEvidenceBoundQA("対麻痺のリスクは？", {
