@@ -53,6 +53,21 @@ describe("source URL full-text cache for per-question QA extraction", () => {
     expect(result.extractedText).not.toMatch(/References 1 2 3/);
   });
 
+  it("keeps the initial guideline upload card from using author-list/reference noise as findings", async () => {
+    const text = [
+      "-- 1 of 220 -- 2020年改訂版 大動脈瘤・大動脈解離診療ガイドライン 目次 第1章 総論 第2章 外科治療",
+      "-- 90 of 220 -- 急性A型大動脈解離では、上行大動脈を含む解離であり、破裂、心タンポナーデ、臓器虚血をきたすことがある。救命目的で緊急手術を含む迅速な治療方針決定を行う。術後合併症として腎不全、出血、脳梗塞、脊髄障害を説明する。",
+      "-- 210 of 220 -- 1 大木 隆生 大木 隆生 加地 修一郎 加地 修一郎 植田 初江 植田 初江 江下 宏一 江下 宏一 斎木 佳克 斎木 佳克 文献 References",
+    ].join("\n");
+    fetchMock.mockResolvedValue(new Response(text, { headers: { "content-type": "text/plain" } }));
+
+    const result = await extractSourceUrlText(sourceUrl, "");
+
+    expect(result.extractedText).toContain("緊急手術");
+    expect(result.extractedText).toContain("腎不全");
+    expect(result.extractedText).not.toMatch(/大木 隆生.*加地 修一郎|References/);
+  });
+
   it("reuses repository-stored source chunks after instance cache is cleared", async () => {
     const repo = new InMemoryConsentSessionRepository();
     await extractSourceUrlText(sourceUrl, "脳梗塞のリスクはありますか？", repo);
