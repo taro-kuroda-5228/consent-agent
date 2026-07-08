@@ -1411,7 +1411,9 @@ function summarizeStrokeRiskFromEvidence(question: string, evidence: EvidenceCar
 
     if (strokeNumericSpan) {
       const readableSpan = cleanFamilyAnswerSpan(strokeNumericSpan).replace(/^術後脳卒中/, "術後脳卒中は");
-      const answer = `${readableSpan}と記載されています。`;
+      const answer = isMostlyNonJapaneseText(readableSpan)
+        ? answerFromSupportingSpans([{ text: strokeNumericSpan }])
+        : `${readableSpan}と記載されています。`;
       return { answer: answer.length <= 180 ? answer : `${answer.slice(0, 177)}...`, source: numericStroke.item };
     }
   }
@@ -1427,7 +1429,9 @@ function summarizeStrokeRiskFromEvidence(question: string, evidence: EvidenceCar
 
   if (!descriptiveSource || !descriptiveSpan) return undefined;
 
-  const answer = cleanFamilyAnswerSpan(descriptiveSpan);
+  const answer = isMostlyNonJapaneseText(cleanFamilyAnswerSpan(descriptiveSpan))
+    ? answerFromSupportingSpans([{ text: descriptiveSpan }])
+    : cleanFamilyAnswerSpan(descriptiveSpan);
   return { answer: answer.length <= 180 ? answer : `${answer.slice(0, 177)}...`, source: descriptiveSource };
 }
 
@@ -1609,7 +1613,9 @@ function summarizeGenericSourceBoundedRiskFromEvidence(question: string, evidenc
   const readable = joined
     .replace(/odds ratio,?\s*/gi, "OR ")
     .replace(/95\s*%\s*CI/gi, "95%信頼区間");
-  const answer = `${readable}${readable.endsWith("。") ? "" : "。"}`;
+  const answer = isMostlyNonJapaneseText(readable)
+    ? answerFromSupportingSpans(candidateSpans.map((candidate) => ({ text: candidate.span })))
+    : `${readable}${readable.endsWith("。") ? "" : "。"}`;
   const citationSpan = candidateSpans.map((candidate) => candidate.span).join(" ");
   return {
     answer,
