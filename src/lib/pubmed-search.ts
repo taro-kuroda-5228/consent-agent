@@ -329,6 +329,15 @@ function findAnswerBearingSentence(text: string, topics: OutcomeTopic[]): string
   });
 }
 
+function inferJapaneseStudyContext(article: PubMedArticle): string {
+  const text = `${article.title} ${article.abstractText}`;
+  const typeA = /Stanford type A|acute type A|type A aortic dissection|ATAAD|TAAAD/i.test(text);
+  const postoperative = /postoperative|after[^.]{0,80}(?:surgery|repair)|surg(?:ery|ical)/i.test(text);
+  const disease = typeA ? "A型大動脈解離" : /aortic dissection/i.test(text) ? "大動脈解離" : "対象疾患";
+  const timing = postoperative ? "術後" : "";
+  return `${disease}${timing}`;
+}
+
 function summarizeGenericOutcome(article: PubMedArticle, keyFindings: string[], context: { outcomeTags: string[] }): string | undefined {
   const topics = outcomeTopicsForTags(context.outcomeTags);
   if (topics.length === 0) return undefined;
@@ -338,6 +347,22 @@ function summarizeGenericOutcome(article: PubMedArticle, keyFindings: string[], 
   if (!sentence) return undefined;
   const label = topics[0]?.explainJa.replace(/リスク|・.*$/g, "") || "該当アウトカム";
   const compact = compactFindingForMobile(sentence).replace(/\.$/, "");
+  const mostlyEnglish = /^[\x00-\x7F\s.,;:()/%+\-–]+$/.test(compact);
+  if (mostlyEnglish) {
+    if (topics.some((topic) => topic.tags.includes("renal-failure") || topic.tags.includes("dialysis"))) {
+      const hasRenalReplacement = /renal replacement therapy|dialysis/i.test(compact);
+      const hasPoorPrognosis = /poor|risk factor|outcomes?|prognosis|mortality|short-|mid-|long-term/i.test(compact);
+      if (hasRenalReplacement && hasPoorPrognosis) {
+        return `${inferJapaneseStudyContext(article)}急性腎不全に関する研究。腎代替療法は短期・中長期予後不良の追加リスクで、腎機能評価の根拠候補。`;
+      }
+      if (/acute renal failure|\bARF\b|acute kidney injury|\bAKI\b/i.test(compact)) {
+        return `${inferJapaneseStudyContext(article)}急性腎不全/AKIに関するPubMed候補。発症頻度・予測因子・予後への影響をabstractで確認。`;
+      }
+    }
+    const percent = compact.match(/\d+(?:\.\d+)?%/)?.[0];
+    if (percent) return `${label}に関するPubMed候補。主要所見に${percent}を含むため、頻度/予測能の確認対象。`;
+    return `${label}に関するPubMed候補。主要所見を医師が確認。`;
+  }
   return `${label}: ${compact.length <= 120 ? compact : `${compact.slice(0, 116).trim()}…`}。`;
 }
 
@@ -461,10 +486,14 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
     ].filter(Boolean).join("。 ");
     return `${tail}。`;
   }
+  if (asksRenal && /renal replacement therapy|dialysis/i.test(sourceText) && /short-|mid-|long-term|poor[^.]{0,60}prognosis|outcomes?|mortality/i.test(sourceText)) {
+    return `${inferJapaneseStudyContext(article)}急性腎不全に関する研究。腎代替療法は短期・中長期予後不良の追加リスクで、術前からの腎障害が術後腎機能を悪化させ得る。`;
+  }
   const arfModel = sourceText.match(/(?:nomogram model|risk calculator|predictive model)[^.]{0,120}?(?:acute renal failure|\bARF\b)[^.]{0,180}?sensitivity of (\d+(?:\.\d+)?%)[^.]{0,80}?specificity of (\d+(?:\.\d+)?%)/i)
     || sourceText.match(/(?:acute renal failure|\bARF\b)[^.]{0,180}?(?:nomogram model|risk calculator|predictive model)[^.]{0,180}?sensitivity of (\d+(?:\.\d+)?%)[^.]{0,80}?specificity of (\d+(?:\.\d+)?%)/i);
   if (asksRenal && arfModel) {
-    return `術後ARF予測モデル研究。感度${arfModel[1]}、特異度${arfModel[2]}。医師が透析/腎不全リスク説明に使えるか要確認。`;
+    const validation = sourceText.match(/External data validation[^.]{0,120}?sensitivity of (\d+(?:\.\d+)?%)[^.]{0,80}?specificity of (\d+(?:\.\d+)?%)/i);
+    return `${inferJapaneseStudyContext(article)}ARF予測モデル。感度${arfModel[1]}、特異度${arfModel[2]}${validation ? `（外部検証${validation[1]}/${validation[2]}）` : ""}。術後腎不全リスク層別化の根拠候補。`;
   }
 
   const genericSummary = summarizeGenericOutcome(article, keyFindings, context);
