@@ -15,6 +15,8 @@ class FakeSupabaseClient {
     understanding_evaluations: [],
     physician_reviews: [],
     audit_events: [],
+    source_documents: [],
+    source_document_chunks: [],
   };
 
   from(table: string) {
@@ -114,6 +116,7 @@ class FakeQuery {
 
   private findConflict(row: Row) {
     if (this.table === 'evidence_sources') return this.client.tables[this.table].find((item) => item.institution_id === row.institution_id && item.pmid === row.pmid);
+    if (this.table === 'source_documents') return this.client.tables[this.table].find((item) => item.institution_id === row.institution_id && item.source_url === row.source_url);
     if (this.table === 'consent_cases') return this.client.tables[this.table].find((item) => item.institution_id === row.institution_id && item.case_handle === row.case_handle);
     return row.id ? this.client.tables[this.table].find((item) => item.id === row.id) : undefined;
   }
@@ -148,5 +151,35 @@ describe('SupabaseConsentSessionRepository', () => {
     const second = await repo.createSession({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術', modelMode: 'mock' });
     expect(second.id).not.toBe(session.id);
     expect(client.tables.consent_sessions).toHaveLength(2);
+  });
+
+  it('persists source URL/PDF chunks so repeated QA can avoid refetching and rechunking', async () => {
+    const client = new FakeSupabaseClient();
+    const repo = new SupabaseConsentSessionRepository(client as never);
+    const sourceUrl = 'https://example.org/jcs-guideline.pdf';
+
+    await repo.saveSourceDocumentCache({
+      sourceUrl,
+      fileName: 'jcs-guideline.pdf',
+      fileSize: 12345,
+      contentType: 'application/pdf',
+      fullTextSha256: 'hash-for-non-phi-guideline',
+      chunks: [
+        { chunkId: 'chunk-1', chunkIndex: 0, page: 42, sectionHeading: '合併症', text: '術後の腎不全や透析について説明するチャンク。' },
+        { chunkId: 'chunk-2', chunkIndex: 1, page: 43, text: '脳梗塞や出血について説明するチャンク。' },
+      ],
+    });
+
+    const cached = await repo.getSourceDocumentCache(sourceUrl);
+    expect(client.tables.source_documents).toHaveLength(1);
+    expect(client.tables.source_document_chunks).toHaveLength(2);
+    expect(cached).toMatchObject({
+      sourceUrl,
+      fileName: 'jcs-guideline.pdf',
+      chunks: [
+        expect.objectContaining({ page: 42, sectionHeading: '合併症', text: expect.stringContaining('透析') }),
+        expect.objectContaining({ page: 43, text: expect.stringContaining('脳梗塞') }),
+      ],
+    });
   });
 });

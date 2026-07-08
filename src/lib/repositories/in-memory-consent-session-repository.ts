@@ -15,11 +15,14 @@ import {
   type PhysicianReviewRecord,
   type SavePhysicianReviewInput,
   type SaveSelectedEvidenceInput,
+  type SaveSourceDocumentCacheInput,
   type SaveUnderstandingEvaluationInput,
+  type SourceDocumentCacheRecord,
 } from './consent-session-repository';
 
 const sessions = new Map<string, ConsentSessionRecord>();
 const audits = new Map<string, AuditEventRecord[]>();
+const sourceDocuments = new Map<string, SourceDocumentCacheRecord>();
 
 function sanitizeEvidence(evidence: EvidenceCard): EvidenceCard {
   return {
@@ -34,6 +37,7 @@ function sanitizeEvidence(evidence: EvidenceCard): EvidenceCard {
 export function resetInMemoryConsentSessionRepository() {
   sessions.clear();
   audits.clear();
+  sourceDocuments.clear();
 }
 
 export class InMemoryConsentSessionRepository implements ConsentSessionRepository {
@@ -107,6 +111,15 @@ export class InMemoryConsentSessionRepository implements ConsentSessionRepositor
 
   async getSelectedEvidence(sessionId: string): Promise<EvidenceCard[]> {
     return requireSession(sessionId).selectedEvidence;
+  }
+
+  async getSourceDocumentCache(sourceUrl: string): Promise<SourceDocumentCacheRecord | null> {
+    const cached = sourceDocuments.get(sourceUrl);
+    return cached ? { ...cached, chunks: cached.chunks.map((chunk) => ({ ...chunk })) } : null;
+  }
+
+  async saveSourceDocumentCache(input: SaveSourceDocumentCacheInput): Promise<void> {
+    sourceDocuments.set(input.sourceUrl, { ...input, chunks: input.chunks.map((chunk) => ({ ...chunk })), updatedAt: new Date().toISOString() });
   }
 }
 

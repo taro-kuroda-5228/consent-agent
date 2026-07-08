@@ -69,7 +69,7 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
   if (nonEvidenceResult) {
     result = nonEvidenceResult;
   } else {
-    selectedEvidence = await refreshPhysicianSourceEvidenceSetForQuestion(selectedEvidence, input.question);
+    selectedEvidence = await refreshPhysicianSourceEvidenceSetForQuestion(selectedEvidence, input.question, repository);
     result = await generateQA(input.question, {
       diagnosis: input.diagnosis || '',
       plannedSurgery: input.plannedSurgery || '',
