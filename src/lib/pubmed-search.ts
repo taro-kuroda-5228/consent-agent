@@ -311,6 +311,17 @@ function compactFindingForMobile(sentence: string): string {
   return `${normalized.slice(0, 176).trim()}…`;
 }
 
+function prioritizeKeyFindingsForQuery(keyFindings: string[], article: PubMedArticle, context: { originalQuery: string; outcomeTags: string[] }): string[] {
+  const asksDialysis = /透析|dialysis/i.test(context.originalQuery) || context.outcomeTags.includes("dialysis");
+  if (!asksDialysis) return keyFindings;
+
+  const dialysisSentences = splitClinicalSentences(article.abstractText)
+    .filter((sentence) => /dialysis|renal replacement/i.test(sentence))
+    .map(compactFindingForMobile)
+    .filter(Boolean);
+  return Array.from(new Set([...dialysisSentences, ...keyFindings])).slice(0, 3);
+}
+
 function splitClinicalSentences(text: string): string[] {
   return text
     .replace(/\s+/g, " ")
@@ -530,7 +541,10 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     const hasAorticDissection = /aortic dissection|type a aortic dissection|ataad/.test(combined);
     if (!hasAorticDissection) return Number.NEGATIVE_INFINITY;
     const explicitlyAsksTypeB = /type\s*b|stanford\s*b|b型/i.test(context.originalQuery);
-    const consentDefaultTypeAContext = !explicitlyAsksTypeB && /type\s*b|stanford\s*b|b型/.test(combined) && !/type\s*a|stanford\s*a|\bataad\b|acute type a/.test(combined);
+    const hasAcuteTypeAContext = /type\s*a|stanford\s*a|\bataad\b|acute type a/.test(combined);
+    const titleHasDissection = /aortic dissection/.test(title);
+    if (!explicitlyAsksTypeB && !hasAcuteTypeAContext && !titleHasDissection) return Number.NEGATIVE_INFINITY;
+    const consentDefaultTypeAContext = !explicitlyAsksTypeB && /type\s*b|stanford\s*b|b型/.test(combined) && !hasAcuteTypeAContext;
     if (consentDefaultTypeAContext) return Number.NEGATIVE_INFINITY;
     score += /aortic dissection|type a aortic dissection|ataad/.test(title) ? 8 : 3;
     if (/type\s*a|stanford\s*a|\bataad\b|acute type a/.test(title)) score += 3;
@@ -564,7 +578,7 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     const hasDirectDialysis = /dialysis|renal replacement/.test(combined);
     score += /dialysis|renal replacement|acute kidney injury|acute renal failure|renal failure|kidney injury/.test(title) ? 10 : 4;
     if (asksDialysis && hasDirectDialysis) score += 6;
-    if (asksDialysis && !hasDirectDialysis) score -= 4;
+    if (asksDialysis && !hasDirectDialysis) return Number.NEGATIVE_INFINITY;
   }
   if (asksMesenteric) {
     const titleFocusesOtherBed = /lower limb|leg |renal|kidney|cerebral|brain|stroke|coronary|myocardial/.test(title)
@@ -678,7 +692,7 @@ export function convertPubMedArticlesToEvidenceCards(
     .filter((item) => Number.isFinite(item.score))
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map(({ article }) => {
-    const keyFindings = extractKeyFindings(article.abstractText);
+    const keyFindings = prioritizeKeyFindingsForQuery(extractKeyFindings(article.abstractText), article, context);
     const firstAuthor = article.authors[0] ? `${article.authors[0].split(" ")[0]} et al.` : "PubMed";
     const citation = `${firstAuthor} ${article.journal || "PubMed"}. ${article.year || "n.d."}. PMID: ${article.pmid}`;
     const clinicianSummary = summarizeForDoctor(article, keyFindings, context);

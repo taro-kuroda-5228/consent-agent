@@ -348,8 +348,8 @@ describe("PubMed natural-language evidence search", () => {
   it("strips encoded HTML tags from PubMed abstract snippets", () => {
     const xml = `<PubmedArticleSet><PubmedArticle><MedlineCitation><PMID>9</PMID><Article><ArticleTitle>Acute kidney injury after acute type A aortic dissection</ArticleTitle><Journal><Title>Renal failure</Title><JournalIssue><PubDate><Year>2022</Year></PubDate></JournalIssue></Journal><Abstract><AbstractText>&lt;b&gt;Background:&lt;/b&gt; Acute kidney injury occurred after acute type A aortic dissection repair.</AbstractText></Abstract></Article></MedlineCitation></PubmedArticle></PubmedArticleSet>`;
     const cards = convertPubMedArticlesToEvidenceCards(parsePubMedEFetchXml(xml), {
-      originalQuery: "大動脈解離の透析リスクについて言及している論文",
-      outcomeTags: ["renal-failure", "dialysis"],
+      originalQuery: "大動脈解離の腎不全リスクについて言及している論文",
+      outcomeTags: ["renal-failure"],
     });
 
     expect(cards[0].clinicianSummary).toContain("術後急性腎不全/AKI");
@@ -367,7 +367,7 @@ describe("PubMed natural-language evidence search", () => {
         year: "2022",
         authors: ["Wang X"],
       },
-    ], { originalQuery: "大動脈解離の透析リスクについて", outcomeTags: ["renal-failure", "dialysis"] });
+    ], { originalQuery: "大動脈解離の腎不全リスクについて", outcomeTags: ["renal-failure"] });
 
     const card = cards[0];
     expect(card.clinicianSummary).toBeDefined();
@@ -390,7 +390,7 @@ describe("PubMed natural-language evidence search", () => {
         year: "2026",
         authors: ["Yang H"],
       },
-    ], { originalQuery: "大動脈解離の透析リスクについて", outcomeTags: ["renal-failure", "dialysis"] });
+    ], { originalQuery: "大動脈解離の腎不全リスクについて", outcomeTags: ["renal-failure"] });
 
     const card = cards[0];
     expect(card.evidenceId).toBe("PUBMED-42375845");
@@ -413,7 +413,7 @@ describe("PubMed natural-language evidence search", () => {
         year: "2026",
         authors: [],
       },
-    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文をできるだけ詳しく探して、医師が説明に使えるものだけを表示してほしい", outcomeTags: ["renal-failure", "dialysis"] });
+    ], { originalQuery: "大動脈解離の腎不全リスクについて言及している論文をできるだけ詳しく探して、医師が説明に使えるものだけを表示してほしい", outcomeTags: ["renal-failure"] });
 
     expect(cards[0].clinicianSummary).toBe("PubMed候補。abstractを医師が確認してください。");
     expect(cards[0].clinicianSummary?.length).toBeLessThanOrEqual(60);
@@ -529,10 +529,53 @@ describe("PubMed natural-language evidence search", () => {
       },
     ], { originalQuery: "大動脈解離の透析リスクについて言及している", outcomeTags: ["renal-failure", "dialysis"] });
 
-    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-strong", "PUBMED-37212922"]);
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-strong"]);
     expect(cards.map((card) => card.evidenceId)).not.toContain("PUBMED-33784934");
-    expect(cards[1].clinicianSummary).toContain("ARF");
-    expect(cards[1].keyFindings?.join(" ")).not.toMatch(/literature search was performed|This study aimed/i);
+    expect(cards.map((card) => card.evidenceId)).not.toContain("PUBMED-37212922");
+    expect(cards[0].clinicianSummary).toContain("8.2%");
+    expect(cards[0].keyFindings?.join(" ")).not.toMatch(/literature search was performed|This study aimed/i);
+  });
+
+  it("requires a direct dialysis or renal-replacement span when the query asks for dialysis", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "35578281",
+        title: "Acute renal failure after acute type A aortic dissection repair. Insidious postoperative complication with poor short- and long-term prognosis.",
+        abstractText: "Many systems and organs are affected by malperfusion which presents preoperatively and postoperatively. Postoperative acute renal failure after ATAAD constitutes a severe and insidious complication. Renal replacement therapy represents an additional risk factor for short-, mid-, and long-term outcomes after ATAAD.",
+        journal: "Journal of cardiac surgery",
+        year: "2022",
+        authors: ["Samanidis G"],
+      },
+      {
+        pmid: "35687063",
+        title: "Sex differences in acute type A aortic dissection: a systematic review and meta-analysis.",
+        abstractText: "There was no difference between sexes in rates of postoperative stroke, atrial fibrillation, reoperation, acute kidney injury, renal failure, and respiratory failure.",
+        journal: "Aorta",
+        year: "2022",
+        authors: [],
+      },
+      {
+        pmid: "40569847",
+        title: "Outcome after day- and nighttime surgery for acute type A aortic dissection.",
+        abstractText: "No significant differences were found in the rates of myocardial infarction, renal failure or neurological outcome other than global brain ischaemia. Significantly higher 1-year mortality was demonstrated in the daytime group.",
+        journal: "European journal of cardio-thoracic surgery",
+        year: "2025",
+        authors: [],
+      },
+      {
+        pmid: "36013300",
+        title: "Postoperative Intensive Care Management of Aortic Repair.",
+        abstractText: "Vascular surgery patients have multiple comorbidities and are at high risk for perioperative complications. Aortic repair includes aneurysm and occasional dissection cases. EVAR has lower rates of postoperative renal failure compared to open repair, with approximately one-third of the risk of hemodialysis.",
+        journal: "Anesthesiology clinics",
+        year: "2022",
+        authors: [],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文", outcomeTags: ["renal-failure", "dialysis"] });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-35578281"]);
+    expect(cards[0].keyFindings?.[0]).toContain("Renal replacement therapy");
+    expect(cards[0].clinicianSummary).toContain("腎代替療法");
+    expect(cards[0].clinicianSummary).not.toMatch(/^透析:/);
   });
 
   it("synthesizes Japanese clinician summaries for renal PubMed cards instead of pasting truncated abstract fragments", () => {
@@ -553,15 +596,15 @@ describe("PubMed natural-language evidence search", () => {
         year: "2023",
         authors: ["Zhang J"],
       },
-    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文", outcomeTags: ["renal-failure", "dialysis"] });
+    ], { originalQuery: "大動脈解離の腎不全リスクについて言及している論文", outcomeTags: ["renal-failure"] });
 
-    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-35578281", "PUBMED-37212922"]);
-    expect(cards[0].clinicianSummary).toContain("術後急性腎不全");
-    expect(cards[0].clinicianSummary).toContain("腎代替療法");
-    expect(cards[0].clinicianSummary).toContain("予後不良");
-    expect(cards[1].clinicianSummary).toContain("術後ARF予測モデル");
-    expect(cards[1].clinicianSummary).toContain("感度81.3%");
-    expect(cards[1].clinicianSummary).toContain("特異度78.6%");
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-37212922", "PUBMED-35578281"]);
+    expect(cards[0].clinicianSummary).toContain("術後ARF予測モデル");
+    expect(cards[0].clinicianSummary).toContain("感度81.3%");
+    expect(cards[0].clinicianSummary).toContain("特異度78.6%");
+    expect(cards[1].clinicianSummary).toContain("術後急性腎不全");
+    expect(cards[1].clinicianSummary).toContain("腎代替療法");
+    expect(cards[1].clinicianSummary).toContain("予後不良");
     for (const card of cards) {
       const summary = card.clinicianSummary ?? "";
       expect(summary).not.toMatch(/Renal replacement therapy represents|This study aimed|All enrolled patients|\.\.\.|…/i);
