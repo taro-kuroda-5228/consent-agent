@@ -69,6 +69,26 @@ export type SaveUnderstandingEvaluationInput = { sessionId: string; evaluation: 
 export type SavePhysicianReviewInput = { sessionId: string; reviewStatus: PhysicianReviewRecord['reviewStatus']; physicianNotes?: string; notSignedConsentNotice: string };
 export type AppendAuditEventInput = { sessionId?: string; institutionId?: string; action: string; resourceType: string; resourceId?: string; metadata?: Record<string, unknown> };
 
+export type SourceDocumentChunkRecord = {
+  chunkId: string;
+  chunkIndex: number;
+  text: string;
+  page?: number;
+  sectionHeading?: string;
+};
+
+export type SourceDocumentCacheRecord = {
+  sourceUrl: string;
+  fileName: string;
+  fileSize: number;
+  contentType: string;
+  fullTextSha256: string;
+  chunks: SourceDocumentChunkRecord[];
+  updatedAt?: string;
+};
+
+export type SaveSourceDocumentCacheInput = Omit<SourceDocumentCacheRecord, 'updatedAt'>;
+
 export interface ConsentSessionRepository {
   createSession(input: CreateConsentSessionInput): Promise<ConsentSessionRecord>;
   saveSelectedEvidence(input: SaveSelectedEvidenceInput): Promise<void>;
@@ -78,6 +98,8 @@ export interface ConsentSessionRepository {
   savePhysicianReview(input: SavePhysicianReviewInput): Promise<PhysicianReviewRecord>;
   getSessionSummary(sessionId: string): Promise<ConsentSessionSummary | null>;
   getSelectedEvidence(sessionId: string): Promise<EvidenceCard[]>;
+  getSourceDocumentCache?(sourceUrl: string): Promise<SourceDocumentCacheRecord | null>;
+  saveSourceDocumentCache?(input: SaveSourceDocumentCacheInput): Promise<void>;
 }
 
 export const DEMO_INSTITUTION_ID = '00000000-0000-0000-0000-000000000001';

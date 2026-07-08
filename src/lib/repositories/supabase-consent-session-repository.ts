@@ -19,7 +19,9 @@ import {
   type PhysicianReviewRecord,
   type SavePhysicianReviewInput,
   type SaveSelectedEvidenceInput,
+  type SaveSourceDocumentCacheInput,
   type SaveUnderstandingEvaluationInput,
+  type SourceDocumentCacheRecord,
 } from './consent-session-repository';
 
 type SupabaseRow = Record<string, unknown>;
@@ -200,6 +202,52 @@ export class SupabaseConsentSessionRepository implements ConsentSessionRepositor
       if (source) evidence.push(toEvidenceCard(source));
     }
     return evidence;
+  }
+
+  async getSourceDocumentCache(sourceUrl: string): Promise<SourceDocumentCacheRecord | null> {
+    const doc = await this.queryOne(this.supabase.from('source_documents').select('*').eq('institution_id', DEMO_INSTITUTION_ID).eq('source_url', sourceUrl));
+    if (!doc?.id) return null;
+    const chunks = await this.queryRows(this.supabase.from('source_document_chunks').select('*').eq('source_document_id', doc.id).order('chunk_index', { ascending: true }));
+    return {
+      sourceUrl: String(doc.source_url),
+      fileName: String(doc.file_name ?? ''),
+      fileSize: Number(doc.file_size ?? 0),
+      contentType: String(doc.content_type ?? 'application/octet-stream'),
+      fullTextSha256: String(doc.full_text_sha256 ?? ''),
+      updatedAt: doc.updated_at ? String(doc.updated_at) : undefined,
+      chunks: chunks.map((chunk) => ({
+        chunkId: String(chunk.id),
+        chunkIndex: Number(chunk.chunk_index ?? 0),
+        text: String(chunk.chunk_text ?? ''),
+        page: chunk.page === null || chunk.page === undefined ? undefined : Number(chunk.page),
+        sectionHeading: chunk.section_heading ? String(chunk.section_heading) : undefined,
+      })).filter((chunk) => chunk.text.length > 0),
+    };
+  }
+
+  async saveSourceDocumentCache(input: SaveSourceDocumentCacheInput): Promise<void> {
+    await this.must(this.supabase.from('source_documents').upsert({
+      institution_id: DEMO_INSTITUTION_ID,
+      source_url: input.sourceUrl,
+      file_name: sanitizeClinicalFreeText(input.fileName),
+      file_size: input.fileSize,
+      content_type: input.contentType,
+      full_text_sha256: input.fullTextSha256,
+      updated_at: new Date().toISOString(),
+    } as never, { onConflict: 'institution_id,source_url' } as never));
+    const doc = await this.queryOne(this.supabase.from('source_documents').select('*').eq('institution_id', DEMO_INSTITUTION_ID).eq('source_url', input.sourceUrl));
+    if (!doc?.id) throw new Error(`Failed to upsert source document cache: ${input.sourceUrl}`);
+    await this.must(this.supabase.from('source_document_chunks').delete().eq('source_document_id', doc.id));
+    const rows = input.chunks.map((chunk) => ({
+      source_document_id: doc.id,
+      chunk_index: chunk.chunkIndex,
+      page: chunk.page ?? null,
+      section_heading: chunk.sectionHeading ? sanitizeClinicalFreeText(chunk.sectionHeading) : null,
+      chunk_text: sanitizeClinicalFreeText(chunk.text),
+    }));
+    if (rows.length > 0) {
+      await this.must(this.supabase.from('source_document_chunks').insert(rows as never));
+    }
   }
 
   private async ensureConsentCase(input: { institutionId: string; caseHandle: string; diagnosis: string; plannedSurgery: string; urgency?: string }) {

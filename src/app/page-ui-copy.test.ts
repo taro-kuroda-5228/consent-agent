@@ -82,11 +82,11 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("}, 5000);");
   });
 
-  it("shows verified verbatim citations with source titles in both QA views", () => {
+  it("separates verbatim source matching from answer-quality and physician-review status in both QA views", () => {
     const familyQaSource = readSource("src/app/family/[caseId]/qa/page.tsx");
     for (const source of [pageSource, familyQaSource]) {
-      expect(source).toContain("回答の根拠（医師が選んだ資料の原文）");
-      expect(source).toContain("出典照合済み（原文一致を機械検証）");
+      expect(source).toContain("根拠原文（回答品質の保証ではありません）");
+      expect(source).toContain("原文一致を機械照合済み・回答は医師確認前");
       expect(source).toContain("supportingSpans");
     }
     expect(familyQaSource).toContain("AbortSignal.timeout(25000)");

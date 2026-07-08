@@ -342,7 +342,7 @@ export default function QAPage() {
                   {freeAnswer.citationVerification &&
                     freeAnswer.citationVerification.verifiedSpans.length > 0 && (
                       <Badge className="bg-emerald-600 text-white text-[10px]">
-                        ✅ 出典照合済み（原文一致を機械検証）
+                        ✅ 原文一致を機械照合済み・回答は医師確認前
                       </Badge>
                     )}
                   {(freeAnswer.evidenceReferences ?? []).map((ref) => (
@@ -358,7 +358,7 @@ export default function QAPage() {
                 </div>
                 {freeAnswer.supportingSpans && freeAnswer.supportingSpans.length > 0 && (
                   <div className="rounded-lg border border-blue-100 bg-white/80 p-2.5 space-y-2">
-                    <p className="text-[11px] font-bold text-blue-900">📖 回答の根拠（医師が選んだ資料の原文）</p>
+                    <p className="text-[11px] font-bold text-blue-900">📖 根拠原文（回答品質の保証ではありません）</p>
                     {freeAnswer.supportingSpans.map((span, index) => {
                       const source = findQaEvidenceSource(freeAnswer, span.evidenceId);
                       return (

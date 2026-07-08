@@ -1,4 +1,6 @@
+import { createHash } from "node:crypto";
 import { createAutoPhysicianUrlEvidence, type EvidenceCard } from "./consent-demo";
+import type { ConsentSessionRepository, SourceDocumentChunkRecord } from "./repositories/consent-session-repository";
 
 export const MAX_SOURCE_URL_BYTES = 50 * 1024 * 1024;
 
@@ -174,14 +176,15 @@ export function expandQuestionTermsForSourceSearch(question = ""): string[] {
   return Array.from(terms).filter((term) => term.length >= 2).slice(0, 60);
 }
 
-type SourceChunk = { text: string; index: number; page?: number; sectionHeading?: string };
+export type SourceChunk = { text: string; index: number; page?: number; sectionHeading?: string };
 
 function extractGuidelineSectionHeading(text: string): string | undefined {
   const heading = text.match(/(?:第\s*\d+\s*章\s*[^。\n]{2,40}|(?:^|\s)\d+(?:\.\d+)+\s+[^。\n]{2,50})/)?.[0];
   return heading?.replace(/\s+/g, " ").trim();
 }
 
-function splitIntoSourceChunks(normalized: string): SourceChunk[] {
+export function splitIntoSourceChunks(sourceText: string): SourceChunk[] {
+  const normalized = sourceText.replace(/\r\n/g, "\n").trim();
   const pagePattern = /--\s*(\d+)\s+of\s+\d+\s+--/g;
   const markers = Array.from(normalized.matchAll(pagePattern));
   if (markers.length > 0) {
@@ -203,6 +206,12 @@ function splitIntoSourceChunks(normalized: string): SourceChunk[] {
     }).filter((chunk) => chunk.text.length > 0));
     return chunks.filter((chunk) => chunk.text.length > 0);
   }
+
+  const paragraphChunks = normalized
+    .split(/\n\s*\n+/)
+    .map((text, index) => ({ text: text.replace(/\s+/g, " ").trim(), index }))
+    .filter((chunk) => chunk.text.length > 0);
+  if (paragraphChunks.length > 1) return paragraphChunks;
 
   const chunks: SourceChunk[] = [];
   const targetLength = 2800;
@@ -245,7 +254,8 @@ function scoreChunkForQuestion(chunk: SourceChunk, keywords: string[], question:
     specificHits.length * 80 +
     (conceptHit ? 220 : 0) +
     (/推奨|治療法の選択|急性大動脈解離|malperfusion|緊急|手術|外科手術|合併症/.test(text) ? 35 : 0) +
-    (/腎不全|腎機能|急性腎障害|\baki\b|\bckd\b|\bcin\b|造影|contrast/i.test(text) ? 30 : 0) +
+    (/透析|腎不全|腎機能|急性腎障害|\baki\b|\bckd\b|\bcin\b|dialysis|renal|kidney|造影|contrast/i.test(text) ? 30 : 0) +
+    (/透析|dialysis/i.test(normalizedQuestion) && /透析|dialysis/i.test(text) ? 180 : 0) +
     (/腸管虚血|腸間膜|臓器虚血|malperfusion|mesenteric|bowel|visceral|ischemia/i.test(text) ? 35 : 0) +
     (/脊髄|対麻痺|\bSCI\b|spinal|paraplegia/i.test(text) ? 35 : 0) +
     (/対麻痺|paraplegia/i.test(normalizedQuestion) && /対麻痺|paraplegia/i.test(text) ? 180 : 0) +
@@ -260,10 +270,8 @@ function scoreChunkForQuestion(chunk: SourceChunk, keywords: string[], question:
   );
 }
 
-export function selectRelevantEvidenceText(text: string, question = ""): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
+export function selectRelevantEvidenceTextFromChunks(chunks: SourceChunk[], question = ""): string {
   const keywords = expandQuestionTermsForSourceSearch(question);
-  const chunks = splitIntoSourceChunks(normalized);
 
   let candidates = chunks
     .map((chunk) => ({ ...chunk, score: question ? scoreChunkForQuestion(chunk, keywords, question) : isTocOrReferenceLikeChunk(chunk) ? -100 : 1 - chunk.index * 0.00001 }))
@@ -277,6 +285,7 @@ export function selectRelevantEvidenceText(text: string, question = ""): string 
       /脊髄|対麻痺|下半身|spinal|paraplegia/i.test(normalizedQuestion) ? /脊髄|対麻痺|\bSCI\b|spinal|paraplegia/i :
       /遺伝|マルファン|marfan|家族/i.test(normalizedQuestion) ? /遺伝|マルファン|marfan|家族歴|genetic|familial/i :
       /感染|発熱|創部|膿|抗菌|infection|sepsis|fever|wound/i.test(normalizedQuestion) ? /感染症|発熱|創部|抗菌|抗生剤|合併症|infection|sepsis|fever|wound|postoperative/i :
+      /透析|腎|腎不全|腎障害|aki|dialysis|renal|kidney/i.test(normalizedQuestion) ? /透析|腎不全|腎機能|急性腎障害|AKI|dialysis|renal|kidney/i :
       undefined;
     const conceptCandidates = conceptPattern ? candidates.filter((candidate) => conceptPattern.test(candidate.text)) : [];
     const conceptBodyCandidates = conceptCandidates.filter((candidate) => !isTocOrReferenceLikeChunk(candidate));
@@ -313,15 +322,24 @@ export function selectRelevantEvidenceText(text: string, question = ""): string 
     if (selectedChunks.length >= (question ? 10 : 4)) break;
   }
 
-  const selected = selectedChunks.join("\n\n---\n\n") || normalized;
+  const selected = selectedChunks.join("\n\n---\n\n");
   return selected.slice(0, question ? 24000 : 12000);
 }
+
+export function selectRelevantEvidenceText(text: string, question = ""): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const selected = selectRelevantEvidenceTextFromChunks(splitIntoSourceChunks(normalized), question);
+  return selected || normalized.slice(0, question ? 24000 : 12000);
+}
+
 
 type CachedSourceFullText = {
   fileName: string;
   fileSize: number;
   contentType: string;
   fullText: string;
+  chunks: SourceChunk[];
+  fullTextSha256: string;
   cachedAt: number;
 };
 
@@ -336,11 +354,46 @@ export function clearSourceUrlTextCache(): void {
   sourceFullTextCache.clear();
 }
 
-async function fetchSourceFullText(sourceUrl: string): Promise<CachedSourceFullText> {
+function toSourceChunksFromRecords(records: SourceDocumentChunkRecord[]): SourceChunk[] {
+  return records.map((chunk) => ({
+    text: chunk.text,
+    index: chunk.chunkIndex,
+    page: chunk.page,
+    sectionHeading: chunk.sectionHeading,
+  }));
+}
+
+function toSourceChunkRecords(chunks: SourceChunk[]): SourceDocumentChunkRecord[] {
+  return chunks.map((chunk, index) => ({
+    chunkId: `chunk-${index + 1}`,
+    chunkIndex: index,
+    text: chunk.text,
+    page: chunk.page,
+    sectionHeading: chunk.sectionHeading,
+  }));
+}
+
+async function fetchSourceFullText(sourceUrl: string, repository?: ConsentSessionRepository): Promise<CachedSourceFullText> {
   const cacheKey = normalizePhysicianSourceUrl(sourceUrl);
   const cached = sourceFullTextCache.get(cacheKey);
   if (cached && Date.now() - cached.cachedAt < SOURCE_FULL_TEXT_CACHE_TTL_MS) {
     return cached;
+  }
+
+  const persistent = await repository?.getSourceDocumentCache?.(cacheKey).catch(() => null);
+  if (persistent && persistent.chunks.length > 0) {
+    const entry: CachedSourceFullText = {
+      fileName: persistent.fileName,
+      fileSize: persistent.fileSize,
+      contentType: persistent.contentType,
+      fullText: "",
+      chunks: toSourceChunksFromRecords(persistent.chunks),
+      fullTextSha256: persistent.fullTextSha256,
+      cachedAt: Date.now(),
+    };
+    sourceFullTextCache.delete(cacheKey);
+    sourceFullTextCache.set(cacheKey, entry);
+    return entry;
   }
 
   const fetched = await fetchSourceUrl(cacheKey);
@@ -351,13 +404,25 @@ async function fetchSourceFullText(sourceUrl: string): Promise<CachedSourceFullT
     fullText = fetched.buffer.toString("utf8");
   }
 
+  const normalizedFullText = fullText.trim();
+  const chunks = splitIntoSourceChunks(normalizedFullText);
   const entry: CachedSourceFullText = {
     fileName: fetched.fileName,
     fileSize: fetched.buffer.byteLength,
     contentType: fetched.contentType,
-    fullText,
+    fullText: normalizedFullText,
+    chunks,
+    fullTextSha256: createHash("sha256").update(normalizedFullText).digest("hex"),
     cachedAt: Date.now(),
   };
+  await repository?.saveSourceDocumentCache?.({
+    sourceUrl: cacheKey,
+    fileName: entry.fileName,
+    fileSize: entry.fileSize,
+    contentType: entry.contentType,
+    fullTextSha256: entry.fullTextSha256,
+    chunks: toSourceChunkRecords(entry.chunks),
+  }).catch((error) => console.warn("source document chunk cache save failed; continuing with instance cache", error));
   sourceFullTextCache.delete(cacheKey);
   sourceFullTextCache.set(cacheKey, entry);
   if (sourceFullTextCache.size > SOURCE_FULL_TEXT_CACHE_MAX_ENTRIES) {
@@ -367,17 +432,19 @@ async function fetchSourceFullText(sourceUrl: string): Promise<CachedSourceFullT
   return entry;
 }
 
-export async function extractSourceUrlText(sourceUrl: string, question = ""): Promise<{ fileName: string; fileSize: number; contentType: string; extractedText: string }> {
-  const source = await fetchSourceFullText(sourceUrl);
-  const extractedText = source.fullText ? selectRelevantEvidenceText(source.fullText, question) : "";
+export async function extractSourceUrlText(sourceUrl: string, question = "", repository?: ConsentSessionRepository): Promise<{ fileName: string; fileSize: number; contentType: string; extractedText: string }> {
+  const source = await fetchSourceFullText(sourceUrl, repository);
+  const extractedText = source.chunks.length > 0
+    ? selectRelevantEvidenceTextFromChunks(source.chunks, question)
+    : source.fullText ? selectRelevantEvidenceText(source.fullText, question) : "";
   return { fileName: source.fileName, fileSize: source.fileSize, contentType: source.contentType, extractedText };
 }
 
-export async function refreshPhysicianSourceEvidenceForQuestion(evidence: EvidenceCard, question: string): Promise<EvidenceCard> {
+export async function refreshPhysicianSourceEvidenceForQuestion(evidence: EvidenceCard, question: string, repository?: ConsentSessionRepository): Promise<EvidenceCard> {
   if (!evidence.sourceUrl || evidence.origin !== "physician-upload") return evidence;
   const sourceUrl = normalizePhysicianSourceUrl(evidence.sourceUrl);
   if (!sourceUrl.toLowerCase().endsWith(".pdf")) return evidence;
-  const extracted = await extractSourceUrlText(sourceUrl, question);
+  const extracted = await extractSourceUrlText(sourceUrl, question, repository);
   if (!extracted.extractedText) return evidence;
   const originalSelectedText = [
     evidence.quotedSpan,
@@ -393,10 +460,10 @@ export async function refreshPhysicianSourceEvidenceForQuestion(evidence: Eviden
   };
 }
 
-export async function refreshPhysicianSourceEvidenceSetForQuestion(evidence: EvidenceCard[], question: string): Promise<EvidenceCard[]> {
+export async function refreshPhysicianSourceEvidenceSetForQuestion(evidence: EvidenceCard[], question: string, repository?: ConsentSessionRepository): Promise<EvidenceCard[]> {
   return Promise.all(evidence.map(async (item) => {
     try {
-      return await refreshPhysicianSourceEvidenceForQuestion(item, question);
+      return await refreshPhysicianSourceEvidenceForQuestion(item, question, repository);
     } catch (error) {
       console.warn("question-specific source refresh failed; using stored selected evidence", error);
       return item;
