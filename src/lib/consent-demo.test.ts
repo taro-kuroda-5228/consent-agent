@@ -128,6 +128,26 @@ describe("consent demo utilities", () => {
     expect(result.requiresDoctorReview).toBe(false);
   });
 
+  it("does not answer direct dialysis-need questions from sex-difference or weak renal-tag evidence", () => {
+    const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
+    const result = synthesizeEvidenceBoundQA("透析が必要になりますか？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "緊急上行大動脈人工血管置換術",
+      risks: ["腎不全"],
+      selectedEvidence: evidence,
+      facilityAnswerTemplates: [],
+    });
+
+    expect(result.answer).toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("透析が必要になるかは");
+    expect(result.answer).toContain("担当医が確認して説明します");
+    expect(result.answer).not.toContain("女性");
+    expect(result.answer).not.toContain("男性");
+    expect(result.answer).not.toContain("などなど");
+    expect(result.evidenceReferences).toEqual([]);
+    expect(result.requiresDoctorReview).toBe(true);
+  });
+
   it("answers what aortic dissection is with a plain disease definition when selected references contain it", () => {
     const evidence = filterEvidenceByIds(retrieveMockEvidence("acute type A aortic dissection"), getDefaultSelectedEvidenceIds());
     const result = synthesizeEvidenceBoundQA("大動脈解離とはどのような病気ですか？", {

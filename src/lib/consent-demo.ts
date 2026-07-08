@@ -1232,6 +1232,14 @@ function isRenalRiskFactorQuestion(question: string): boolean {
   return /リスク因子|危険因子|因子|原因|なりやす|起こしやす|防ぐ|予防|risk factors?|predictors?|associated/.test(normalized);
 }
 
+function isWeakComparatorOnlyFindingForQuestion(question: string, finding: string): boolean {
+  const normalizedQuestion = question.toLowerCase();
+  const directDialysisQuestion = /透析|dialysis|renal replacement|腎代替療法/.test(normalizedQuestion);
+  const sexDifferenceOnly = /女性|男性|男女|性差|female|male|sex/i.test(finding) && /associated|関連|増加|高い|低い|リスク/i.test(finding);
+  if (directDialysisQuestion && sexDifferenceOnly && !/\d+(?:\.\d+)?\s*[％%]/.test(finding)) return true;
+  return false;
+}
+
 function extractRenalRiskFactorFinding(span: string): string | undefined {
   const normalized = span.replace(/\s+/g, " ").trim();
   const sentences = normalized
@@ -1310,8 +1318,8 @@ function translateRenalDialysisFindingForFamily(finding: string): string {
       /body mass index|\bBMI\b|肥満/i.test(normalized) ? "BMI高値" : "",
       /preoperative kidney injury|術前腎障害|preoperative renal|術前腎/i.test(normalized) ? "術前腎障害" : "",
     ].filter(Boolean);
-    const factorText = factors.length > 0 ? factors.join("、") : "手術時間、全身状態、術前の腎機能など";
-    return `術後の急性腎障害（AKI）は、${factorText}などと関連して報告されています。透析が必要になるかは、術前腎機能、手術経過、術後の尿量や検査値を担当医が確認して説明します。`;
+    const factorText = factors.length > 0 ? `${factors.join("、")}など` : "手術時間、全身状態、術前の腎機能など";
+    return `術後の急性腎障害（AKI）は、${factorText}と関連して報告されています。透析が必要になるかは、術前腎機能、手術経過、術後の尿量や検査値を担当医が確認して説明します。`;
   }
   if (percent && isDirectDialysis) {
     return `大動脈解離術後に透析または腎代替療法が必要になるリスクは${percent}と報告されています。`;
@@ -1337,6 +1345,19 @@ function translateRenalDialysisFindingForFamily(finding: string): string {
 function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
   if (!isRenalDialysisRiskQuestion(question)) return undefined;
   const asksRiskFactors = isRenalRiskFactorQuestion(question);
+  const asksDialysisNeed = /透析|dialysis|renal replacement|腎代替療法/.test(question.toLowerCase());
+  const findingDirectlyAnswersRenalQuestion = (finding: string | undefined): boolean => {
+    if (!finding) return false;
+    if (isWeakComparatorOnlyFindingForQuestion(question, finding)) return false;
+    if (asksRiskFactors) return /risk factors?|リスク因子|危険因子|associated|関連|predict|因子|原因/i.test(finding);
+    if (!asksDialysisNeed) return /acute kidney injury|\bAKI\b|急性腎障害|腎不全|renal failure|kidney injury|dialysis|透析|renal replacement|腎代替療法/i.test(finding);
+    if (/dialysis|透析|renal replacement|腎代替療法/i.test(finding)) {
+      return /\d+(?:\.\d+)?\s*[％%]|required|必要|need for|required dialysis|renal replacement|腎代替療法|透析が必要/i.test(finding);
+    }
+    // For a direct “will dialysis be needed?” question, AKI-only evidence is acceptable only when
+    // it contains a concrete rate; sex-difference or generic renal-failure mentions are not a direct answer.
+    return /acute kidney injury|\bAKI\b|急性腎障害|腎不全|renal failure|kidney injury/i.test(finding) && /\d+(?:\.\d+)?\s*[％%]/.test(finding);
+  };
 
   const candidates = evidence.flatMap((item, evidenceIndex) => {
     const haystack = [
@@ -1370,7 +1391,9 @@ function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: Evid
         (numericFinding ? 120 : 0) +
         (riskFactorFinding && asksRiskFactors ? 160 : 0) +
         (renalFinding ? 60 : 0) +
+        (findingDirectlyAnswersRenalQuestion(renalFinding) ? 200 : 0) +
         (/透析|dialysis|renal replacement/.test(normalizedFinding) ? 40 : 0) -
+        ((asksDialysisNeed && !findingDirectlyAnswersRenalQuestion(renalFinding)) ? 260 : 0) -
         ((/--\s*[1-9]\s+of\s+\d+\s+--/.test(span) || (span.match(/\bPQ\s*\d+/g)?.length ?? 0) >= 2) ? 90 : 0) -
         spanIndex * 0.001;
       return { item, span, renalFinding, score: sourceScore + spanScore };
@@ -1378,7 +1401,9 @@ function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: Evid
     return spans.length > 0 ? spans : [{ item, span: item.displayForFamily, renalFinding: extractRenalDialysisNumericFinding(item.displayForFamily) ?? extractRenalGuidelineFinding(item.displayForFamily), score: sourceScore }];
   });
 
-  const best = candidates.sort((a, b) => b.score - a.score)[0];
+  const best = candidates
+    .filter((candidate) => findingDirectlyAnswersRenalQuestion(candidate.renalFinding))
+    .sort((a, b) => b.score - a.score)[0];
   if (!best || best.score < 80) return undefined;
 
   const supportingSpan = best.renalFinding ?? best.span;
@@ -2261,6 +2286,17 @@ export function synthesizeEvidenceBoundQA(
   if (isNumericRiskQuestion(question) && !summarizeNumericRiskFromEvidence(question, relevantEvidence)) {
     return {
       answer: "選択済み参考資料内には、この質問に直接答えられる数値記載が見つかりません。",
+      safetyLabel: matchedPolicy?.safetyLabel ?? "doctor-review",
+      requiresDoctorReview: true,
+      retrievalMode: "physician-curated-only",
+      evidenceReferences: [],
+      retrievedEvidence: [],
+    };
+  }
+
+  if (isRenalDialysisRiskQuestion(question) && !summarizeRenalDialysisRiskFromEvidence(question, relevantEvidence)) {
+    return {
+      answer: "選択済み参考資料内には、透析や腎障害についてこの質問に直接答えられる記載が見つかりません。透析が必要になるかは、術前腎機能、手術経過、術後の尿量や検査値を担当医が確認して説明します。",
       safetyLabel: matchedPolicy?.safetyLabel ?? "doctor-review",
       requiresDoctorReview: true,
       retrievalMode: "physician-curated-only",

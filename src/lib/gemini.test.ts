@@ -73,6 +73,40 @@ describe("Gemini adapter evidence guardrails", () => {
     expect(result.requiresDoctorReview).toBe(true);
   });
 
+  it("does not call live extraction for a renal/dialysis no-direct-answer guardrail", async () => {
+    const sexDifferenceEvidence = createPhysicianUploadedEvidence({
+      title: "Sex differences in postoperative outcomes",
+      fileName: "sex-difference-outcomes.txt",
+      extractedText: "Female sex was not associated with dialysis-requiring renal failure, while male sex was associated with reoperation for bleeding.",
+      keyFindings: ["Female sex was not associated with dialysis-requiring renal failure, while male sex was associated with reoperation for bleeding."],
+      outcomeTags: ["renal-failure"],
+    });
+
+    let extractorCalled = false;
+    const result = await generateQA(
+      "透析が必要になりますか？",
+      {
+        diagnosis: "Stanford A型急性大動脈解離",
+        plannedSurgery: "緊急上行大動脈人工血管置換術",
+        risks: ["腎不全", "透析"],
+        selectedEvidence: [sexDifferenceEvidence],
+        facilityAnswerTemplates: [],
+      },
+      async () => {
+        extractorCalled = true;
+        return { answerable: true, confidence: "moderate", reason: "should not be called", supportingSpans: [] };
+      },
+    );
+
+    expect(extractorCalled).toBe(false);
+    expect(result.answer).toContain("直接答えられる記載が見つかりません");
+    expect(result.answer).toContain("透析が必要になるかは");
+    expect(result.answer).not.toContain("Female");
+    expect(result.evidenceReferences).toEqual([]);
+    expect(result.extractionMode).toBe("deterministic-source-bounded");
+    expect(result.requiresDoctorReview).toBe(true);
+  });
+
   it("answers deterministic selected-source spans before live extraction to avoid production abstain/latency", async () => {
     const uploaded = createPhysicianUploadedEvidence({
       title: "Mesenteric malperfusion in acute type A aortic dissection",
