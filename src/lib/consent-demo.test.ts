@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendFamilyTermGlossary,
   buildConsentExport,
   buildEvidenceTransparency,
   createPhysicianUploadedEvidence,
@@ -12,6 +13,7 @@ import {
   getEvidenceCatalog,
   retrieveMockEvidence,
   resolveEvidenceSelectionForRequest,
+  resolveNonEvidenceQAResult,
   scoreUnderstandingCheck,
   suggestEvidenceCandidates,
   synthesizeEvidenceBoundQA,
@@ -327,6 +329,52 @@ describe("consent demo utilities", () => {
     expect(result.retrievedEvidence.map((item) => item.evidenceId)).toEqual([uploaded.evidenceId]);
     expect(result.supportingSpans).toEqual([{ evidenceId: uploaded.evidenceId, text: "The synthesized incidence of postoperative AKI was 50.7%." }]);
     expect(result.requiresDoctorReview).toBe(false);
+  });
+
+  it("answers kidney/dialysis wording variants and risk-factor questions from the same selected AKI source", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Incidence and risk factors of acute kidney injury following Stanford type A aortic dissection surgery: a systematic review and meta-analysis.",
+      fileName: "PMID-renal-aki-risk-factors.txt",
+      extractedText:
+        "Incidence and risk factors of acute kidney injury following Stanford type A aortic dissection surgery: a systematic review and meta-analysis. The synthesized incidence of postoperative AKI was 50.7%. Risk factors for acute kidney injury (AKI) after Stanford type A aortic dissection repair included age, cardiopulmonary bypass time, operative time, red blood cell transfusion, body mass index, and preoperative kidney injury.",
+      keyFindings: [
+        "The synthesized incidence of postoperative AKI was 50.7%.",
+        "Risk factors for acute kidney injury (AKI) after Stanford type A aortic dissection repair included age, cardiopulmonary bypass time, operative time, red blood cell transfusion, body mass index, and preoperative kidney injury.",
+      ],
+      clinicianSummary: "A型急性大動脈解離術後AKIの発生率とリスク因子をまとめたメタ解析。",
+      outcomeTags: ["renal-failure", "dialysis"],
+    });
+
+    for (const question of ["透析になりますか？", "腎臓が悪くなる可能性は？", "急性腎障害はどれくらい起こりますか？"]) {
+      const result = synthesizeEvidenceBoundQA(question, {
+        diagnosis: "Stanford A型急性大動脈解離",
+        plannedSurgery: "上行大動脈人工血管置換術",
+        risks: ["腎不全", "透析"],
+        selectedEvidence: [uploaded],
+        facilityAnswerTemplates: [],
+      });
+
+      expect(result.answer).not.toContain("直接答えられる記載が見つかりません");
+      expect(result.answer).toContain("50.7%");
+      expect(result.answer).toContain("急性腎障害（AKI）の発生率");
+      expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+      expect(result.supportingSpans?.[0]?.text).toBe("The synthesized incidence of postoperative AKI was 50.7%.");
+    }
+
+    const riskFactorResult = synthesizeEvidenceBoundQA("どんな人が術後AKIになりやすいですか？", {
+      diagnosis: "Stanford A型急性大動脈解離",
+      plannedSurgery: "上行大動脈人工血管置換術",
+      risks: ["腎不全", "透析"],
+      selectedEvidence: [uploaded],
+      facilityAnswerTemplates: [],
+    });
+
+    expect(riskFactorResult.answer).toContain("高齢");
+    expect(riskFactorResult.answer).toContain("人工心肺時間");
+    expect(riskFactorResult.answer).toContain("輸血量");
+    expect(riskFactorResult.answer).toContain("術前腎障害");
+    expect(riskFactorResult.answer).not.toContain("50.7%");
+    expect(riskFactorResult.supportingSpans?.[0]?.text).toContain("Risk factors for acute kidney injury");
   });
 
   it("extracts numeric risk from the physician-selected reference content instead of a hard-coded outcome answer", () => {
@@ -1300,5 +1348,181 @@ describe("consent demo utilities", () => {
     expect(serialized).not.toContain("黒田太郎");
     expect(serialized).not.toContain("Taro Kuroda");
     expect(serialized).not.toContain("123456");
+  });
+});
+
+describe("resolveNonEvidenceQAResult (pre-retrieval fast path)", () => {
+  const templates = getDefaultFacilityAnswerTemplates();
+
+  it("answers cost questions with the administrative route before any source retrieval", () => {
+    const result = resolveNonEvidenceQAResult("手術の費用はどれくらいかかりますか？", templates);
+
+    expect(result).toBeDefined();
+    expect(result?.answer).toContain("医事課");
+    expect(result?.safetyLabel).toBe("doctor-review");
+    expect(result?.evidenceReferences).toEqual([]);
+  });
+
+  it("answers mortality questions from the facility template with extractionMode facility-template", () => {
+    const result = resolveNonEvidenceQAResult("死亡率は？", templates);
+
+    expect(result).toBeDefined();
+    expect(result?.safetyLabel).toBe("facility-template");
+    expect(result?.requiresDoctorReview).toBe(false);
+    expect(result?.extractionMode).toBe("facility-template");
+    expect(result?.templateReferences?.[0]?.templateId).toBe(templates[0].templateId);
+  });
+
+  it("refuses individual prognosis and consent guidance questions", () => {
+    const prognosis = resolveNonEvidenceQAResult("父は必ず助かりますか？", []);
+    expect(prognosis?.safetyLabel).toBe("individual-prognosis");
+
+    const consent = resolveNonEvidenceQAResult("手術に同意するべきでしょうか？", []);
+    expect(consent?.safetyLabel).toBe("consent-guidance");
+  });
+
+  it("returns undefined for evidence-dependent questions so retrieval and extraction still run", () => {
+    expect(resolveNonEvidenceQAResult("脳梗塞のリスクはありますか？", [])).toBeUndefined();
+    expect(resolveNonEvidenceQAResult("透析が必要になりますか？", [])).toBeUndefined();
+    expect(resolveNonEvidenceQAResult("手術しない場合はどうなりますか？", [])).toBeUndefined();
+  });
+});
+
+describe("family-friendly rewriting stays faithful to selected sources (良い塩梅)", () => {
+  const akiSource = () => createPhysicianUploadedEvidence({
+    title: "Incidence of postoperative AKI after type A dissection repair",
+    fileName: "aki-incidence.pdf",
+    extractedText: "The synthesized incidence of postoperative AKI was 50.7%.",
+    keyFindings: ["The synthesized incidence of postoperative AKI was 50.7%."],
+    outcomeTags: ["renal-failure"],
+  });
+  const qaContext = (selectedEvidence: ReturnType<typeof createPhysicianUploadedEvidence>[]) => ({
+    diagnosis: "急性A型大動脈解離",
+    plannedSurgery: "緊急上行大動脈人工血管置換術",
+    risks: ["腎不全"],
+    selectedEvidence,
+    facilityAnswerTemplates: [],
+  });
+
+  it("rejects a Gemini family answer that adds ungrounded reassurance even when its numbers match", () => {
+    const uploaded = akiSource();
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "透析のリスクはありますか？",
+      qaContext([uploaded]),
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "grounded numbers with added reassurance",
+        familyAnswer: "術後に急性腎障害が起こった方は50.7%と報告されていますが、ほとんどは回復しますのでご安心ください。",
+        supportingSpans: [{ evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "The synthesized incidence of postoperative AKI was 50.7%." }],
+      },
+    );
+
+    expect(result.answer).not.toContain("ご安心ください");
+    expect(result.answer).not.toContain("ほとんどは回復");
+    expect(result.answer).toContain("50.7%");
+    expect(result.evidenceReferences).toEqual([uploaded.evidenceId]);
+  });
+
+  it("rejects an ungrounded risk-level claim that the verified spans do not support", () => {
+    const uploaded = akiSource();
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "透析のリスクはありますか？",
+      qaContext([uploaded]),
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "no numbers, softened risk level",
+        familyAnswer: "手術のあとに透析が必要になるリスクはとても低いとされています。",
+        supportingSpans: [{ evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "The synthesized incidence of postoperative AKI was 50.7%." }],
+      },
+    );
+
+    expect(result.answer).not.toContain("とても低い");
+    expect(result.answer).toContain("50.7%");
+  });
+
+  it("keeps a risk-level phrase that the source itself reports", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Long-term dialysis after type A dissection repair",
+      fileName: "dialysis-long-term.pdf",
+      extractedText: "Permanent dialysis was rare (1.2%) in this cohort.",
+      keyFindings: ["Permanent dialysis was rare (1.2%) in this cohort."],
+      outcomeTags: ["renal-failure", "dialysis"],
+    });
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "ずっと透析が必要になりますか？",
+      qaContext([uploaded]),
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "source reports rare permanent dialysis",
+        familyAnswer: "長期的に透析が必要になった頻度はまれ（1.2%）と報告されています。",
+        supportingSpans: [{ evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "Permanent dialysis was rare (1.2%) in this cohort." }],
+      },
+    );
+
+    expect(result.answer).toContain("まれ");
+    expect(result.answer).toContain("1.2%");
+    expect(result.extractionMode).toBe("agentic-source-bounded");
+  });
+
+  it("wraps a mostly-English fallback quote in a Japanese lead instead of answering families in raw English", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Spinal cord protection strategies in extensive aortic repair",
+      fileName: "spinal-protection.pdf",
+      extractedText: "Delayed paraplegia occurred after extensive aortic repair and required cerebrospinal fluid drainage in this series.",
+      keyFindings: ["Delayed paraplegia occurred after extensive aortic repair and required cerebrospinal fluid drainage in this series."],
+      outcomeTags: ["spinal-cord-injury"],
+    });
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "対麻痺は起こりますか？",
+      qaContext([uploaded]),
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "span found but no family answer produced",
+        supportingSpans: [{ evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "Delayed paraplegia occurred after extensive aortic repair and required cerebrospinal fluid drainage in this series." }],
+      },
+    );
+
+    expect(result.answer).toContain("医師が選んだ資料には「");
+    expect(result.answer).toContain("Delayed paraplegia");
+    expect(result.answer).toContain("という記載があります");
+  });
+
+  it("appends short plain-language notes for hard terms without touching the evidence claim", () => {
+    const annotated = appendFamilyTermGlossary("手術しない場合、破裂や心タンポナーデの危険が高まると記載されています。");
+    expect(annotated).toContain("心タンポナーデ（心臓の周りに血液がたまり");
+    expect(annotated).toContain("破裂や心タンポナーデ");
+
+    const alreadyAnnotated = appendFamilyTermGlossary("心タンポナーデ（説明済み）の危険があります。");
+    expect(alreadyAnnotated).toBe("心タンポナーデ（説明済み）の危険があります。");
+
+    const threeTerms = appendFamilyTermGlossary("心タンポナーデ、対麻痺、せん妄のリスクがあります。");
+    expect((threeTerms.match(/（/g) ?? []).length).toBe(2);
+  });
+
+  it("annotates hard terms inside accepted Gemini family answers", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "手術しない場合の経過に関する施設説明資料",
+      fileName: "no-surgery-course.txt",
+      extractedText: "手術しない場合、破裂や心タンポナーデが進行し、命に関わる危険が高まります。",
+      keyFindings: ["手術しない場合、破裂や心タンポナーデが進行し、命に関わる危険が高まります。"],
+      outcomeTags: ["no-surgery"],
+    });
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "何もしないとどうなりますか？",
+      qaContext([uploaded]),
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "direct source statement",
+        familyAnswer: "手術をしない場合は、血管の破裂や心タンポナーデが進んで命に関わる危険が高まると報告されています。",
+        supportingSpans: [{ evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "手術しない場合、破裂や心タンポナーデが進行し、命に関わる危険が高まります。" }],
+      },
+    );
+
+    expect(result.answer).toContain("心タンポナーデ（心臓の周りに血液がたまり");
   });
 });

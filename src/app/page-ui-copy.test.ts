@@ -71,6 +71,27 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("judge sample");
   });
 
+  it("allows patient Q&A enough time for selected JCS guideline PDF evidence instead of falling back locally", () => {
+    expect(pageSource).toContain('fetchWithTimeout("/api/qa"');
+    expect(pageSource).toContain("}, 20000);");
+  });
+
+  it("gives live Gemini explanation generation enough time so the session/family-link flow is not silently dropped", () => {
+    expect(pageSource).toContain('fetchWithTimeout("/api/explain"');
+    expect(pageSource).toContain("}, 30000);");
+    expect(pageSource).not.toContain("}, 5000);");
+  });
+
+  it("shows verified verbatim citations with source titles in both QA views", () => {
+    const familyQaSource = readSource("src/app/family/[caseId]/qa/page.tsx");
+    for (const source of [pageSource, familyQaSource]) {
+      expect(source).toContain("回答の根拠（医師が選んだ資料の原文）");
+      expect(source).toContain("出典照合済み（原文一致を機械検証）");
+      expect(source).toContain("supportingSpans");
+    }
+    expect(familyQaSource).toContain("AbortSignal.timeout(25000)");
+  });
+
   it("keeps patient AI Q&A only in the understanding check section, not in Gemini explanation", () => {
     expect(renderScreen2Source).not.toContain("<h3 className=\"text-3xl font-black text-slate-950\">質問する</h3>");
     expect(renderScreen2Source).not.toContain("よくある家族の質問");
@@ -179,12 +200,16 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).not.toContain("pubMedResult.plan.pubmedTerm");
   });
 
-  it("keeps the physician start screen simple: current case first and advanced controls collapsed", () => {
+  it("keeps the physician start screen simple: current explanation first, adjustment second, and advanced controls untouched/collapsed", () => {
     expect(renderScreen1Source).toContain("今回の説明");
-    expect(renderScreen1Source).toContain("症例を変更する");
-    expect(renderScreen1Source).toContain("詳細を編集する（必要時のみ）");
+    expect(renderScreen1Source).toContain("この内容で家族説明・Q&A・理解確認を作成します。");
+    expect(renderScreen1Source).toContain("家族説明に使う内容");
+    expect(renderScreen1Source).toContain("必要時だけ調整");
+    expect(renderScreen1Source).toContain("家族に伝える表現だけを調整します。");
+    expect(renderScreen1Source).not.toContain("症例を変更する");
     expect(renderScreen1Source).toContain("医師向け詳細設定");
     expect(renderScreen1Source).toContain("家族説明を開始");
+    expect(renderScreen1Source).not.toContain("詳細を編集する（必要時のみ）");
     expect(renderScreen1Source).not.toContain("30秒で始める");
     expect(renderScreen1Source).not.toContain("最短30秒");
     expect(renderScreen1Source).not.toContain("通常は開かなくてOK");

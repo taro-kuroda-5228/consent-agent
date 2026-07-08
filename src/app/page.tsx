@@ -40,6 +40,12 @@ interface QAResult {
   evidenceReferences?: string[];
   retrievedEvidence?: EvidenceCard[];
   templateReferences?: FacilityAnswerTemplate[];
+  supportingSpans?: Array<{ evidenceId: string; text: string }>;
+  citationVerification?: {
+    requestedSpanCount: number;
+    verifiedSpans: Array<{ evidenceId: string; text: string }>;
+    rejectedSpans: Array<{ evidenceId: string; span: string; reason: string }>;
+  };
 }
 
 interface PubMedSearchResult {
@@ -431,7 +437,7 @@ export default function ConsentAgent() {
           customEvidence: uploadedEvidence,
           facilityAnswerTemplates: selectedFacilityTemplates,
         }),
-      }, 5000);
+      }, 30000);
       if (res.ok) {
         const data = await res.json();
         setExplanation(data.explanation);
@@ -471,7 +477,7 @@ export default function ConsentAgent() {
           sessionId: sessionId ?? undefined,
           familyToken: familyToken ?? undefined,
         }),
-      }, 5000);
+      }, 20000);
       if (res.ok) {
         const data = await res.json();
         setFreeAnswer(data);
@@ -555,41 +561,39 @@ export default function ConsentAgent() {
       </div>
 
       {diagnosis || plannedSurgery ? (
-        <div className="rounded-xl border border-slate-200 bg-white p-3 text-sm shadow-sm">
-          <div className="flex items-start justify-between gap-2">
-            <div className="min-w-0">
-              <p className="font-bold text-slate-950">今回の説明</p>
-              <p className="mt-1 leading-relaxed text-slate-700">{diagnosis || "診断未選択"} / {plannedSurgery || "術式未選択"}</p>
-              <p className="mt-1 text-[11px] font-medium text-slate-500">主なリスク: {risks.length ? risks.join("・") : "未選択"}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 space-y-2">
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-wide text-blue-700">家族説明に使う内容</p>
+                <p className="mt-0.5 text-xl font-black text-slate-950">今回の説明</p>
+              </div>
+              <p className="leading-relaxed text-slate-800">{diagnosis || "診断未選択"}</p>
+              <p className="leading-relaxed text-slate-700">{plannedSurgery || "術式未選択"}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {risks.length ? risks.map((risk) => (
+                  <span key={risk} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                    {risk}
+                  </span>
+                )) : (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-500">リスク未選択</span>
+                )}
+              </div>
+              <p className="rounded-xl bg-blue-50 px-3 py-2 text-[11px] font-bold leading-relaxed text-blue-900">
+                この内容で家族説明・Q&A・理解確認を作成します。
+              </p>
             </div>
             <Badge className="shrink-0 bg-red-100 text-red-800">{urgency || "緊急度未選択"}</Badge>
           </div>
         </div>
       ) : null}
 
-      <details className="rounded-xl border border-slate-200 bg-white p-3">
-        <summary className="cursor-pointer text-sm font-bold text-slate-900">症例を変更する</summary>
-        <div className="mt-3 grid gap-2">
-          {PHYSICIAN_QUICK_CASES.map((quickCase) => (
-            <button
-              key={quickCase.id}
-              type="button"
-              onClick={() => applyQuickCase(quickCase)}
-              className={`rounded-xl border px-3 py-3 text-left transition-colors ${
-                diagnosis === quickCase.diagnosis && plannedSurgery === quickCase.plannedSurgery
-                  ? "border-blue-600 bg-blue-50 shadow-sm"
-                  : "border-slate-200 bg-white hover:border-blue-400"
-              }`}
-            >
-              <span className="block text-sm font-bold text-slate-950">{quickCase.label}</span>
-              <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-600">{quickCase.description}</span>
-            </button>
-          ))}
-        </div>
-      </details>
 
       <details className="rounded-xl border border-slate-200 bg-white p-3">
-        <summary className="cursor-pointer text-sm font-bold text-slate-900">詳細を編集する（必要時のみ）</summary>
+        <summary className="cursor-pointer text-sm font-bold text-slate-900">必要時だけ調整</summary>
+        <p className="mt-2 rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold leading-relaxed text-slate-600">
+          家族に伝える表現だけを調整します。根拠・施設テンプレ・資料追加は下の医師向け詳細設定に残しています。
+        </p>
         <div className="mt-3 space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
@@ -1087,7 +1091,32 @@ export default function ConsentAgent() {
                 {!freeAnswer.requiresDoctorReview && freeAnswer.templateReferences?.length ? (
                   <Badge className="bg-transparent px-0 text-xs font-black text-violet-900 shadow-none hover:bg-transparent">✅ 施設テンプレ確認済み</Badge>
                 ) : null}
+                {freeAnswer.citationVerification &&
+                  freeAnswer.citationVerification.verifiedSpans.length > 0 && (
+                    <Badge className="bg-emerald-600 text-white text-xs">✅ 出典照合済み（原文一致を機械検証）</Badge>
+                  )}
               </div>
+              {freeAnswer.supportingSpans && freeAnswer.supportingSpans.length > 0 && (
+                <div className="rounded-lg border border-blue-100 bg-white/80 p-2.5 space-y-2">
+                  <p className="text-[11px] font-bold text-blue-900">📖 回答の根拠（医師が選んだ資料の原文）</p>
+                  {freeAnswer.supportingSpans.map((span, index) => {
+                    const source = freeAnswer.retrievedEvidence?.find((item) => item.evidenceId === span.evidenceId);
+                    return (
+                      <div key={`${span.evidenceId}-${index}`} className="border-l-2 border-blue-300 pl-2">
+                        <p className="text-xs leading-relaxed text-slate-700">“{span.text}”</p>
+                        <p className="mt-0.5 text-[10px] font-semibold text-slate-500">
+                          出典: {source?.title ?? span.evidenceId}
+                          {source?.sourceUrl && (
+                            <a href={source.sourceUrl} target="_blank" rel="noreferrer" className="ml-1.5 text-blue-700 underline underline-offset-2">
+                              資料を開く
+                            </a>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               {freeAnswer.evidenceReferences && freeAnswer.evidenceReferences.length > 0 && (
                 <p className="text-xs font-semibold text-blue-800">
                   参照: {freeAnswer.evidenceReferences.join(" / ")}

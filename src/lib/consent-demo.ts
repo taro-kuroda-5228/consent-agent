@@ -1223,8 +1223,27 @@ function summarizeReoperationPossibilityFromEvidence(question: string, evidence:
 function isRenalDialysisRiskQuestion(question: string): boolean {
   const normalized = question.toLowerCase();
   const asksRenal = /透析|腎|腎不全|急性腎障害|aki|renal|kidney|dialysis/.test(normalized);
-  const asksRisk = /リスク|risk|起こ|合併症|可能性|危険|問題|困|について/.test(normalized);
+  const asksRisk = /リスク|risk|起こ|合併症|可能性|危険|問題|困|について|なり|なる|必要|心配|大丈夫|悪く|悪化|因子|原因|防ぐ|予防/.test(normalized);
   return asksRenal && asksRisk;
+}
+
+function isRenalRiskFactorQuestion(question: string): boolean {
+  const normalized = question.toLowerCase();
+  return /リスク因子|危険因子|因子|原因|なりやす|起こしやす|防ぐ|予防|risk factors?|predictors?|associated/.test(normalized);
+}
+
+function extractRenalRiskFactorFinding(span: string): string | undefined {
+  const normalized = span.replace(/\s+/g, " ").trim();
+  const sentences = normalized
+    .replace(/\s*(Background|Methods|Results|Conclusions):\s*/gi, ". $1: ")
+    .replace(/^\.\s*/, "")
+    .split(/(?<=[.!?。])\s+|(?=\b(?:Background|Methods|Results|Conclusions):)/i)
+    .map((sentence) => sentence.trim().replace(/^\.\s*/, ""))
+    .filter((sentence) => sentence.length >= 8);
+  return sentences.find((sentence) =>
+    /risk factors?|リスク因子|危険因子|associated|関連|predict/i.test(sentence) &&
+    /acute kidney injury|\bAKI\b|急性腎障害|腎不全|renal failure|kidney injury|dialysis|透析/i.test(sentence),
+  );
 }
 
 function extractRenalDialysisNumericFinding(span: string): string | undefined {
@@ -1282,6 +1301,18 @@ function translateRenalDialysisFindingForFamily(finding: string): string {
   const normalized = finding.replace(/\s+/g, " ").trim();
   const percent = normalized.match(/\d+(?:\.\d+)?\s*[％%]/)?.[0]?.replace("％", "%");
   const isDirectDialysis = /dialysis|透析|renal replacement|腎代替療法/i.test(normalized);
+  if (/risk factors?|リスク因子|危険因子|associated|関連|predict/i.test(normalized) && /acute kidney injury|\bAKI\b|急性腎障害|腎不全|renal failure|kidney injury|dialysis|透析/i.test(normalized)) {
+    const factors = [
+      /age|高齢|年齢/i.test(normalized) ? "高齢" : "",
+      /cardiopulmonary bypass|\bCPB\b|人工心肺/i.test(normalized) ? "人工心肺時間" : "",
+      /operative time|手術時間/i.test(normalized) ? "手術時間" : "",
+      /transfusion|pRBC|輸血/i.test(normalized) ? "輸血量" : "",
+      /body mass index|\bBMI\b|肥満/i.test(normalized) ? "BMI高値" : "",
+      /preoperative kidney injury|術前腎障害|preoperative renal|術前腎/i.test(normalized) ? "術前腎障害" : "",
+    ].filter(Boolean);
+    const factorText = factors.length > 0 ? factors.join("、") : "手術時間、全身状態、術前の腎機能など";
+    return `術後の急性腎障害（AKI）は、${factorText}などと関連して報告されています。透析が必要になるかは、術前腎機能、手術経過、術後の尿量や検査値を担当医が確認して説明します。`;
+  }
   if (percent && isDirectDialysis) {
     return `大動脈解離術後に透析または腎代替療法が必要になるリスクは${percent}と報告されています。`;
   }
@@ -1305,6 +1336,7 @@ function translateRenalDialysisFindingForFamily(finding: string): string {
 
 function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: EvidenceCard[]): { answer: string; source: EvidenceCard; span: string } | undefined {
   if (!isRenalDialysisRiskQuestion(question)) return undefined;
+  const asksRiskFactors = isRenalRiskFactorQuestion(question);
 
   const candidates = evidence.flatMap((item, evidenceIndex) => {
     const haystack = [
@@ -1317,15 +1349,18 @@ function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: Evid
       ...(item.keyFindings ?? []),
       ...(item.outcomeTags ?? []),
     ].join(" ").toLowerCase();
+    const sourceRiskFactorBoost = asksRiskFactors && /risk factors?|リスク因子|危険因子|associated|関連|predict/.test(haystack) ? 80 : 0;
     const sourceScore =
       (/透析|dialysis/.test(haystack) ? 80 : 0) +
       (/急性腎障害|aki|renal|kidney|腎不全|腎障害/.test(haystack) ? 60 : 0) +
       (/risk factors?|リスク因子|incidence|発生|mortality|死亡/.test(haystack) ? 25 : 0) +
-      (item.evidenceId.startsWith("PUBMED-") || item.retrievalStatus === "pubmed-verified" ? 20 : 0) -
+      (item.evidenceId.startsWith("PUBMED-") || item.retrievalStatus === "pubmed-verified" ? 20 : 0) +
+      sourceRiskFactorBoost -
       evidenceIndex * 0.01;
     const spans = splitEvidenceSpans(item).map((span, spanIndex) => {
       const numericFinding = extractRenalDialysisNumericFinding(span);
-      const renalFinding = numericFinding ?? extractRenalGuidelineFinding(span);
+      const riskFactorFinding = extractRenalRiskFactorFinding(span);
+      const renalFinding = asksRiskFactors ? (riskFactorFinding ?? numericFinding ?? extractRenalGuidelineFinding(span)) : (numericFinding ?? riskFactorFinding ?? extractRenalGuidelineFinding(span));
       const normalizedSpan = span.toLowerCase();
       const normalizedFinding = renalFinding?.toLowerCase() ?? "";
       const spanScore =
@@ -1333,6 +1368,7 @@ function summarizeRenalDialysisRiskFromEvidence(question: string, evidence: Evid
         (/急性腎障害|aki|renal|kidney|腎不全|腎障害/.test(normalizedSpan) ? 60 : 0) +
         (/risk factors?|リスク因子|incidence|発生|mortality|死亡/.test(normalizedSpan) ? 25 : 0) +
         (numericFinding ? 120 : 0) +
+        (riskFactorFinding && asksRiskFactors ? 160 : 0) +
         (renalFinding ? 60 : 0) +
         (/透析|dialysis|renal replacement/.test(normalizedFinding) ? 40 : 0) -
         ((/--\s*[1-9]\s+of\s+\d+\s+--/.test(span) || (span.match(/\bPQ\s*\d+/g)?.length ?? 0) >= 2) ? 90 : 0) -
@@ -1904,6 +1940,23 @@ export function verifyCitationSpans(
   return verifySupportingSpanExtraction(extraction, selectedEvidence).report;
 }
 
+/**
+ * 決定論パスの supportingSpans も agentic パスと同じ機械検証を通し、
+ * UIの「出典照合済み」表示を両経路で統一するためのレポートを作る。
+ */
+export function buildCitationVerificationForSupportingSpans(
+  supportingSpans: Array<{ evidenceId: string; text: string }> | undefined,
+  selectedEvidence: EvidenceCard[],
+): CitationVerificationReport | undefined {
+  if (!supportingSpans || supportingSpans.length === 0) return undefined;
+  return verifySupportingSpanExtraction({
+    answerable: true,
+    confidence: "moderate",
+    reason: "deterministic-source-bounded supporting spans",
+    supportingSpans: supportingSpans.map((span) => ({ evidenceId: span.evidenceId, span: span.text })),
+  }, selectedEvidence).report;
+}
+
 function isLowInformationSupportingSpan(span: string): boolean {
   const normalized = span.toLowerCase();
   const hasOutcomeSignal = /死亡|死亡率|予後|遠隔|合併症|発生|リスク|高|低|良好|不良|mortality|survival|outcome|risk|rate|incidence|higher|lower|better|worse|than|compared|%|％/.test(normalized);
@@ -1917,6 +1970,12 @@ function chooseAnswerSupportingSpans(spans: Array<{ evidence: EvidenceCard; text
   return informative.length > 0 ? informative : spans;
 }
 
+function isMostlyNonJapaneseText(text: string): boolean {
+  const japaneseChars = (text.match(/[ぁ-んァ-ヶー一-龠]/g) ?? []).length;
+  const asciiLetters = (text.match(/[A-Za-z]/g) ?? []).length;
+  return asciiLetters >= 30 && asciiLetters > japaneseChars * 2;
+}
+
 function answerFromSupportingSpans(spans: Array<{ text: string }>): string {
   const answer = spans
     .map((item) => cleanFamilyAnswerSpan(item.text))
@@ -1924,7 +1983,14 @@ function answerFromSupportingSpans(spans: Array<{ text: string }>): string {
     .join("。")
     .replace(/。+/g, "。");
   const normalizedAnswer = answer.endsWith("。") ? answer : `${answer}。`;
-  return normalizedAnswer.length <= 260 ? normalizedAnswer : `${normalizedAnswer.slice(0, 257)}...`;
+  const capped = normalizedAnswer.length <= 260 ? normalizedAnswer : `${normalizedAnswer.slice(0, 257)}...`;
+  // 定型変換で日本語化できなかった英語原文は、そのまま回答本文にせず日本語の枠で提示する。
+  // 原文の内容は一字も変えない（言い換えの失敗をハルシネーションで埋めない）。
+  if (isMostlyNonJapaneseText(capped)) {
+    const quoted = capped.replace(/[。.]+$/, "");
+    return `医師が選んだ資料には「${quoted}」という記載があります。やさしい言葉での補足は担当医が行います。`;
+  }
+  return capped;
 }
 
 function normalizeGroundingNumber(value: string): string {
@@ -1940,6 +2006,57 @@ function makePatientFriendlyAnswer(answer: string): string {
     .replace(/\s+/g, " ")
     .replace(/。。+/g, "。")
     .trim();
+}
+
+// 根拠スパンからは導けない安心・保証の言い切り。家族向けの言い換えであっても、
+// これらは資料の内容を捻じ曲げるためモデル回答ごと棄却する。
+const UNGROUNDABLE_REASSURANCE_PATTERN =
+  /心配(?:は)?(?:あり|いり)ません|ご?安心(?:して)?ください|安心です|安全です|問題(?:は)?ありません|必ず(?:助かり|成功|治り|良くなり)|確実に(?:助かり|成功|回復)|100\s*[%％]\s*(?:安全|成功|大丈夫)|リスクは(?:ほぼ)?ありません|後遺症は(?:残り|あり)ません|ほとんど(?:の方)?(?:は|が)(?:回復|助かり|治り)/;
+
+// 「リスクが低い/まれ/高い」等の程度の断定は、根拠スパン側に対応する数値・比較・
+// 記載がある場合だけ許可する（やさしい言い換えと内容の改変を区別する境界線）。
+function makesUngroundedRiskLevelClaim(answer: string, supportingText: string): boolean {
+  const claimsLowRisk =
+    /(?:リスク|危険|合併症|可能性|頻度|確率)[^。]{0,14}?(?:とても低|非常に低|低い|少ない|小さい|まれ|稀)/.test(answer) ||
+    /(?:まれ|稀)な(?:合併症|副作用)/.test(answer);
+  if (claimsLowRisk && !/低|少な|まれ|稀|low|rare|infrequent|uncommon|minor|small/i.test(supportingText)) {
+    return true;
+  }
+  const claimsHighRisk = /(?:リスク|危険|合併症|可能性|頻度|確率)[^。]{0,14}?(?:とても高|非常に高|高い|大きい|多い|高くな|高ま)/.test(answer);
+  if (claimsHighRisk && !/高|増加|上昇|多|悪化|リスク因子|関連|危険|high|increase|greater|elevated|risk factors?|associated|odds|\bOR\b|\bRR\b|\bHR\b/i.test(supportingText)) {
+    return true;
+  }
+  return false;
+}
+
+// 難しい医学用語への短い注釈。疾患概念として普遍的に正しい説明だけを（）で足し、
+// 根拠の内容（数値・比較・結論）には一切手を加えない。
+const FAMILY_TERM_GLOSSARY: Array<{ term: string; note: string }> = [
+  { term: "心タンポナーデ", note: "心臓の周りに血液がたまり、心臓が十分に動けなくなる状態" },
+  { term: "対麻痺", note: "両足が動かしにくくなる麻痺" },
+  { term: "せん妄", note: "一時的に意識が混乱する状態" },
+  { term: "人工心肺", note: "手術中に心臓と肺の働きを代わりに行う装置" },
+  { term: "腎代替療法", note: "透析など、腎臓の働きを機械で補う治療" },
+  { term: "脊髄虚血", note: "脊髄への血流が足りなくなること" },
+];
+
+export function appendFamilyTermGlossary(answer: string): string {
+  let result = answer;
+  let added = 0;
+  for (const { term, note } of FAMILY_TERM_GLOSSARY) {
+    if (added >= 2) break;
+    const index = result.indexOf(term);
+    if (index === -1) continue;
+    const after = result.slice(index + term.length);
+    if (after.startsWith("（") || after.startsWith("(")) continue;
+    // 「人工心肺時間」のような複合語の途中には注釈を差し込まない。
+    const nextChar = after.charAt(0);
+    if (nextChar && !/[ぁ-ん、。，．・）」\s]/.test(nextChar)) continue;
+    if (result.includes(note)) continue;
+    result = `${result.slice(0, index + term.length)}（${note}）${after}`;
+    added += 1;
+  }
+  return result;
 }
 function extractGroundingNumbers(text: string): string[] {
   const matches = [
@@ -1968,31 +2085,22 @@ function administrativeNoDirectAnswerResult(): EvidenceBoundQAResult {
   };
 }
 
-function isGroundedPatientFriendlyAnswer(answer: string | undefined, verifiedSpans: Array<{ text: string }>): answer is string {
-  if (!answer) return false;
-  const normalizedAnswer = answer.replace(/\s+/g, " ").trim();
-  if (normalizedAnswer.length < 12 || normalizedAnswer.length > 520) return false;
-  if (/選択済み参考資料内には|直接答えられる記載が見つかりません|根拠論文:|引用箇所:|PMID|Wang et al\.|The synthesized|A total of|overall in-hospital mortality/i.test(normalizedAnswer)) return false;
-  if (/^(?:この資料では|選択された(?:資料|論文|ガイドライン)では|選択済み参考資料では|参考資料では)、/.test(normalizedAnswer)) return false;
-
-  const supportingText = verifiedSpans.map((item) => item.text).join(" ");
-  const supportingNumbers = new Set(extractGroundingNumbers(supportingText));
-  const answerNumbers = extractGroundingNumbers(normalizedAnswer);
-  return answerNumbers.every((number) => supportingNumbers.has(number));
-}
-
-export function synthesizeEvidenceBoundQAFromSupportingSpans(
+/**
+ * 資料検索やLLM抽出を行う前に確定できる回答（費用などの事務質問、施設テンプレ、
+ * 個別予後、同意誘導の拒否）を返す。該当しなければ undefined。
+ * 重いPDF再取得・Gemini呼び出しの前段でも安全に呼べる。
+ */
+export function resolveNonEvidenceQAResult(
   question: string,
-  context: ConsentQAContext,
-  extraction: SupportingSpanExtraction,
-): EvidenceBoundQAResult {
+  facilityAnswerTemplates?: FacilityAnswerTemplate[],
+): EvidenceBoundQAResult | undefined {
   const normalized = question.toLowerCase();
 
   if (isAdministrativeNonEvidenceQuestion(normalized)) {
     return administrativeNoDirectAnswerResult();
   }
 
-  const facilityTemplate = findMatchingFacilityTemplate(question, context.facilityAnswerTemplates);
+  const facilityTemplate = findMatchingFacilityTemplate(question, facilityAnswerTemplates);
   if (facilityTemplate) {
     return {
       answer: facilityTemplate.answer,
@@ -2028,6 +2136,32 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
     };
   }
 
+  return undefined;
+}
+
+function isGroundedPatientFriendlyAnswer(answer: string | undefined, verifiedSpans: Array<{ text: string }>): answer is string {
+  if (!answer) return false;
+  const normalizedAnswer = answer.replace(/\s+/g, " ").trim();
+  if (normalizedAnswer.length < 12 || normalizedAnswer.length > 520) return false;
+  if (/選択済み参考資料内には|直接答えられる記載が見つかりません|根拠論文:|引用箇所:|PMID|Wang et al\.|The synthesized|A total of|overall in-hospital mortality/i.test(normalizedAnswer)) return false;
+  if (/^(?:この資料では|選択された(?:資料|論文|ガイドライン)では|選択済み参考資料では|参考資料では)、/.test(normalizedAnswer)) return false;
+  if (UNGROUNDABLE_REASSURANCE_PATTERN.test(normalizedAnswer)) return false;
+
+  const supportingText = verifiedSpans.map((item) => item.text).join(" ");
+  if (makesUngroundedRiskLevelClaim(normalizedAnswer, supportingText)) return false;
+  const supportingNumbers = new Set(extractGroundingNumbers(supportingText));
+  const answerNumbers = extractGroundingNumbers(normalizedAnswer);
+  return answerNumbers.every((number) => supportingNumbers.has(number));
+}
+
+export function synthesizeEvidenceBoundQAFromSupportingSpans(
+  question: string,
+  context: ConsentQAContext,
+  extraction: SupportingSpanExtraction,
+): EvidenceBoundQAResult {
+  const nonEvidenceResult = resolveNonEvidenceQAResult(question, context.facilityAnswerTemplates);
+  if (nonEvidenceResult) return nonEvidenceResult;
+
   const verification = verifySupportingSpanExtraction(extraction, context.selectedEvidence);
   const verifiedSpans = chooseAnswerSupportingSpans(verification.verified);
   if (verifiedSpans.length === 0) {
@@ -2038,7 +2172,7 @@ export function synthesizeEvidenceBoundQAFromSupportingSpans(
   const groundedPatientFriendlyAnswer = isGroundedPatientFriendlyAnswer(extraction.familyAnswer, verifiedSpans)
     ? makePatientFriendlyAnswer(extraction.familyAnswer)
     : undefined;
-  const answer = groundedPatientFriendlyAnswer ?? answerFromSupportingSpans(verifiedSpans);
+  const answer = appendFamilyTermGlossary(groundedPatientFriendlyAnswer ?? answerFromSupportingSpans(verifiedSpans));
   return {
     answer,
     safetyLabel: extraction.confidence === "low" ? "doctor-review" : "general",
@@ -2064,44 +2198,8 @@ export function synthesizeEvidenceBoundQA(
 ): EvidenceBoundQAResult {
   const normalized = question.toLowerCase();
 
-  if (isAdministrativeNonEvidenceQuestion(normalized)) {
-    return administrativeNoDirectAnswerResult();
-  }
-
-  const facilityTemplate = findMatchingFacilityTemplate(question, context.facilityAnswerTemplates);
-  if (facilityTemplate) {
-    return {
-      answer: facilityTemplate.answer,
-      safetyLabel: "facility-template",
-      requiresDoctorReview: false,
-      retrievalMode: "physician-curated-only",
-      evidenceReferences: [facilityTemplate.templateId],
-      retrievedEvidence: [],
-      templateReferences: [facilityTemplate],
-    };
-  }
-
-  if (isIndividualPrognosisQuestion(normalized)) {
-    return {
-      answer: "その質問は患者さんごとの状態で大きく変わるため、選択済み参考資料だけでAIが断定することはできません。担当医が今の状態と手術リスクを見ながら直接説明します。",
-      safetyLabel: "individual-prognosis",
-      requiresDoctorReview: true,
-      retrievalMode: "physician-curated-only",
-      evidenceReferences: [],
-      retrievedEvidence: [],
-    };
-  }
-
-  if (normalized.includes("同意") || normalized.includes("受けるべき") || normalized.includes("やるべき")) {
-    return {
-      answer: "AIが同意を勧めたり決めたりすることはできません。参考資料の範囲を整理し、最終判断は担当医と確認してください。",
-      safetyLabel: "consent-guidance",
-      requiresDoctorReview: true,
-      retrievalMode: "physician-curated-only",
-      evidenceReferences: [],
-      retrievedEvidence: [],
-    };
-  }
+  const nonEvidenceResult = resolveNonEvidenceQAResult(question, context.facilityAnswerTemplates);
+  if (nonEvidenceResult) return nonEvidenceResult;
 
   const relevantEvidence = findAnswerableSelectedEvidence(question, context.selectedEvidence);
   const matchedPolicy = QUESTION_TERMS.find((group) =>
@@ -2123,7 +2221,7 @@ export function synthesizeEvidenceBoundQA(
     const genericRisk = matchedPolicy || !isGenericSourceBoundedFallbackQuestion(question) ? undefined : summarizeGenericSourceBoundedRiskFromEvidence(question, context.selectedEvidence);
     if (genericRisk) {
       return {
-        answer: genericRisk.answer,
+        answer: appendFamilyTermGlossary(genericRisk.answer),
         safetyLabel: "general",
         requiresDoctorReview: false,
         retrievalMode: "physician-curated-only",
@@ -2135,7 +2233,7 @@ export function synthesizeEvidenceBoundQA(
     const genericStatement = matchedPolicy ? undefined : summarizeGenericSourceBoundedStatementFromEvidence(question, context.selectedEvidence);
     if (genericStatement) {
       return {
-        answer: genericStatement.answer,
+        answer: appendFamilyTermGlossary(genericStatement.answer),
         safetyLabel: "general",
         requiresDoctorReview: false,
         retrievalMode: "physician-curated-only",
@@ -2186,7 +2284,7 @@ export function synthesizeEvidenceBoundQA(
     isComparativeQuestion(question) ||
     isLongTermPrognosisQuestion(question) ||
     isSexDifferenceQuestion(question);
-  const answer = baseAnswer;
+  const answer = appendFamilyTermGlossary(baseAnswer);
   const supportingSpans = shouldAppendCitation && primaryAnswerSource && primaryCitationSpan
     ? [{ evidenceId: primaryAnswerSource.evidenceId, text: primaryCitationSpan }]
     : undefined;

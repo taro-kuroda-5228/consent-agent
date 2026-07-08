@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleExplainRequest } from './explain-handler';
 import { handleQaRequest } from './qa-handler';
 import { InMemoryConsentSessionRepository, resetInMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
@@ -204,6 +204,97 @@ describe('explain and qa handlers persistence', () => {
     expect(qa.body.answer).not.toContain('renal replacement therapy');
     expect(qa.body.evidenceReferences).toEqual([uploaded.evidenceId]);
     expect(qa.body.supportingSpans?.[0]?.text).toContain('Mesenteric malperfusion');
+  });
+
+  it('persists physician-selected PubMed evidence during explanation so family-link QA can use it later', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const pubmedAkiEvidence: EvidenceCard = {
+      evidenceId: 'PUBMED-42375845',
+      title: 'Incidence and risk factors of acute kidney injury following Stanford type A aortic dissection surgery: a systematic review and meta-analysis.',
+      sourceType: 'Review',
+      claim: 'This PubMed candidate reviews postoperative AKI incidence and risk factors after TAAD surgery.',
+      displayForFamily: '大動脈解離術後の急性腎障害（AKI）の発生率とリスク因子を検討したメタ解析です。',
+      confidence: 'moderate',
+      citation: 'Yang et al. Frontiers in cardiovascular medicine. 2026. PMID: 42375845',
+      pmid: '42375845',
+      origin: 'medevidence-rag',
+      retrievalStatus: 'pubmed-verified',
+      quotedSpan: 'The meta-analysis showed that the overall incidence of postoperative AKI following TAAD was 50.72%. Regarding risk factors, age (per 1-year: OR = 1.03) was associated with postoperative AKI.',
+      sourceUrl: 'https://pubmed.ncbi.nlm.nih.gov/42375845/',
+      clinicianSummary: '術後AKI 50.72%。主なリスク: 高齢。AKI例で短期死亡増加。',
+      keyFindings: [
+        'The meta-analysis showed that the overall incidence of postoperative AKI following TAAD was 50.72%.',
+        'Regarding risk factors, age (per 1-year: OR = 1.03) was associated with postoperative AKI.',
+      ],
+      outcomeTags: ['renal-failure', 'dialysis'],
+      clinicalScope: 'Stanford type A aortic dissection surgery / postoperative AKI',
+    };
+
+    const explained = await handleExplainRequest({
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      selectedEvidenceIds: ['PUBMED-42375845'],
+      customEvidence: [pubmedAkiEvidence],
+    }, repo);
+    expect(explained.status).toBe(200);
+    const sessionId = String(explained.body.sessionId);
+    const persisted = await repo.getSelectedEvidence(sessionId);
+    expect(persisted.map((item) => item.evidenceId)).toEqual(['PUBMED-42375845']);
+
+    const familyQa = await handleQaRequest({
+      sessionId,
+      question: '透析のリスクは？',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      risks: ['腎不全', '透析'],
+    }, repo);
+
+    expect(familyQa.status).toBe(200);
+    if ('error' in familyQa.body) throw new Error(familyQa.body.error);
+    expect(familyQa.body.metadata.selectedEvidenceSource).toBe('database');
+    expect(familyQa.body.answer).toContain('50.72%');
+    expect(familyQa.body.answer).toContain('急性腎障害（AKI）');
+    expect(familyQa.body.answer).not.toContain('直接答えられる記載が見つかりません');
+    expect(familyQa.body.answer).not.toContain('根拠論文:');
+    expect(familyQa.body.evidenceReferences).toEqual(['PUBMED-42375845']);
+  });
+
+  it('answers cost questions immediately without re-downloading physician source PDFs', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const uploaded = createPhysicianUploadedEvidence({
+      title: '2020年改訂版 大動脈瘤・大動脈解離診療ガイドライン（日本循環器学会）',
+      fileName: 'JCS2020_Ogino.pdf',
+      sourceUrl: 'https://www.j-circ.or.jp/cms/wp-content/uploads/2020/07/JCS2020_Ogino.pdf',
+      extractedText: '急性A型大動脈解離では緊急手術を含む迅速な治療判断が重要。死亡、脳梗塞、腎不全、出血が説明対象となる。',
+    });
+    const explained = await handleExplainRequest({
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      selectedEvidenceIds: [uploaded.evidenceId],
+      customEvidence: [uploaded],
+    }, repo);
+    const sessionId = String(explained.body.sessionId);
+
+    const fetchMock = vi.fn(async () => {
+      throw new Error('per-question source refresh must not run for administrative questions');
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    try {
+      const qa = await handleQaRequest({
+        sessionId,
+        question: '手術の費用はどれくらいかかりますか？',
+        diagnosis: '急性A型大動脈解離',
+        plannedSurgery: '上行大動脈人工血管置換術',
+      }, repo);
+
+      expect(qa.status).toBe(200);
+      if ('error' in qa.body) throw new Error(qa.body.error);
+      expect(qa.body.answer).toContain('医事課');
+      expect(qa.body.safetyLabel).toBe('doctor-review');
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('merges request-time physician-selected PubMed evidence into a persisted QA session', async () => {
