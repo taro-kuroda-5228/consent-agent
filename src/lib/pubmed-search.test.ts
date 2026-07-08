@@ -352,8 +352,9 @@ describe("PubMed natural-language evidence search", () => {
       outcomeTags: ["renal-failure", "dialysis"],
     });
 
-    expect(cards[0].clinicianSummary).toContain("Background: Acute kidney injury");
+    expect(cards[0].clinicianSummary).toContain("術後急性腎不全/AKI");
     expect(cards[0].clinicianSummary).not.toContain("<b>");
+    expect(cards[0].clinicianSummary).not.toContain("Background: Acute kidney injury");
   });
 
   it("keeps physician summaries and key findings compact on mobile", () => {
@@ -532,5 +533,39 @@ describe("PubMed natural-language evidence search", () => {
     expect(cards.map((card) => card.evidenceId)).not.toContain("PUBMED-33784934");
     expect(cards[1].clinicianSummary).toContain("ARF");
     expect(cards[1].keyFindings?.join(" ")).not.toMatch(/literature search was performed|This study aimed/i);
+  });
+
+  it("synthesizes Japanese clinician summaries for renal PubMed cards instead of pasting truncated abstract fragments", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "35578281",
+        title: "Acute renal failure after acute type A aortic dissection repair. Insidious postoperative complication with poor short- and long-term prognosis.",
+        abstractText: "Many systems and organs are affected by malperfusion which presents preoperatively and postoperatively. Postoperative acute renal failure after ATAAD constitutes a severe and insidious complication. Acute renal damage is observed in many patients with ATAAD preoperatively and it burdens the renal function postoperatively. Renal replacement therapy represents an additional risk factor for short-, mid-, and long-term outcomes after ATAAD.",
+        journal: "Journal of cardiac surgery",
+        year: "2022",
+        authors: ["Samanidis G"],
+      },
+      {
+        pmid: "37212922",
+        title: "Postoperative nomogram and risk calculator of acute renal failure for Stanford type A aortic dissection surgery.",
+        abstractText: "This study aimed to explore the risk factors of acute renal failure after Stanford type A aortic dissection surgery. The nomogram model could predict the risk of ARF with a sensitivity of 81.3% and a specificity of 78.6%. External data validation was performed with a sensitivity of 79.2% and a specificity of 79.8%. All enrolled patients were divided into the ARF group and non-ARF group.",
+        journal: "General thoracic and cardiovascular surgery",
+        year: "2023",
+        authors: ["Zhang J"],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文", outcomeTags: ["renal-failure", "dialysis"] });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-35578281", "PUBMED-37212922"]);
+    expect(cards[0].clinicianSummary).toContain("術後急性腎不全");
+    expect(cards[0].clinicianSummary).toContain("腎代替療法");
+    expect(cards[0].clinicianSummary).toContain("予後不良");
+    expect(cards[1].clinicianSummary).toContain("術後ARF予測モデル");
+    expect(cards[1].clinicianSummary).toContain("感度81.3%");
+    expect(cards[1].clinicianSummary).toContain("特異度78.6%");
+    for (const card of cards) {
+      const summary = card.clinicianSummary ?? "";
+      expect(summary).not.toMatch(/Renal replacement therapy represents|This study aimed|All enrolled patients|\.\.\.|…/i);
+      expect(summary.length).toBeLessThanOrEqual(170);
+    }
   });
 });
