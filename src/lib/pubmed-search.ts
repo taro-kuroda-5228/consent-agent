@@ -278,9 +278,12 @@ function extractKeyFindings(abstractText: string): string[] {
     .split(/(?<=[.!?。])\s+|(?=\b(?:Background|Methods|Results|Conclusions):)/i)
     .map((sentence) => sentence.trim().replace(/^\.\s*/, ""))
     .filter((sentence, index, all) => sentence.length >= 20 && all.indexOf(sentence) === index);
-  const numericOutcome = sentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b/i.test(sentence));
-  const directOutcome = sentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|renal|kidney|mortality|stroke|bleeding|reoperation|re-exploration|risk|outcome|mesenteric|bowel|intestinal|visceral|ischemia|malperfusion|revascularization|necrotic|\bARDS\b|acute respiratory distress|respiratory failure|pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation|tracheostomy|tracheotomy|spinal cord|paraplegia|intensive care|\bICU\b|length of stay|infection|pneumonia|sepsis/i.test(sentence));
-  return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...sentences]))
+  const methodOnly = (sentence: string) => /\b(?:a literature search was performed|this study aimed|aimed to explore|we aimed to|the aim of this study|methods?:|background:)\b/i.test(sentence);
+  const candidateSentences = sentences.filter((sentence) => !methodOnly(sentence));
+  const numericOutcome = candidateSentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b|sensitivity|specificity/i.test(sentence));
+  const directOutcome = candidateSentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|acute renal failure|\bARF\b|renal|kidney|mortality|stroke|bleeding|reoperation|re-exploration|risk|outcome|mesenteric|bowel|intestinal|visceral|ischemia|malperfusion|revascularization|necrotic|\bARDS\b|acute respiratory distress|respiratory failure|pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation|tracheostomy|tracheotomy|spinal cord|paraplegia|intensive care|\bICU\b|length of stay|infection|pneumonia|sepsis/i.test(sentence));
+  const fallbackSentences = candidateSentences.length > 0 ? [] : sentences;
+  return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...candidateSentences, ...fallbackSentences]))
     .map(compactFindingForMobile)
     .filter(Boolean)
     .slice(0, 3);
@@ -458,6 +461,11 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
     ].filter(Boolean).join("。 ");
     return `${tail}。`;
   }
+  const arfModel = sourceText.match(/(?:nomogram model|risk calculator|predictive model)[^.]{0,120}?(?:acute renal failure|\bARF\b)[^.]{0,180}?sensitivity of (\d+(?:\.\d+)?%)[^.]{0,80}?specificity of (\d+(?:\.\d+)?%)/i)
+    || sourceText.match(/(?:acute renal failure|\bARF\b)[^.]{0,180}?(?:nomogram model|risk calculator|predictive model)[^.]{0,180}?sensitivity of (\d+(?:\.\d+)?%)[^.]{0,80}?specificity of (\d+(?:\.\d+)?%)/i);
+  if (asksRenal && arfModel) {
+    return `術後ARF予測モデル研究。感度${arfModel[1]}、特異度${arfModel[2]}。医師が透析/腎不全リスク説明に使えるか要確認。`;
+  }
 
   const genericSummary = summarizeGenericOutcome(article, keyFindings, context);
   if (genericSummary) return genericSummary;
@@ -492,7 +500,11 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
   if (asksAorticDissection) {
     const hasAorticDissection = /aortic dissection|type a aortic dissection|ataad/.test(combined);
     if (!hasAorticDissection) return Number.NEGATIVE_INFINITY;
+    const explicitlyAsksTypeB = /type\s*b|stanford\s*b|b型/i.test(context.originalQuery);
+    const consentDefaultTypeAContext = !explicitlyAsksTypeB && /type\s*b|stanford\s*b|b型/.test(combined) && !/type\s*a|stanford\s*a|\bataad\b|acute type a/.test(combined);
+    if (consentDefaultTypeAContext) return Number.NEGATIVE_INFINITY;
     score += /aortic dissection|type a aortic dissection|ataad/.test(title) ? 8 : 3;
+    if (/type\s*a|stanford\s*a|\bataad\b|acute type a/.test(title)) score += 3;
   }
   const asksPostoperativeOrSurgical = /術後|手術|postoperative|surgery|surgical|repair|procedure|operation/i.test(context.originalQuery);
   if (asksPostoperativeOrSurgical) {
@@ -517,9 +529,13 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     if (answerSentence) score += 8;
   }
   if (asksRenal) {
-    const hasRenal = /dialysis|renal replacement|acute kidney injury|renal failure|kidney injury|postoperative renal/.test(combined);
+    const hasRenal = /dialysis|renal replacement|acute kidney injury|acute renal failure|\barf\b|renal failure|kidney injury|postoperative renal/.test(combined);
     if (!hasRenal) return Number.NEGATIVE_INFINITY;
-    score += /dialysis|renal replacement|acute kidney injury|renal failure|kidney injury/.test(title) ? 10 : 4;
+    const asksDialysis = /透析|dialysis/i.test(context.originalQuery) || context.outcomeTags.includes("dialysis");
+    const hasDirectDialysis = /dialysis|renal replacement/.test(combined);
+    score += /dialysis|renal replacement|acute kidney injury|acute renal failure|renal failure|kidney injury/.test(title) ? 10 : 4;
+    if (asksDialysis && hasDirectDialysis) score += 6;
+    if (asksDialysis && !hasDirectDialysis) score -= 4;
   }
   if (asksMesenteric) {
     const titleFocusesOtherBed = /lower limb|leg |renal|kidney|cerebral|brain|stroke|coronary|myocardial/.test(title)
@@ -606,6 +622,24 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
   return score;
 }
 
+function evidenceTagsForArticle(article: PubMedArticle, requestedTags: string[]): string[] {
+  const combined = `${article.title} ${article.abstractText}`.toLowerCase();
+  const tags: string[] = [];
+  for (const tag of requestedTags) {
+    if (tag === "dialysis") {
+      if (/dialysis|renal replacement/.test(combined)) tags.push(tag);
+      continue;
+    }
+    if (tag === "renal-failure") {
+      if (/dialysis|renal replacement|acute kidney injury|\baki\b|acute renal failure|\barf\b|renal failure|kidney injury|postoperative renal/.test(combined)) tags.push(tag);
+      continue;
+    }
+    const topic = OUTCOME_TOPICS.find((item) => item.tags.includes(tag));
+    if (!topic || topic.answerPattern.test(combined) || topic.titleFocusPattern.test(combined)) tags.push(tag);
+  }
+  return Array.from(new Set(tags.length ? tags : requestedTags));
+}
+
 export function convertPubMedArticlesToEvidenceCards(
   articles: PubMedArticle[],
   context: { originalQuery: string; outcomeTags: string[] },
@@ -637,7 +671,7 @@ export function convertPubMedArticlesToEvidenceCards(
       retrievalStatus: "pubmed-verified",
       clinicianSummary,
       keyFindings,
-      outcomeTags: Array.from(new Set(context.outcomeTags)),
+      outcomeTags: evidenceTagsForArticle(article, context.outcomeTags),
       clinicalScope: `PubMed natural-language evidence search: ${context.originalQuery}`,
     } satisfies EvidenceCard;
   });

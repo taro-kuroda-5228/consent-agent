@@ -499,4 +499,38 @@ describe("PubMed natural-language evidence search", () => {
     expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-strong"]);
     expect(cards[0].clinicianSummary).toContain("8.2%");
   });
+
+  it("does not surface type B or method-only renal papers for the default acute type A consent context", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "33784934",
+        title: "Outcomes and risk management in type B aortic dissection patients with acute kidney injury: a concise review.",
+        abstractText: "A literature search was performed using PubMed, Embase, MEDLINE. AKI in type B aortic dissection is a well-recognized complication and indicates poor short-term and long-term outcome.",
+        journal: "Renal failure",
+        year: "2021",
+        authors: ["Chen J"],
+      },
+      {
+        pmid: "37212922",
+        title: "Postoperative nomogram and risk calculator of acute renal failure for Stanford type A aortic dissection surgery.",
+        abstractText: "This study aimed to explore the risk factors of acute renal failure after Stanford type A aortic dissection surgery. The nomogram model could predict the risk of ARF with a sensitivity of 81.3% and a specificity of 78.6%. External data validation was performed with a sensitivity of 79.2% and a specificity of 79.8%.",
+        journal: "General thoracic and cardiovascular surgery",
+        year: "2023",
+        authors: ["Zhang J"],
+      },
+      {
+        pmid: "strong",
+        title: "Dialysis-requiring acute kidney injury after surgery for acute type A aortic dissection.",
+        abstractText: "Postoperative dialysis was required in 8.2% of patients after acute type A aortic dissection repair.",
+        journal: "Aorta",
+        year: "2024",
+        authors: [],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて言及している", outcomeTags: ["renal-failure", "dialysis"] });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-strong", "PUBMED-37212922"]);
+    expect(cards.map((card) => card.evidenceId)).not.toContain("PUBMED-33784934");
+    expect(cards[1].clinicianSummary).toContain("ARF");
+    expect(cards[1].keyFindings?.join(" ")).not.toMatch(/literature search was performed|This study aimed/i);
+  });
 });

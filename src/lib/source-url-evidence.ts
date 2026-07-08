@@ -226,9 +226,11 @@ export function splitIntoSourceChunks(sourceText: string): SourceChunk[] {
 
 function isTocOrReferenceLikeChunk(chunk: SourceChunk): boolean {
   const snippet = chunk.text;
+  const repeatedJapaneseNamePairs = snippet.match(/[一-龠]{1,4}\s+[一-龠]{1,4}\s+[一-龠]{1,4}\s+[一-龠]{1,4}/g)?.length ?? 0;
   return (
     (chunk.page !== undefined && (chunk.page <= 12 || chunk.page >= 180)) ||
-    /\bPMID\b|文献|References/i.test(snippet) ||
+    /\bPMID\b|文献|References|出典元リンクでfact check/i.test(snippet) ||
+    (repeatedJapaneseNamePairs >= 4 && !/急性A型|大動脈解離|腎不全|透析|脳梗塞|出血|合併症|緊急手術|治療|推奨/.test(snippet)) ||
     (snippet.match(/\bPQ\s*\d+/g)?.length ?? 0) >= 2 ||
     (snippet.match(/\b\d{1,3}\b/g)?.length ?? 0) >= 120
   );
