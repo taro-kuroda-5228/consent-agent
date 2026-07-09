@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAutoPhysicianUrlEvidence } from "../../../../lib/consent-demo";
 import {
   extractPdfText,
+  extractSourceUrlText,
   fetchSourceUrl,
   normalizePhysicianSourceUrl,
   selectRelevantEvidenceText,
 } from "../../../../lib/source-url-evidence";
+import { createDefaultConsentSessionRepository } from "../../../../lib/repositories/default-consent-session-repository";
 import { inspectEvidenceUploadText } from "../../../../lib/storage/evidence-upload";
 
 export const runtime = "nodejs";
@@ -35,7 +37,31 @@ export async function POST(req: NextRequest) {
     let fileSize: number;
     let fileType: string;
 
-    if (file instanceof File) {
+    let extractedText = "";
+    let extractionStatus: "extracted" | "needs-manual-review" = "needs-manual-review";
+    let warning: string | undefined;
+
+    if (sourceUrl) {
+      try {
+        const extracted = await extractSourceUrlText(sourceUrl, "", createDefaultConsentSessionRepository());
+        fileName = extracted.fileName;
+        fileSize = extracted.fileSize;
+        fileType = extracted.contentType;
+        extractedText = extracted.extractedText;
+        extractionStatus = extractedText ? "extracted" : "needs-manual-review";
+        if (!extractedText) {
+          warning = "URL/PDFからテキストを抽出できませんでした。スキャンPDFの場合は医師が本文/要約を貼り付けてください。";
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("Source URL extraction failed:", message);
+        warning = `URL/PDF抽出に失敗しました: ${message}。医師が本文/要約を貼り付けて確認してください。`;
+        const fetched = await fetchSourceUrl(sourceUrl);
+        fileName = fetched.fileName;
+        fileSize = fetched.buffer.byteLength;
+        fileType = fetched.contentType;
+      }
+    } else if (file instanceof File) {
       if (file.size > MAX_UPLOAD_BYTES) {
         return NextResponse.json({ error: "file is too large", maxBytes: MAX_UPLOAD_BYTES }, { status: 413 });
       }
@@ -43,35 +69,27 @@ export async function POST(req: NextRequest) {
       fileName = file.name;
       fileSize = file.size;
       fileType = file.type;
-    } else {
-      const fetched = await fetchSourceUrl(sourceUrl);
-      buffer = fetched.buffer;
-      fileName = fetched.fileName;
-      fileSize = buffer.byteLength;
-      fileType = fetched.contentType;
-    }
 
-    let extractedText = "";
-    let extractionStatus: "extracted" | "needs-manual-review" = "needs-manual-review";
-    let warning: string | undefined;
-
-    if (fileType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
-      try {
-        extractedText = selectRelevantEvidenceText(await extractPdfText(buffer));
-        extractionStatus = extractedText ? "extracted" : "needs-manual-review";
-        if (!extractedText) {
-          warning = "PDFからテキストを抽出できませんでした。スキャンPDFの場合は医師が本文/要約を貼り付けてください。";
+      if (fileType === "application/pdf" || fileName.toLowerCase().endsWith(".pdf")) {
+        try {
+          extractedText = selectRelevantEvidenceText(await extractPdfText(buffer));
+          extractionStatus = extractedText ? "extracted" : "needs-manual-review";
+          if (!extractedText) {
+            warning = "PDFからテキストを抽出できませんでした。スキャンPDFの場合は医師が本文/要約を貼り付けてください。";
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.error("PDF extraction failed:", message);
+          warning = `PDF抽出に失敗しました: ${message}。医師が本文/要約を貼り付けて確認してください。`;
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error("PDF extraction failed:", message);
-        warning = `PDF抽出に失敗しました: ${message}。医師が本文/要約を貼り付けて確認してください。`;
+      } else if (fileType.startsWith("text/") || fileName.toLowerCase().endsWith(".txt")) {
+        extractedText = selectRelevantEvidenceText(buffer.toString("utf8"));
+        extractionStatus = extractedText ? "extracted" : "needs-manual-review";
+      } else {
+        warning = "PDFまたはテキストファイルのみを対象にしています。本文を手入力してください。";
       }
-    } else if (fileType.startsWith("text/") || fileName.toLowerCase().endsWith(".txt")) {
-      extractedText = selectRelevantEvidenceText(buffer.toString("utf8"));
-      extractionStatus = extractedText ? "extracted" : "needs-manual-review";
     } else {
-      warning = "PDFまたはテキストファイルのみを対象にしています。本文を手入力してください。";
+      return NextResponse.json({ error: "file or sourceUrl is required" }, { status: 400 });
     }
 
     const evidenceCard = sourceUrl && (extractedText || isKnownPublicGuidelineUrl(sourceUrl))

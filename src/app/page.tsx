@@ -806,6 +806,17 @@ export default function ConsentAgent() {
                         {item.retrievalStatus === "pubmed-verified" && (
                           <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>
                         )}
+                        {item.physicianReviewTierLabel && item.physicianReviewTier !== "exclude-recommended" && (
+                          <Badge className={`text-[10px] ${
+                            item.physicianReviewTier === "adopt-candidate"
+                              ? "bg-green-600 text-white"
+                              : item.physicianReviewTier === "reference-only"
+                                ? "bg-amber-100 text-amber-900"
+                                : "bg-red-100 text-red-800"
+                          }`}>
+                            {item.physicianReviewTierLabel}
+                          </Badge>
+                        )}
                         <button
                           type="button"
                           onClick={() => deleteEvidence(item.evidenceId)}
@@ -824,6 +835,11 @@ export default function ConsentAgent() {
                           医師向け要約: {item.clinicianSummary}
                         </p>
                       )}
+                      {item.physicianReviewReason && (
+                        <p className="rounded-lg bg-white/70 px-2 py-1 text-[11px] font-semibold leading-relaxed text-slate-700">
+                          判定理由: {item.physicianReviewReason}
+                        </p>
+                      )}
                       {item.outcomeTags && item.outcomeTags.length > 0 && (
                         <div className="flex flex-wrap gap-1">
                           {item.outcomeTags.map((tag) => (
@@ -834,11 +850,14 @@ export default function ConsentAgent() {
                         </div>
                       )}
                       {item.keyFindings && item.keyFindings.length > 0 && (
-                        <ul className="list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-gray-600">
-                          {item.keyFindings.map((finding) => (
-                            <li key={finding}>{finding}</li>
-                          ))}
-                        </ul>
+                        <div>
+                          <p className="text-[11px] font-bold text-slate-700">主要所見</p>
+                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-gray-600">
+                            {item.keyFindings.map((finding) => (
+                              <li key={finding}>{finding}</li>
+                            ))}
+                          </ul>
+                        </div>
                       )}
                       <p className="text-[11px] leading-relaxed text-gray-600">家族向け: {item.displayForFamily}</p>
                       <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
