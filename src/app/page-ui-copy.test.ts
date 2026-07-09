@@ -13,11 +13,13 @@ const renderScreen2Source = pageSource.slice(
   pageSource.indexOf("const renderScreen3 = () =>"),
 );
 const familyExplanationSource = readSource("src/app/family/[caseId]/page.tsx");
+const doctorSummarySource = readSource("src/app/doctor/[caseId]/summary/page.tsx");
+const globalCssSource = readSource("src/app/globals.css");
 const visibleAppSources = [
   pageSource,
   familyExplanationSource,
   readSource("src/app/family/[caseId]/qa/page.tsx"),
-  readSource("src/app/doctor/[caseId]/summary/page.tsx"),
+  doctorSummarySource,
 ].join("\n");
 
 describe("mobile demo UI copy and CTA readability", () => {
@@ -260,5 +262,19 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).toContain("concerns: concerns.trim()");
     expect(pageSource).toContain("intent: \"undecided\"");
     expect(pageSource).toContain("familyToken: familyToken ?? undefined");
+  });
+
+  it("keeps the session doctor summary readable on narrow mobile screens", () => {
+    expect(doctorSummarySource).toContain("flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between");
+    expect(doctorSummarySource).toContain("flex flex-wrap items-center gap-2 sm:justify-end");
+    expect(doctorSummarySource).toContain("h-auto max-w-full justify-start whitespace-normal text-left leading-relaxed");
+    expect(doctorSummarySource).toContain("text-sm flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center");
+    expect(doctorSummarySource).toContain("data-testid=\"doctor-summary-decision-title\"");
+    expect(doctorSummarySource).not.toContain("<div className=\"flex items-center justify-between\">");
+  });
+
+  it("keeps selected text readable on the light doctor summary background", () => {
+    expect(globalCssSource).toContain("::selection");
+    expect(globalCssSource).toContain("color: #0f172a;");
   });
 });

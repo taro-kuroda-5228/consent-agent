@@ -47,6 +47,9 @@ const ANXIETY_LABELS: Record<string, string> = {
   high: "強い不安あり",
 };
 
+const MOBILE_SAFE_BADGE_CLASS =
+  "h-auto max-w-full justify-start whitespace-normal text-left leading-relaxed sm:whitespace-nowrap";
+
 export default function DoctorSummary() {
   const params = useParams();
   const sessionId = params.caseId as string;
@@ -159,18 +162,18 @@ export default function DoctorSummary() {
       </header>
 
       <div className="max-w-4xl mx-auto p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0 space-y-1">
             <h2 className="text-lg font-bold">医師用サマリー</h2>
-            <p className="text-xs text-gray-500">
+            <p className="break-words text-xs leading-relaxed text-gray-500">
               {view.diagnosis} / {view.plannedSurgery}
             </p>
           </div>
-          <div className="flex items-center gap-2">
-            <Badge className="bg-emerald-100 text-emerald-800 border-emerald-200 text-xs px-3 py-1">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+            <Badge className={`bg-emerald-100 text-emerald-800 border-emerald-200 text-xs px-3 py-1 ${MOBILE_SAFE_BADGE_CLASS}`}>
               🟢 ライブ更新中（5秒間隔）
             </Badge>
-            <Badge className="bg-red-100 text-red-800 border-red-200 text-xs px-3 py-1">
+            <Badge className={`bg-red-100 text-red-800 border-red-200 text-xs px-3 py-1 ${MOBILE_SAFE_BADGE_CLASS}`}>
               🔴 医師確認：必須
             </Badge>
           </div>
@@ -180,14 +183,16 @@ export default function DoctorSummary() {
         {decision ? (
           <Card className={decision.decision === "consent_ready" ? "border-green-400 bg-green-50" : "border-amber-400 bg-amber-50"}>
             <CardHeader className="pb-1 pt-3 px-4">
-              <CardTitle className="text-sm flex items-center gap-2">
-                {decision.decision === "consent_ready" ? "✅ AI判定: 同意確認へ進められる状態" : "🧑‍⚕️ AI判定: 医師フォローアップが必要"}
+              <CardTitle className="text-sm flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center" data-testid="doctor-summary-decision-title">
+                <span className="break-words leading-relaxed">
+                  {decision.decision === "consent_ready" ? "✅ AI判定: 同意確認へ進められる状態" : "🧑‍⚕️ AI判定: 医師フォローアップが必要"}
+                </span>
                 {view.intent && (
-                  <Badge className={`text-xs ${INTENT_LABELS[view.intent.statedIntent]?.color}`}>
+                  <Badge className={`text-xs ${INTENT_LABELS[view.intent.statedIntent]?.color} ${MOBILE_SAFE_BADGE_CLASS}`}>
                     家族: {INTENT_LABELS[view.intent.statedIntent]?.label}
                   </Badge>
                 )}
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className={`text-xs ${MOBILE_SAFE_BADGE_CLASS}`}>
                   不安レベル: {ANXIETY_LABELS[view.anxietyLevel]}
                 </Badge>
               </CardTitle>
@@ -286,10 +291,10 @@ export default function DoctorSummary() {
             <CardContent className="px-4 pb-3 space-y-2">
               {view.qaLog.map((entry, i) => (
                 <div key={i} className="border rounded-lg p-2.5">
-                  <p className="text-sm font-medium">Q: {entry.question}</p>
-                  <p className="text-xs text-gray-600 mt-1">A: {entry.answer}</p>
+                  <p className="break-words text-sm font-medium leading-relaxed">Q: {entry.question}</p>
+                  <p className="mt-1 break-words text-sm leading-relaxed text-gray-600">A: {entry.answer}</p>
                   {entry.escalated && (
-                    <Badge className="mt-1 bg-red-100 text-red-800 text-[10px]">選択済み根拠で回答不可 → 医師対応</Badge>
+                    <Badge className={`mt-1 bg-red-100 text-red-800 text-[10px] ${MOBILE_SAFE_BADGE_CLASS}`}>選択済み根拠で回答不可 → 医師対応</Badge>
                   )}
                 </div>
               ))}

@@ -35,4 +35,5 @@ input {
 
 ::selection {
   background: rgba(103, 232, 249, 0.35);
+  color: #0f172a;
 }
