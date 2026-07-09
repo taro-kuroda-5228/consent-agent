@@ -7,7 +7,7 @@ import type { ConsentSessionRepository } from '../repositories/consent-session-r
 export type ExplainHandlerInput = {
   diagnosis: string;
   plannedSurgery: string;
-  risks?: string[];
+  risks?: string[] | string;
   urgency?: string;
   purpose?: string;
   cardiopulmonaryBypass?: boolean;
@@ -17,6 +17,21 @@ export type ExplainHandlerInput = {
   customEvidence?: EvidenceCard[];
   sessionId?: string;
 };
+
+export function normalizeRiskInput(risks: unknown): string[] {
+  if (Array.isArray(risks)) {
+    return risks
+      .filter((risk): risk is string => typeof risk === 'string' && risk.trim().length > 0)
+      .map((risk) => risk.trim());
+  }
+  if (typeof risks === 'string') {
+    return risks
+      .split(/[、,\n]/)
+      .map((risk) => risk.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
 
 export async function handleExplainRequest(input: ExplainHandlerInput, repository: ConsentSessionRepository = inMemoryConsentSessionRepository) {
   if (!input.diagnosis || !input.plannedSurgery) {
@@ -42,13 +57,14 @@ export async function handleExplainRequest(input: ExplainHandlerInput, repositor
     input.selectedEvidenceIds,
   );
   const evidenceTransparency = buildEvidenceTransparency(selectedEvidence);
+  const risks = normalizeRiskInput(input.risks);
   await repository.saveSelectedEvidence({ sessionId: session.id, selectedEvidence });
 
   try {
     const explanation = await generateExplanation({
       diagnosis: input.diagnosis,
       plannedSurgery: input.plannedSurgery,
-      risks: input.risks || [],
+      risks,
       urgency: input.urgency || '',
       purpose: input.purpose || '',
       cardiopulmonaryBypass: input.cardiopulmonaryBypass ?? false,

@@ -18,6 +18,27 @@ describe('explain and qa handlers persistence', () => {
     expect(summary?.events[0].eventType).toBe('explanation_generated');
   });
 
+  it('accepts physician intake risks sent as a free-text textarea string', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const explained = await handleExplainRequest({
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      risks: '出血、脳梗塞\n臓器障害',
+      selectedEvidenceIds: ['FAC-001'],
+    }, repo);
+
+    expect(explained.status).toBe(200);
+    const sessionId = String(explained.body.sessionId);
+    const qa = await handleQaRequest({
+      sessionId,
+      question: '手術しない場合はどうなりますか？',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      risks: '出血、脳梗塞\n臓器障害',
+    }, repo);
+    expect(qa.status).toBe(200);
+  });
+
   it('uses database-selected evidence over conflicting request evidence in QA', async () => {
     const repo = new InMemoryConsentSessionRepository();
     const explained = await handleExplainRequest({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術', selectedEvidenceIds: ['AAD-004'] }, repo);
