@@ -3,12 +3,13 @@ import { resolveEvidenceSelectionForRequest, resolveNonEvidenceQAResult, retriev
 import { refreshPhysicianSourceEvidenceSetForQuestion } from '../source-url-evidence';
 import { inMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
 import type { ConsentSessionRepository } from '../repositories/consent-session-repository';
+import { normalizeRiskInput } from './explain-handler';
 
 export type QaHandlerInput = {
   question: string;
   diagnosis?: string;
   plannedSurgery?: string;
-  risks?: string[];
+  risks?: string[] | string;
   selectedEvidenceIds?: string[];
   customEvidence?: EvidenceCard[];
   facilityAnswerTemplates?: unknown[];
@@ -70,10 +71,11 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
     result = nonEvidenceResult;
   } else {
     selectedEvidence = await refreshPhysicianSourceEvidenceSetForQuestion(selectedEvidence, input.question, repository);
+    const risks = normalizeRiskInput(input.risks);
     result = await generateQA(input.question, {
       diagnosis: input.diagnosis || '',
       plannedSurgery: input.plannedSurgery || '',
-      risks: input.risks || [],
+      risks,
       selectedEvidence,
       facilityAnswerTemplates,
     });
