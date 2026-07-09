@@ -693,6 +693,14 @@ describe("PubMed natural-language evidence search", () => {
         authors: [],
       },
       {
+        pmid: "composite-dialysis-endpoint",
+        title: "A tailored strategy for repair of acute type A aortic dissection.",
+        abstractText: "A composite of major adverse events (operative mortality, myocardial infarction, stroke, dialysis, or tracheostomy) was higher in the conservative group (15.1% vs 5.9%; P = .03).",
+        journal: "The Journal of thoracic and cardiovascular surgery",
+        year: "2022",
+        authors: [],
+      },
+      {
         pmid: "adopt-dialysis",
         title: "Dialysis-requiring acute kidney injury after surgery for acute type A aortic dissection.",
         abstractText: "Postoperative dialysis was required in 8.2% of patients after acute type A aortic dissection repair. Dialysis-requiring renal failure was associated with increased mortality.",
