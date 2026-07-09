@@ -611,4 +611,105 @@ describe("PubMed natural-language evidence search", () => {
       expect(summary.length).toBeLessThanOrEqual(170);
     }
   });
+
+  it("builds structured Japanese physician summaries for generic answer-bearing PubMed outcome papers", () => {
+    const plan = buildPubMedNaturalLanguageSearch("大動脈解離の死亡率について言及している論文");
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "mortality-review",
+        title: "Mortality in acute type A aortic dissection - A systematic review based on contemporary registries.",
+        abstractText: "We included registry-based studies reporting in-hospital, 30-day, operative or 48-hour mortality following ATAAD. In-hospital mortality ranged from 5% to 29%. Thirty-day mortality ranged from 9% to 31%.",
+        journal: "Romanian journal of internal medicine",
+        year: "2025",
+        authors: ["Matei R"],
+      },
+    ], { originalQuery: plan.originalQuery, outcomeTags: plan.outcomeTags });
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].clinicianSummary).toContain("システマティックレビュー");
+    expect(cards[0].clinicianSummary).toContain("院内死亡5–29%");
+    expect(cards[0].clinicianSummary).toContain("30日死亡9–31%");
+    expect(cards[0].clinicianSummary).toContain("医師確認");
+    expect(cards[0].clinicianSummary).not.toMatch(/^死亡率に関するPubMed候補|We included registry|要点:/i);
+    expect(cards[0].clinicianSummary?.length).toBeLessThanOrEqual(170);
+  });
+
+  it("extracts design, frequency, and risk-factor gist without hardcoding a specific outcome", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "stroke-risk",
+        title: "Postoperative stroke in acute type A aortic dissection repair: incidence, predictors, and outcomes.",
+        abstractText: "A retrospective cohort study included 512 patients undergoing acute type A aortic dissection repair. Postoperative stroke occurred in 13.6% of patients. Independent predictors included preoperative malperfusion, prolonged cardiopulmonary bypass time, and arch replacement. Stroke was associated with increased operative mortality.",
+        journal: "Aorta",
+        year: "2025",
+        authors: ["Kobayashi T"],
+      },
+    ], { originalQuery: "大動脈解離術後の脳卒中リスクについて言及している論文", outcomeTags: ["stroke", "neurologic-dysfunction"] });
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].clinicianSummary).toContain("後ろ向きコホート");
+    expect(cards[0].clinicianSummary).toContain("術後脳卒中13.6%");
+    expect(cards[0].clinicianSummary).toMatch(/malperfusion|CPB|弓部置換/);
+    expect(cards[0].clinicianSummary).toContain("死亡");
+    expect(cards[0].clinicianSummary).not.toMatch(/^要点:|A retrospective cohort study|Independent predictors included/i);
+    expect(cards[0].clinicianSummary?.length).toBeLessThanOrEqual(170);
+  });
+
+  it("summarizes qualitative mechanism/review papers without falling back to vague PubMed-candidate text", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "stroke-review",
+        title: "Cerebral Protection Strategies and Stroke in Surgery for Acute Type A Aortic Dissection.",
+        abstractText: "Perioperative stroke remains a devastating complication in the operative treatment of acute type A aortic dissection. To reduce the risk of perioperative stroke, different perfusion techniques can be applied. Arterial cannulation sites with antegrade perfusion in combination with moderate hypothermia seem to be advantageous.",
+        journal: "Aorta",
+        year: "2023",
+        authors: ["Tanaka H"],
+      },
+    ], { originalQuery: "大動脈解離術後の脳卒中リスクについて言及している論文", outcomeTags: ["stroke", "neurologic-dysfunction"] });
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].clinicianSummary).toContain("脳保護/灌流戦略");
+    expect(cards[0].clinicianSummary).toMatch(/カニュレーション|順行性灌流|低体温/);
+    expect(cards[0].clinicianSummary).not.toMatch(/主要所見を医師が確認|PubMed候補|Perioperative stroke remains/i);
+    expect(cards[0].clinicianSummary?.length).toBeLessThanOrEqual(170);
+  });
+
+  it("keeps off-domain and outcome-mismatch PubMed cards visible only as reference/exclude tiers, never as adoption candidates", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "off-domain-aneurysm",
+        title: "Dialysis after elective abdominal aortic aneurysm repair.",
+        abstractText: "Dialysis was required in 8.2% after elective abdominal aneurysm surgery. The study does not include aortic dissection.",
+        journal: "Vascular surgery",
+        year: "2022",
+        authors: [],
+      },
+      {
+        pmid: "outcome-mismatch-aki",
+        title: "Acute kidney injury after acute type A aortic dissection repair: incidence and risk factors.",
+        abstractText: "Postoperative acute kidney injury occurred in 50.7% after acute type A aortic dissection repair. Dialysis or renal replacement therapy was not reported.",
+        journal: "Renal failure",
+        year: "2023",
+        authors: [],
+      },
+      {
+        pmid: "adopt-dialysis",
+        title: "Dialysis-requiring acute kidney injury after surgery for acute type A aortic dissection.",
+        abstractText: "Postoperative dialysis was required in 8.2% of patients after acute type A aortic dissection repair. Dialysis-requiring renal failure was associated with increased mortality.",
+        journal: "Aorta",
+        year: "2024",
+        authors: [],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文", outcomeTags: ["renal-failure", "dialysis"] });
+
+    expect(cards.map((card) => [card.evidenceId, card.physicianReviewTierLabel])).toEqual([
+      ["PUBMED-adopt-dialysis", "採用候補"],
+      ["PUBMED-outcome-mismatch-aki", "参考止まり"],
+    ]);
+    expect(cards.map((card) => card.evidenceId)).not.toContain("PUBMED-off-domain-aneurysm");
+    expect(cards.some((card) => card.physicianReviewTierLabel === "除外推奨")).toBe(false);
+    expect(cards[0].outcomeTags).toContain("dialysis");
+    expect(cards[1].outcomeTags).not.toContain("dialysis");
+    expect(cards[1].physicianReviewReason).toContain("透析/腎代替療法の直接記載が弱い");
+  });
 });

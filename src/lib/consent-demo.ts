@@ -30,6 +30,9 @@ export type EvidenceCard = {
   outcomeTags?: string[];
   clinicalScope?: string;
   uploadedFileName?: string;
+  physicianReviewTier?: "adopt-candidate" | "reference-only" | "exclude-recommended";
+  physicianReviewTierLabel?: "採用候補" | "参考止まり" | "除外推奨";
+  physicianReviewReason?: string;
 };
 
 export type FacilityAnswerTemplate = {
@@ -379,19 +382,21 @@ export function createPhysicianUploadedEvidence(input: {
     .toString()
     .padStart(5, "0");
   const excerpt = normalizedText.slice(0, 220);
+  const cleanedFindings = sanitizeUploadKeyFindings(input.keyFindings?.length ? input.keyFindings.join(" ") : normalizedText || input.clinicianSummary || safeTitle);
+  const review = classifyUploadedEvidenceForPhysicianReview(cleanedFindings, normalizedText, safeTitle);
   const summary = redactInlinePatientIdentifiers(
-    input.clinicianSummary?.trim() || `${safeTitle}。医師がアップロードし、家族説明で引用可能と確認した資料。`,
+    input.clinicianSummary?.trim() || `${safeTitle}。医師がアップロードし、家族説明で引用可能と確認した資料。${review.tier === "adopt-candidate" && cleanedFindings.length > 0 && cleanedFindings.join(" ") !== normalizedText ? " ノイズ除去後の本文記載を優先しています。" : ""}`,
   );
   const keyFindings = input.keyFindings?.length
     ? input.keyFindings.map(redactInlinePatientIdentifiers)
-    : (excerpt ? [excerpt] : [summary]);
+    : (review.tier === "exclude-recommended" ? [summary] : (cleanedFindings.length ? cleanedFindings : [summary]));
 
   return {
     evidenceId: `UP-${fingerprint}`,
     title: safeTitle,
     sourceType: "Uploaded",
     claim: normalizedText || summary,
-    displayForFamily: excerpt || summary,
+    displayForFamily: keyFindings[0] || excerpt || summary,
     confidence: "moderate",
     citation: `医師アップロード資料: ${safeFileName}`,
     pmid: "非PubMed/医師アップロード",
@@ -402,8 +407,47 @@ export function createPhysicianUploadedEvidence(input: {
     clinicalScope: redactInlinePatientIdentifiers(input.clinicalScope?.trim() || "医師確認済みアップロード資料 / physician-curated upload"),
     clinicianSummary: summary,
     keyFindings,
-    quotedSpan: excerpt || summary,
+    quotedSpan: keyFindings[0] || excerpt || summary,
     outcomeTags: input.outcomeTags?.length ? input.outcomeTags : inferOutcomeTags(normalizedText || summary),
+    physicianReviewTier: review.tier,
+    physicianReviewTierLabel: review.label,
+    physicianReviewReason: review.reason,
+  };
+}
+
+function sanitizeUploadKeyFindings(text: string): string[] {
+  const normalized = redactInlinePatientIdentifiers(text.replace(/\s+/g, " ").trim());
+  const firstClinicalIndex = normalized.search(/急性|Stanford|大動脈|手術|死亡|脳|腎|出血|術後|risk|complication/i);
+  const clinicalSlice = firstClinicalIndex >= 0 ? normalized.slice(firstClinicalIndex) : normalized;
+  const withoutLeadNoise = clinicalSlice
+    .replace(/(?:目次|contents|文献|references?|PMID\s*\d+|著者一覧|表\s*\d+|Table\s*\d+)/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const sentences = withoutLeadNoise
+    .split(/[。!?]|\.(?=\s+[A-Z\u3040-\u30ff\u3400-\u9fff]|$)/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence.length >= 18)
+    .filter((sentence) => !/^(?:目次|contents|references?|文献|著者一覧|表\s*\d+)/i.test(sentence))
+    .filter((sentence) => !/(?:PMID\s*\d+|References?|著者一覧)/i.test(sentence));
+  return sentences.slice(0, 3).map((sentence) => /[。.!?]$/.test(sentence) ? sentence : `${sentence}。`);
+}
+
+function classifyUploadedEvidenceForPhysicianReview(
+  keyFindings: string[],
+  normalizedText: string,
+  safeTitle: string,
+): { tier: NonNullable<EvidenceCard["physicianReviewTier"]>; label: NonNullable<EvidenceCard["physicianReviewTierLabel"]>; reason: string } {
+  const usableText = keyFindings.join(" ");
+  if (!usableText || usableText.length < 18 || !/(大動脈解離|急性|手術|死亡|脳|腎|出血|術後|risk|complication)/i.test(usableText + safeTitle)) {
+    return { tier: "exclude-recommended", label: "除外推奨", reason: "本文根拠として使える記載が不足しています。目次・文献・著者一覧などの抽出ノイズは患者説明根拠に使わないでください。" };
+  }
+  const wasNoisy = /(目次|contents|references?|文献|PMID\s*\d+|著者一覧|表\s*\d+)/i.test(normalizedText);
+  return {
+    tier: "adopt-candidate",
+    label: "採用候補",
+    reason: wasNoisy
+      ? "目次・文献リストなどのノイズを除き、本文中の患者説明に使える記載を採用候補にしています。"
+      : "医師アップロード資料の本文記載を患者説明根拠の採用候補にしています。",
   };
 }
 

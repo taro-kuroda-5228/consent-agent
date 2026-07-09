@@ -76,7 +76,6 @@ const SAFETY_LABEL_MAP: Record<string, { label: string; color: string }> = {
   "facility-template": { label: "施設確認済み", color: "bg-violet-100 text-violet-900" },
   "doctor-review": { label: "医師確認が必要", color: "bg-red-100 text-red-800" },
   "individual-prognosis": { label: "個別予後は断定不可", color: "bg-orange-100 text-orange-800" },
-  "consent-guidance": { label: "同意誘導禁止", color: "bg-purple-100 text-purple-800" },
 };
 
 const FAQ = [
@@ -661,9 +660,6 @@ export default function ConsentAgent() {
             PubMedを内容でAI検索
           </summary>
           <div className="mt-3 space-y-3">
-            <p className="text-[11px] leading-relaxed text-cyan-800">
-              自然文でPubMed候補を検索します。追加した論文だけが患者説明用根拠になります。
-            </p>
             <div className="flex gap-2">
               <Input
                 value={pubMedQuery}
@@ -691,6 +687,17 @@ export default function ConsentAgent() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <Badge className="bg-cyan-100 text-cyan-900 text-[10px]">{candidate.evidenceId}</Badge>
                         <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>
+                        {candidate.physicianReviewTierLabel && candidate.physicianReviewTier !== "exclude-recommended" && (
+                          <Badge className={`text-[10px] ${
+                            candidate.physicianReviewTier === "adopt-candidate"
+                              ? "bg-green-600 text-white"
+                              : candidate.physicianReviewTier === "reference-only"
+                                ? "bg-amber-100 text-amber-900"
+                                : "bg-red-100 text-red-800"
+                          }`}>
+                            {candidate.physicianReviewTierLabel}
+                          </Badge>
+                        )}
                         {candidate.outcomeTags?.map((tag) => (
                           <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{tag}</span>
                         ))}
@@ -699,6 +706,11 @@ export default function ConsentAgent() {
                       <p className="mt-1 rounded-lg bg-cyan-50 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-slate-800">
                         医師向け要約: {candidate.clinicianSummary}
                       </p>
+                      {candidate.physicianReviewReason && (
+                        <p className="mt-1 rounded-lg bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-relaxed text-slate-700">
+                          判定理由: {candidate.physicianReviewReason}
+                        </p>
+                      )}
                       {candidate.keyFindings && candidate.keyFindings.length > 0 && (
                         <div className="mt-2">
                           <p className="text-[11px] font-bold text-slate-700">主要所見</p>
