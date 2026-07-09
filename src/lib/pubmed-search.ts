@@ -311,6 +311,10 @@ function compactFindingForMobile(sentence: string): string {
   return `${normalized.slice(0, 176).trim()}…`;
 }
 
+function hasClinicallySpecificNumber(sentence: string): boolean {
+  return /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b|sensitivity|specificity|\bP\s*[<=>]/i.test(sentence);
+}
+
 function prioritizeKeyFindingsForQuery(keyFindings: string[], article: PubMedArticle, context: { originalQuery: string; outcomeTags: string[] }): string[] {
   const asksDialysis = /透析|dialysis/i.test(context.originalQuery) || context.outcomeTags.includes("dialysis");
   if (!asksDialysis) return keyFindings;
@@ -319,7 +323,8 @@ function prioritizeKeyFindingsForQuery(keyFindings: string[], article: PubMedArt
     .filter((sentence) => /dialysis|renal replacement/i.test(sentence))
     .map(compactFindingForMobile)
     .filter(Boolean);
-  return Array.from(new Set([...dialysisSentences, ...keyFindings])).slice(0, 3);
+  const numericFindings = keyFindings.filter(hasClinicallySpecificNumber);
+  return Array.from(new Set([...dialysisSentences.slice(0, 1), ...numericFindings, ...dialysisSentences.slice(1), ...keyFindings])).slice(0, 3);
 }
 
 function splitClinicalSentences(text: string): string[] {
@@ -602,14 +607,19 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
     ].filter(Boolean).join("。 ");
     return `${tail}。`;
   }
-  if (asksRenal && /renal replacement therapy|dialysis/i.test(sourceText) && /short-|mid-|long-term|poor[^.]{0,60}prognosis|outcomes?|mortality/i.test(sourceText)) {
-    return `${inferJapaneseStudyContext(article)}急性腎不全に関する研究。腎代替療法は短期・中長期予後不良の追加リスクで、術前からの腎障害が術後腎機能を悪化させ得る。`;
-  }
   const arfModel = sourceText.match(/(?:nomogram model|risk calculator|predictive model)[^.]{0,120}?(?:acute renal failure|\bARF\b)[^.]{0,180}?sensitivity of (\d+(?:\.\d+)?%)[^.]{0,80}?specificity of (\d+(?:\.\d+)?%)/i)
     || sourceText.match(/(?:acute renal failure|\bARF\b)[^.]{0,180}?(?:nomogram model|risk calculator|predictive model)[^.]{0,180}?sensitivity of (\d+(?:\.\d+)?%)[^.]{0,80}?specificity of (\d+(?:\.\d+)?%)/i);
   if (asksRenal && arfModel) {
     const validation = sourceText.match(/External data validation[^.]{0,120}?sensitivity of (\d+(?:\.\d+)?%)[^.]{0,80}?specificity of (\d+(?:\.\d+)?%)/i);
     return `${inferJapaneseStudyContext(article)}ARF予測モデル。感度${arfModel[1]}、特異度${arfModel[2]}${validation ? `（外部検証${validation[1]}/${validation[2]}）` : ""}。術後腎不全リスク層別化の根拠候補。`;
+  }
+  if (asksRenal && /renal replacement therapy|dialysis/i.test(sourceText) && /short-|mid-|long-term|poor[^.]{0,60}prognosis|outcomes?|mortality/i.test(sourceText)) {
+    const numericFinding = keyFindings.find(hasClinicallySpecificNumber);
+    if (numericFinding) {
+      const numericGist = compactFindingForMobile(numericFinding).replace(/\.$/, "");
+      return `${inferJapaneseStudyContext(article)}急性腎不全に関する研究。腎代替療法は予後不良の追加リスク。数値所見: ${numericGist.length <= 80 ? numericGist : `${numericGist.slice(0, 76).trim()}…`}。`;
+    }
+    return `${inferJapaneseStudyContext(article)}急性腎不全に関する研究。腎代替療法は短期・中長期予後不良の追加リスクで、術前からの腎障害が術後腎機能を悪化させ得る。`;
   }
 
   const genericSummary = summarizeGenericOutcome(article, keyFindings, context);

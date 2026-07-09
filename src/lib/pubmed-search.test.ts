@@ -612,6 +612,36 @@ describe("PubMed natural-language evidence search", () => {
     }
   });
 
+  it("keeps concrete numeric findings in renal PubMed summaries even when a direct dialysis sentence is also present", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "renal-model-plus-dialysis",
+        title: "Postoperative nomogram and risk calculator of acute renal failure for Stanford type A aortic dissection surgery.",
+        abstractText: "Renal replacement therapy represents an additional risk factor for short-, mid-, and long-term outcomes after ATAAD repair. The nomogram model could predict the risk of ARF with a sensitivity of 81.3% and a specificity of 78.6%. External data validation was performed with a sensitivity of 79.2% and a specificity of 79.8%.",
+        journal: "General thoracic and cardiovascular surgery",
+        year: "2023",
+        authors: ["Zhang J"],
+      },
+      {
+        pmid: "renal-outcome-plus-frequency",
+        title: "Renal replacement therapy and outcomes after acute type A aortic dissection repair.",
+        abstractText: "Renal replacement therapy represents an additional risk factor for short-, mid-, and long-term outcomes after ATAAD repair. Postoperative renal complications occurred in 17.6% versus 15.7% of patients in the comparison groups.",
+        journal: "Aorta",
+        year: "2025",
+        authors: ["Ito K"],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文", outcomeTags: ["renal-failure", "dialysis"] });
+
+    expect(cards).toHaveLength(2);
+    expect(cards[0].keyFindings?.join(" ")).toContain("81.3%");
+    expect(cards[0].keyFindings?.join(" ")).toContain("78.6%");
+    expect(cards[0].clinicianSummary).toContain("感度81.3%");
+    expect(cards[0].clinicianSummary).toContain("特異度78.6%");
+    expect(cards[0].clinicianSummary).not.toMatch(/主要所見を医師が確認|PubMed候補/);
+    expect(cards[1].keyFindings?.join(" ")).toContain("17.6%");
+    expect(cards[1].clinicianSummary).toContain("17.6%");
+  });
+
   it("builds structured Japanese physician summaries for generic answer-bearing PubMed outcome papers", () => {
     const plan = buildPubMedNaturalLanguageSearch("大動脈解離の死亡率について言及している論文");
     const cards = convertPubMedArticlesToEvidenceCards([
