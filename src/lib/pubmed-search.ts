@@ -349,6 +349,95 @@ function inferJapaneseStudyContext(article: PubMedArticle): string {
   return `${disease}${timing}`;
 }
 
+function normalizePercentRange(value: string): string {
+  return value
+    .replace(/percent/gi, "%")
+    .replace(/(\d+(?:\.\d+)?)%\s*(?:-|to|–)\s*(\d+(?:\.\d+)?)%/i, "$1–$2%")
+    .replace(/\s*(?:-|to|–)\s*/i, "–")
+    .replace(/\s+/g, "");
+}
+
+function inferStudyDesignJa(text: string): string | undefined {
+  if (/systematic review|meta-analysis/i.test(text)) return "システマティックレビュー";
+  if (/retrospective (?:cohort )?study|retrospective analysis|retrospective cohort/i.test(text)) return "後ろ向きコホート";
+  if (/prospective (?:cohort )?study|prospective analysis/i.test(text)) return "前向きコホート";
+  if (/registry|nationwide analysis|database/i.test(text)) return "レジストリ研究";
+  if (/predictive model|prediction model|nomogram|risk calculator/i.test(text)) return "予測モデル研究";
+  return undefined;
+}
+
+function genericOutcomeLabelJa(topics: OutcomeTopic[], sentence: string): string {
+  if (topics.some((topic) => topic.tags.includes("stroke") || topic.tags.includes("neurologic-dysfunction"))) return "術後脳卒中";
+  if (topics.some((topic) => topic.tags.includes("mortality"))) return /30-day/i.test(sentence) ? "30日死亡" : "院内死亡";
+  if (topics.some((topic) => topic.tags.includes("spinal-cord-ischemia"))) return "脊髄虚血";
+  if (topics.some((topic) => topic.tags.includes("infection"))) return "感染";
+  if (topics.some((topic) => topic.tags.includes("bleeding"))) return "出血/再手術";
+  if (topics.some((topic) => topic.tags.includes("icu-stay"))) return "ICU滞在";
+  return topics[0]?.explainJa.replace(/リスク|・.*$/g, "") || "該当アウトカム";
+}
+
+function extractOutcomeFrequencyJa(sourceText: string, topics: OutcomeTopic[]): string | undefined {
+  const asksMortality = topics.some((topic) => topic.tags.includes("mortality"));
+  if (asksMortality) {
+    const mortalityRanges: string[] = [];
+    const inHospital = sourceText.match(/in-hospital mortality[^.]{0,80}?(?:ranged from|range[d]? from)?\s*(\d+(?:\.\d+)?\s*(?:%|percent)\s*(?:-|to|–)\s*\d+(?:\.\d+)?\s*(?:%|percent)|\d+(?:\.\d+)?%)/i)?.[1];
+    if (inHospital) mortalityRanges.push(`院内死亡${normalizePercentRange(inHospital.replace(/percent/gi, "%"))}`);
+    const thirtyDay = sourceText.match(/(?:30-day|thirty-day) mortality[^.]{0,80}?(?:ranged from|range[d]? from)?\s*(\d+(?:\.\d+)?\s*(?:%|percent)\s*(?:-|to|–)\s*\d+(?:\.\d+)?\s*(?:%|percent)|\d+(?:\.\d+)?%)/i)?.[1];
+    if (thirtyDay) mortalityRanges.push(`30日死亡${normalizePercentRange(thirtyDay.replace(/percent/gi, "%"))}`);
+    if (mortalityRanges.length) return mortalityRanges.join("、");
+  }
+
+  const asksStroke = topics.some((topic) => topic.tags.includes("stroke") || topic.tags.includes("neurologic-dysfunction"));
+  if (asksStroke) {
+    const strokeSignals: string[] = [];
+    const typeAStroke = sourceText.match(/(?:stroke|postoperative stroke)[^.]{0,120}?(\d+(?:\.\d+)?%)[^.]{0,80}?type-?A aortic dissections/i)?.[1]
+      || sourceText.match(/type-?A aortic dissections[^.]{0,80}?(\d+(?:\.\d+)?%)[^.]{0,80}?(?:stroke|postoperative stroke)/i)?.[1];
+    const directStroke = typeAStroke
+      || sourceText.match(/incidence of (?:postoperative )?stroke[^.]{0,80}?was\s+(\d+(?:\.\d+)?%)/i)?.[1]
+      || sourceText.match(/(?:postoperative )?stroke (?:occurred|rate was|was observed)[^.]{0,60}?(\d+(?:\.\d+)?%)/i)?.[1]
+      || sourceText.match(/(\d+(?:\.\d+)?%)[^.]{0,80}?(?:postoperative )?stroke/i)?.[1];
+    if (directStroke) strokeSignals.push(`術後脳卒中${directStroke}`);
+    const cerebralMalperfusion = sourceText.match(/(?:presented with|had) cerebral malperfusion[^.]{0,40}?\((\d+(?:\.\d+)?%)\)/i)?.[1]
+      || sourceText.match(/cerebral malperfusion[^.]{0,80}?(\d+(?:\.\d+)?%)/i)?.[1];
+    if (cerebralMalperfusion) strokeSignals.push(`脳灌流障害${cerebralMalperfusion}`);
+    const neurologicDeficit = sourceText.match(/persisting neurological deficit[^.]{0,80}?\((\d+(?:\.\d+)?%)\)/i)?.[1]
+      || sourceText.match(/neurological deficit[^.]{0,80}?(\d+(?:\.\d+)?%)/i)?.[1];
+    if (neurologicDeficit) strokeSignals.push(`神経脱落${neurologicDeficit}`);
+    if (strokeSignals.length) return Array.from(new Set(strokeSignals)).slice(0, 3).join("、");
+  }
+
+  const sentence = findAnswerBearingSentence(sourceText, topics) || sourceText;
+  const directPercent = sentence.match(/(?:occurred in|incidence (?:of [^.]{0,80}? was|was)|rate (?:of [^.]{0,80}? was|was)|was required in|required in)\s+(\d+(?:\.\d+)?%)/i)?.[1]
+    || sentence.match(/(\d+(?:\.\d+)?%)[^.]{0,80}?(?:occurred|incidence|rate|required|necessary|performed)/i)?.[1];
+  if (!directPercent) return undefined;
+  return `${genericOutcomeLabelJa(topics, sentence)}${directPercent}`;
+}
+
+function extractGenericRiskGistJa(sourceText: string): string[] {
+  const factors: string[] = [];
+  if (/malperfusion/i.test(sourceText)) factors.push("malperfusion");
+  if (/cardiopulmonary bypass|\bCPB\b/i.test(sourceText)) factors.push("CPB時間");
+  if (/arch replacement|extensive arch/i.test(sourceText)) factors.push("弓部置換");
+  if (/operative time|surgical time/i.test(sourceText)) factors.push("手術時間");
+  if (/transfusion|pRBC|blood transfusion/i.test(sourceText)) factors.push("輸血");
+  if (/advanced age|older age|\bage\b/i.test(sourceText)) factors.push("高齢");
+  if (/preoperative kidney|renal dysfunction|kidney injury/i.test(sourceText)) factors.push("術前腎障害");
+  if (/pneumonia|respiratory failure|pulmonary/i.test(sourceText)) factors.push("肺合併症");
+  return Array.from(new Set(factors)).slice(0, 4);
+}
+
+function summarizeQualitativeClinicalGistJa(sourceText: string, topics: OutcomeTopic[]): string | undefined {
+  const asksStroke = topics.some((topic) => topic.tags.includes("stroke") || topic.tags.includes("neurologic-dysfunction"));
+  if (asksStroke && /cerebral protection|perfusion technique|antegrade perfusion|cannulation|hypothermia/i.test(sourceText)) {
+    const points: string[] = [];
+    if (/cannulation/i.test(sourceText)) points.push("カニュレーション部位");
+    if (/antegrade perfusion/i.test(sourceText)) points.push("順行性灌流");
+    if (/hypothermia/i.test(sourceText)) points.push("低体温");
+    return `脳保護/灌流戦略のレビュー。周術期脳卒中予防として${points.length ? points.join("・") : "灌流手技"}を医師確認。`;
+  }
+  return undefined;
+}
+
 function summarizeGenericOutcome(article: PubMedArticle, keyFindings: string[], context: { outcomeTags: string[] }): string | undefined {
   const topics = outcomeTopicsForTags(context.outcomeTags);
   if (topics.length === 0) return undefined;
@@ -370,6 +459,22 @@ function summarizeGenericOutcome(article: PubMedArticle, keyFindings: string[], 
         return `${inferJapaneseStudyContext(article)}急性腎不全/AKIに関するPubMed候補。発症頻度・予測因子・予後への影響をabstractで確認。`;
       }
     }
+    const parts: string[] = [];
+    const design = inferStudyDesignJa(`${article.title} ${article.abstractText}`);
+    const frequency = extractOutcomeFrequencyJa(sourceText, topics);
+    const risks = extractGenericRiskGistJa(sourceText);
+    if (design) parts.push(design);
+    if (frequency) parts.push(frequency);
+    if (risks.length) parts.push(`関連因子: ${risks.join("・")}`);
+    if (/mortality|death|operative mortality|increased mortality/i.test(sourceText) && !topics.some((topic) => topic.tags.includes("mortality"))) {
+      parts.push("死亡リスク併記");
+    }
+    if (parts.length >= 2) {
+      const summary = `${parts.join("。 ")}。医師確認。`;
+      return summary.length <= 170 ? summary : `${parts.slice(0, 3).join("。 ")}。`;
+    }
+    const qualitativeSummary = summarizeQualitativeClinicalGistJa(sourceText, topics);
+    if (qualitativeSummary) return qualitativeSummary;
     const percent = compact.match(/\d+(?:\.\d+)?%/)?.[0];
     if (percent) return `${label}に関するPubMed候補。主要所見に${percent}を含むため、頻度/予測能の確認対象。`;
     return `${label}に関するPubMed候補。主要所見を医師が確認。`;
@@ -521,6 +626,13 @@ function isRetractionLike(article: PubMedArticle): boolean {
   return /^retraction\.?$/i.test(title) || /retraction notice/i.test(title);
 }
 
+type PhysicianReviewTier = {
+  tier: NonNullable<EvidenceCard["physicianReviewTier"]>;
+  label: NonNullable<EvidenceCard["physicianReviewTierLabel"]>;
+  reason: string;
+  rank: number;
+};
+
 function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: string; outcomeTags: string[] }): number {
   if (isRetractionLike(article)) return Number.NEGATIVE_INFINITY;
   const title = article.title.toLowerCase();
@@ -670,7 +782,7 @@ function evidenceTagsForArticle(article: PubMedArticle, requestedTags: string[])
   const tags: string[] = [];
   for (const tag of requestedTags) {
     if (tag === "dialysis") {
-      if (/dialysis|renal replacement/.test(combined)) tags.push(tag);
+      if (/dialysis|renal replacement/.test(combined) && !/dialysis or renal replacement therapy was not reported|dialysis[^.]{0,40}not reported|renal replacement[^.]{0,40}not reported/i.test(combined)) tags.push(tag);
       continue;
     }
     if (tag === "renal-failure") {
@@ -683,41 +795,88 @@ function evidenceTagsForArticle(article: PubMedArticle, requestedTags: string[])
   return Array.from(new Set(tags.length ? tags : requestedTags));
 }
 
+function hasPositiveAorticDissectionContext(text: string): boolean {
+  return /aortic dissection|type a aortic dissection|ataad/.test(text)
+    && !/does not include aortic dissection|not include aortic dissection|without aortic dissection/.test(text);
+}
+
+function classifyPubMedArticleForPhysicianReview(
+  article: PubMedArticle,
+  context: { originalQuery: string; outcomeTags: string[] },
+  score: number,
+): PhysicianReviewTier | undefined {
+  const combined = `${article.title} ${article.abstractText}`.toLowerCase();
+  if (isRetractionLike(article)) return undefined;
+  const asksAorticDissection = /大動脈解離|aortic dissection|dissection/i.test(context.originalQuery);
+  const asksDialysis = /透析|dialysis/i.test(context.originalQuery) || context.outcomeTags.includes("dialysis");
+  const hasDirectDialysis = /dialysis|renal replacement/.test(combined);
+  const negatedDialysis = /dialysis or renal replacement therapy was not reported|dialysis[^.]{0,60}not reported|renal replacement[^.]{0,60}not reported/i.test(combined);
+
+  if (asksAorticDissection && !hasPositiveAorticDissectionContext(combined)) {
+    if (/occasional dissection cases|aortic repair includes/.test(combined)) return undefined;
+    if (asksDialysis && hasDirectDialysis) {
+      return { tier: "exclude-recommended", label: "除外推奨", reason: "疾患ドメイン不一致: 大動脈解離の質問に対して別疾患/別手術の透析データです。", rank: 0 };
+    }
+    return undefined;
+  }
+  if (asksAorticDissection
+    && !/aortic dissection|type a aortic dissection|ataad/.test(article.title.toLowerCase())
+    && /aneurysm|evar|open repair|vascular surgery|aortic repair/.test(combined)
+    && !/acute type a|ataad|type a aortic dissection/.test(combined)) {
+    return undefined;
+  }
+
+  if (asksDialysis && !hasDirectDialysis) return undefined;
+  if (asksDialysis && negatedDialysis) {
+    return { tier: "reference-only", label: "参考止まり", reason: "透析/腎代替療法の直接記載が弱い: AKIなど近い腎アウトカムの参考です。", rank: 1 };
+  }
+  if (!Number.isFinite(score)) return undefined;
+  return { tier: "adopt-candidate", label: "採用候補", reason: "疾患・アウトカムが一致し、患者説明根拠として医師が採用候補にできます。", rank: 2 };
+}
+
 export function convertPubMedArticlesToEvidenceCards(
   articles: PubMedArticle[],
   context: { originalQuery: string; outcomeTags: string[] },
 ): EvidenceCard[] {
   return articles
-    .map((article, index) => ({ article, index, score: scoreArticleForQuery(article, context) }))
-    .filter((item) => Number.isFinite(item.score))
-    .sort((a, b) => b.score - a.score || a.index - b.index)
-    .map(({ article }) => {
-    const keyFindings = prioritizeKeyFindingsForQuery(extractKeyFindings(article.abstractText), article, context);
-    const firstAuthor = article.authors[0] ? `${article.authors[0].split(" ")[0]} et al.` : "PubMed";
-    const citation = `${firstAuthor} ${article.journal || "PubMed"}. ${article.year || "n.d."}. PMID: ${article.pmid}`;
-    const clinicianSummary = summarizeForDoctor(article, keyFindings, context);
-    const quotedSpan = keyFindings.join(" ");
-    return {
-      evidenceId: `PUBMED-${article.pmid}`,
-      title: article.title,
-      sourceType: "Review",
-      claim: keyFindings[0] || article.title,
-      displayForFamily: keyFindings[0]
-        ? `選択したPubMed論文では、${keyFindings[0]}`
-        : `選択したPubMed論文「${article.title}」を医師が患者説明用根拠として追加しました。`,
-      confidence: "moderate",
-      citation,
-      pmid: article.pmid,
-      origin: "medevidence-rag",
-      quotedSpan,
-      sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
-      retrievalStatus: "pubmed-verified",
-      clinicianSummary,
-      keyFindings,
-      outcomeTags: evidenceTagsForArticle(article, context.outcomeTags),
-      clinicalScope: `PubMed natural-language evidence search: ${context.originalQuery}`,
-    } satisfies EvidenceCard;
-  });
+    .map((article, index) => {
+      const score = scoreArticleForQuery(article, context);
+      const reviewTier = classifyPubMedArticleForPhysicianReview(article, context, score);
+      return { article, index, score, reviewTier };
+    })
+    .filter((item): item is { article: PubMedArticle; index: number; score: number; reviewTier: PhysicianReviewTier } => Boolean(item.reviewTier))
+    .filter((item) => item.reviewTier.tier !== "exclude-recommended")
+    .sort((a, b) => b.reviewTier.rank - a.reviewTier.rank || b.score - a.score || a.index - b.index)
+    .map(({ article, reviewTier }) => {
+      const keyFindings = prioritizeKeyFindingsForQuery(extractKeyFindings(article.abstractText), article, context);
+      const firstAuthor = article.authors[0] ? `${article.authors[0].split(" ")[0]} et al.` : "PubMed";
+      const citation = `${firstAuthor} ${article.journal || "PubMed"}. ${article.year || "n.d."}. PMID: ${article.pmid}`;
+      const clinicianSummary = summarizeForDoctor(article, keyFindings, context);
+      const quotedSpan = keyFindings.join(" ");
+      return {
+        evidenceId: `PUBMED-${article.pmid}`,
+        title: article.title,
+        sourceType: "Review",
+        claim: keyFindings[0] || article.title,
+        displayForFamily: keyFindings[0]
+          ? `選択したPubMed論文では、${keyFindings[0]}`
+          : `選択したPubMed論文「${article.title}」を医師が患者説明用根拠として追加しました。`,
+        confidence: "moderate",
+        citation,
+        pmid: article.pmid,
+        origin: "medevidence-rag",
+        quotedSpan,
+        sourceUrl: `https://pubmed.ncbi.nlm.nih.gov/${article.pmid}/`,
+        retrievalStatus: "pubmed-verified",
+        clinicianSummary,
+        keyFindings,
+        outcomeTags: evidenceTagsForArticle(article, context.outcomeTags),
+        clinicalScope: `PubMed natural-language evidence search: ${context.originalQuery}`,
+        physicianReviewTier: reviewTier.tier,
+        physicianReviewTierLabel: reviewTier.label,
+        physicianReviewReason: reviewTier.reason,
+      } satisfies EvidenceCard;
+    });
 }
 
 export async function searchPubMedEvidence(query: string, retmax = 5): Promise<{ plan: PubMedSearchPlan; evidence: EvidenceCard[] }> {
