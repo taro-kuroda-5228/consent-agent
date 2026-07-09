@@ -688,6 +688,9 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     if (!hasRenal) return Number.NEGATIVE_INFINITY;
     const asksDialysis = /透析|dialysis/i.test(context.originalQuery) || context.outcomeTags.includes("dialysis");
     const hasDirectDialysis = /dialysis|renal replacement/.test(combined);
+    const dialysisOnlyAsCompositeEndpoint = /composite (?:of |endpoint|outcome|major adverse events)[^.]{0,220}\bdialysis\b|\bdialysis\b[^.]{0,120}\b(?:tracheostomy|myocardial infarction|stroke)\b/i.test(combined)
+      && !/(?:postoperative |new |temporary |permanent |requiring )?dialysis(?: was|required| occurred| developed| rate| incidence|-requiring)|renal replacement therapy (?:was|required|represents|occurred|rate|incidence)|dialysis-requiring renal failure/.test(combined);
+    if (asksDialysis && dialysisOnlyAsCompositeEndpoint) return Number.NEGATIVE_INFINITY;
     score += /dialysis|renal replacement|acute kidney injury|acute renal failure|renal failure|kidney injury/.test(title) ? 10 : 4;
     if (asksDialysis && hasDirectDialysis) score += 6;
     if (asksDialysis && !hasDirectDialysis) return Number.NEGATIVE_INFINITY;
