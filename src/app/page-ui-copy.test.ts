@@ -265,12 +265,21 @@ describe("mobile demo UI copy and CTA readability", () => {
   });
 
   it("keeps the session doctor summary readable on narrow mobile screens", () => {
-    expect(doctorSummarySource).toContain("flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between");
+    expect(doctorSummarySource).toContain("flex flex-col gap-3 text-slate-900 sm:flex-row sm:items-start sm:justify-between");
     expect(doctorSummarySource).toContain("flex flex-wrap items-center gap-2 sm:justify-end");
     expect(doctorSummarySource).toContain("h-auto max-w-full justify-start whitespace-normal text-left leading-relaxed");
-    expect(doctorSummarySource).toContain("text-sm flex flex-col items-start gap-2 sm:flex-row sm:flex-wrap sm:items-center");
+    expect(doctorSummarySource).toContain("text-sm flex flex-col items-start gap-2 text-slate-950 sm:flex-row sm:flex-wrap sm:items-center");
     expect(doctorSummarySource).toContain("data-testid=\"doctor-summary-decision-title\"");
     expect(doctorSummarySource).not.toContain("<div className=\"flex items-center justify-between\">");
+  });
+
+  it("keeps all doctor handoff section titles visible on the light summary page", () => {
+    expect(doctorSummarySource).toContain("<h2 className=\"text-lg font-bold text-slate-950\">医師用サマリー</h2>");
+    expect(doctorSummarySource).toContain("<span className=\"break-words leading-relaxed text-slate-950\">");
+    expect(doctorSummarySource).toContain("<CardTitle className=\"text-sm text-slate-950\">🗣️ 医師向け: 補足説明のポイント</CardTitle>");
+    expect(doctorSummarySource).toContain("<CardTitle className=\"text-sm text-slate-950\">💬 家族からの質問ログ（{view.qaLog.length}件）</CardTitle>");
+    expect(doctorSummarySource).toContain("<CardTitle className=\"text-sm text-slate-950\">📋 医師レビューと記録</CardTitle>");
+    expect(doctorSummarySource).toContain("🧑‍⚕️ AI判定: 医師フォローアップが必要");
   });
 
   it("keeps selected text readable on the light doctor summary background", () => {
