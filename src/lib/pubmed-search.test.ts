@@ -791,6 +791,26 @@ describe("PubMed natural-language evidence search", () => {
     expect(cards[0].clinicianSummary).not.toMatch(/Postoperative complications included|cerebral infarction|acute renal insufficiency|pulmonary insu/i);
   });
 
+  it("summarizes renal-replacement findings in ECMO/systematic-review papers as subgroup-limited, not a generic dialysis-risk answer", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "ecmo-crrt",
+        title: "Extracorporeal Membrane Oxygenation Following Acute Type A Aortic Dissection Repair: A Systematic Review and Meta-Analysis.",
+        abstractText: "Acute kidney injury requiring continuous renal replacement therapy rate was 58.3% among ECMO-supported patients. Mortality was high after extracorporeal membrane oxygenation following acute type A aortic dissection repair.",
+        journal: "J Card Surg",
+        year: "2025",
+        authors: ["Kato T"],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文", outcomeTags: ["renal-failure", "dialysis"] });
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].clinicianSummary).toContain("ECMO");
+    expect(cards[0].clinicianSummary).toContain("CRRT");
+    expect(cards[0].clinicianSummary).toContain("58.3%");
+    expect(cards[0].clinicianSummary).not.toContain("A型大動脈解離術後急性腎不全に関する研究");
+    expect(cards[0].clinicianSummary).not.toContain("予後不良の追加リスク");
+  });
+
   it("keeps off-domain and outcome-mismatch PubMed cards visible only as reference/exclude tiers, never as adoption candidates", () => {
     const cards = convertPubMedArticlesToEvidenceCards([
       {

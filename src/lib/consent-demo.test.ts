@@ -1539,6 +1539,64 @@ describe("family-friendly rewriting stays faithful to selected sources (良い�
     expect(result.answer).toContain("という記載があります");
   });
 
+  it("turns direct English tracheostomy evidence spans into patient-friendly Japanese while keeping the raw citation separate", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Tracheostomy after acute type A aortic dissection repair",
+      fileName: "tracheostomy.txt",
+      extractedText: "Among patients undergoing surgery for acute type A aortic dissection, tracheostomy was required in 9.5%. Tracheostomy was associated with pneumonia, renal failure, prolonged mechanical ventilation, and higher operative mortality.",
+      keyFindings: [
+        "Among patients undergoing surgery for acute type A aortic dissection, tracheostomy was required in 9.5%.",
+        "Tracheostomy was associated with pneumonia, renal failure, prolonged mechanical ventilation, and higher operative mortality.",
+      ],
+      outcomeTags: ["tracheostomy", "prolonged-ventilation"],
+    });
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "気管切開になる可能性はありますか？",
+      qaContext([uploaded]),
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "direct source span",
+        supportingSpans: [{ evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "Among patients undergoing surgery for acute type A aortic dissection, tracheostomy was required in 9.5%." }],
+      },
+    );
+
+    expect(result.answer).toContain("気管切開");
+    expect(result.answer).toContain("9.5%");
+    expect(result.answer).not.toContain("Among patients");
+    expect(result.answer).not.toContain("医師が選んだ資料には");
+    expect(result.supportingSpans).toEqual([{ evidenceId: uploaded.evidenceId, text: "Among patients undergoing surgery for acute type A aortic dissection, tracheostomy was required in 9.5%." }]);
+  });
+
+  it("turns direct English dialysis/renal-replacement evidence spans into Japanese without claiming more than the selected source", () => {
+    const uploaded = createPhysicianUploadedEvidence({
+      title: "Renal replacement therapy after acute type A aortic dissection repair",
+      fileName: "rrt.txt",
+      extractedText: "Continuous renal replacement therapy was required in 12.4% of patients after acute type A aortic dissection repair. Renal replacement therapy was associated with higher mortality.",
+      keyFindings: [
+        "Continuous renal replacement therapy was required in 12.4% of patients after acute type A aortic dissection repair.",
+        "Renal replacement therapy was associated with higher mortality.",
+      ],
+      outcomeTags: ["renal-failure", "dialysis"],
+    });
+    const result = synthesizeEvidenceBoundQAFromSupportingSpans(
+      "透析が必要になりますか？",
+      qaContext([uploaded]),
+      {
+        answerable: true,
+        confidence: "moderate",
+        reason: "direct source span",
+        supportingSpans: [{ evidenceId: uploaded.evidenceId, chunkId: "chunk-1", span: "Continuous renal replacement therapy was required in 12.4% of patients after acute type A aortic dissection repair." }],
+      },
+    );
+
+    expect(result.answer).toContain("透析または腎代替療法");
+    expect(result.answer).toContain("12.4%");
+    expect(result.answer).not.toContain("Continuous renal replacement therapy");
+    expect(result.answer).not.toContain("ご安心ください");
+    expect(result.supportingSpans).toEqual([{ evidenceId: uploaded.evidenceId, text: "Continuous renal replacement therapy was required in 12.4% of patients after acute type A aortic dissection repair." }]);
+  });
+
   it("appends short plain-language notes for hard terms without touching the evidence claim", () => {
     const annotated = appendFamilyTermGlossary("手術しない場合、破裂や心タンポナーデの危険が高まると記載されています。");
     expect(annotated).toContain("心タンポナーデ（心臓の周りに血液がたまり");

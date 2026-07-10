@@ -2051,9 +2051,60 @@ function isMostlyNonJapaneseText(text: string): boolean {
   return asciiLetters >= 30 && asciiLetters > japaneseChars * 2;
 }
 
+type EvidenceOutcomeTranslation = {
+  pattern: RegExp;
+  label: string;
+  plainLabel?: string;
+};
+
+const EVIDENCE_OUTCOME_TRANSLATIONS: EvidenceOutcomeTranslation[] = [
+  { pattern: /tracheostom(?:y|ies)|tracheotom(?:y|ies)/i, label: "気管切開" },
+  { pattern: /prolonged (?:mechanical )?ventilation|prolonged ventilator/i, label: "長期人工呼吸" },
+  { pattern: /dialysis|renal replacement therapy|continuous renal replacement therapy|\bCRRT\b/i, label: "透析または腎代替療法", plainLabel: "透析" },
+  { pattern: /acute kidney injury|\bAKI\b/i, label: "急性腎障害（AKI）" },
+  { pattern: /acute renal failure|\bARF\b|renal failure/i, label: "腎不全" },
+  { pattern: /respiratory failure/i, label: "呼吸不全" },
+  { pattern: /pneumonia/i, label: "肺炎" },
+  { pattern: /postoperative pulmonary complications?|\bPPCs?\b/i, label: "術後肺合併症" },
+  { pattern: /mortality|death/i, label: "死亡" },
+  { pattern: /bleeding|re-?exploration|reoperation/i, label: "出血または再手術" },
+];
+
+function uniqueLabels(labels: string[]): string[] {
+  return Array.from(new Set(labels.filter(Boolean)));
+}
+
+function labelsFromEnglishEvidenceSpan(span: string): string[] {
+  return uniqueLabels(
+    EVIDENCE_OUTCOME_TRANSLATIONS
+      .filter((item) => item.pattern.test(span))
+      .map((item) => item.label),
+  );
+}
+
+function translateEnglishEvidenceSpanToJapanese(span: string): string | undefined {
+  const normalized = span.replace(/\s+/g, " ").trim().replace(/[。.]+$/g, "");
+  if (!isMostlyNonJapaneseText(normalized)) return undefined;
+  const labels = labelsFromEnglishEvidenceSpan(normalized);
+  if (labels.length === 0) return undefined;
+
+  const percent = normalized.match(/\d+(?:\.\d+)?\s*[％%]/)?.[0]?.replace("％", "%");
+  const mainLabel = labels[0];
+  const associatedLabels = labels.slice(1, 4);
+  const hasRequiredOrOccurred = /\b(?:was|were)\s+(?:required|necessary|performed|reported|observed)|occurred|developed|incidence|rate/i.test(normalized);
+  if (percent && hasRequiredOrOccurred) {
+    const association = associatedLabels.length > 0 ? ` ${associatedLabels.join("、")}との関連も記載されています。` : "";
+    return `${mainLabel}は${percent}と報告されています。${association}`.replace(/。\s+/g, "。");
+  }
+
+  return undefined;
+}
+
 function answerFromSupportingSpans(spans: Array<{ text: string }>): string {
-  const answer = spans
-    .map((item) => cleanFamilyAnswerSpan(item.text))
+  const translated = spans
+    .map((item) => translateEnglishEvidenceSpanToJapanese(item.text))
+    .filter((item): item is string => Boolean(item));
+  const answer = (translated.length > 0 ? translated : spans.map((item) => cleanFamilyAnswerSpan(item.text)))
     .filter(Boolean)
     .join("。")
     .replace(/。+/g, "。");

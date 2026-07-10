@@ -347,11 +347,19 @@ function findAnswerBearingSentence(text: string, topics: OutcomeTopic[]): string
 
 function inferJapaneseStudyContext(article: PubMedArticle): string {
   const text = `${article.title} ${article.abstractText}`;
+  const subgroup = inferJapaneseStudySubgroupContext(text);
+  if (subgroup) return subgroup;
   const typeA = /Stanford type A|acute type A|type A aortic dissection|ATAAD|TAAAD/i.test(text);
   const postoperative = /postoperative|after[^.]{0,80}(?:surgery|repair)|surg(?:ery|ical)/i.test(text);
   const disease = typeA ? "A型大動脈解離" : /aortic dissection/i.test(text) ? "大動脈解離" : "対象疾患";
   const timing = postoperative ? "術後" : "";
   return `${disease}${timing}`;
+}
+
+function inferJapaneseStudySubgroupContext(text: string): string | undefined {
+  if (/extracorporeal membrane oxygenation|\bECMO\b/i.test(text)) return "ECMO補助例";
+  if (/intensive care unit|\bICU\b/i.test(text) && /aortic dissection/i.test(text)) return "大動脈解離ICU管理例";
+  return undefined;
 }
 
 function normalizePercentRange(value: string): string {
