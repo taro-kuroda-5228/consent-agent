@@ -194,7 +194,8 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(pageSource).toContain("患者説明用根拠に追加");
     expect(pageSource).toContain("医師向け要約");
     expect(pageSource).toContain("主要所見");
-    expect(pageSource).toContain("physicianReviewTierLabel");
+    expect(pageSource).not.toContain("physicianReviewTierLabel &&");
+    expect(pageSource).not.toContain("判定理由:");
     expect(pageSource).not.toContain("自然文でPubMed候補を検索します");
     expect(pageSource).not.toContain("不適合な論文は表示せず");
     expect(pageSource).not.toContain("候補カードに除外推奨を表示");
