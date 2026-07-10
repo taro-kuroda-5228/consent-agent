@@ -290,9 +290,17 @@ export default function DoctorSummary() {
             </CardHeader>
             <CardContent className="px-4 pb-3 space-y-2">
               {view.qaLog.map((entry, i) => (
-                <div key={i} className="border rounded-lg p-2.5">
-                  <p className="break-words text-sm font-medium leading-relaxed">Q: {entry.question}</p>
-                  <p className="mt-1 break-words text-sm leading-relaxed text-gray-600">A: {entry.answer}</p>
+                <div key={i} className="space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-slate-950 shadow-sm">
+                  <div data-testid="doctor-summary-qa-question" className="rounded-md border border-blue-100 bg-blue-50 p-2.5">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">家族からの質問</span>
+                    <p className="mt-1 whitespace-pre-wrap break-words text-base font-bold leading-relaxed text-slate-950">
+                      {entry.question}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-slate-100 bg-slate-50 p-2.5">
+                    <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">回答ログ</span>
+                    <p className="mt-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-slate-700">{entry.answer}</p>
+                  </div>
                   {entry.escalated && (
                     <Badge className={`mt-1 bg-red-100 text-red-800 text-[10px] ${MOBILE_SAFE_BADGE_CLASS}`}>選択済み根拠で回答不可 → 医師対応</Badge>
                   )}
