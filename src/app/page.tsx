@@ -683,56 +683,22 @@ export default function ConsentAgent() {
                 {pubMedResult.evidence.map((candidate) => {
                   const alreadySelected = selectedEvidenceIds.includes(candidate.evidenceId);
                   return (
-                    <div key={candidate.evidenceId} className="rounded-xl border border-cyan-100 bg-white p-3">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge className="bg-cyan-100 text-cyan-900 text-[10px]">{candidate.evidenceId}</Badge>
-                        <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>
-                        {candidate.physicianReviewTierLabel && candidate.physicianReviewTier !== "exclude-recommended" && (
-                          <Badge className={`text-[10px] ${
-                            candidate.physicianReviewTier === "adopt-candidate"
-                              ? "bg-green-600 text-white"
-                              : candidate.physicianReviewTier === "reference-only"
-                                ? "bg-amber-100 text-amber-900"
-                                : "bg-red-100 text-red-800"
-                          }`}>
-                            {candidate.physicianReviewTierLabel}
-                          </Badge>
-                        )}
-                        {candidate.outcomeTags?.map((tag) => (
-                          <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{tag}</span>
-                        ))}
-                      </div>
-                      <p className="mt-2 text-xs font-bold text-slate-950">{candidate.title}</p>
-                      <p className="mt-1 rounded-lg bg-cyan-50 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-slate-800">
-                        医師向け要約: {candidate.clinicianSummary}
-                      </p>
-                      {candidate.physicianReviewReason && (
-                        <p className="mt-1 rounded-lg bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-relaxed text-slate-700">
-                          判定理由: {candidate.physicianReviewReason}
-                        </p>
+                    <EvidenceDecisionCard
+                      key={candidate.evidenceId}
+                      evidence={candidate}
+                      tone="pubmed-search"
+                      action={(
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="mt-2 h-8 border-cyan-300 bg-white text-xs font-bold text-cyan-900 hover:bg-cyan-100"
+                          onClick={() => addPubMedEvidenceCandidate(candidate)}
+                          disabled={alreadySelected}
+                        >
+                          {alreadySelected ? "追加済み" : "患者説明用根拠に追加"}
+                        </Button>
                       )}
-                      {candidate.keyFindings && candidate.keyFindings.length > 0 && (
-                        <div className="mt-2">
-                          <p className="text-[11px] font-bold text-slate-700">主要所見</p>
-                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-gray-600">
-                            {candidate.keyFindings.map((finding) => <li key={finding}>{finding}</li>)}
-                          </ul>
-                        </div>
-                      )}
-                      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
-                        <span>{candidate.citation}</span>
-                        {candidate.sourceUrl && <a href={candidate.sourceUrl} target="_blank" rel="noreferrer" className="text-blue-700 underline underline-offset-2">PubMedで確認</a>}
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        className="mt-2 h-8 border-cyan-300 bg-white text-xs font-bold text-cyan-900 hover:bg-cyan-100"
-                        onClick={() => addPubMedEvidenceCandidate(candidate)}
-                        disabled={alreadySelected}
-                      >
-                        {alreadySelected ? "追加済み" : "患者説明用根拠に追加"}
-                      </Button>
-                    </div>
+                    />
                   );
                 })}
               </div>
@@ -782,13 +748,12 @@ export default function ConsentAgent() {
             {evidenceCatalog.map((item) => {
               const selected = selectedEvidenceIds.includes(item.evidenceId);
               return (
-                <div
+                <EvidenceDecisionCard
                   key={item.evidenceId}
-                  className={`w-full rounded-xl border p-3 transition-colors ${
-                    selected ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
+                  evidence={item}
+                  tone="selected"
+                  selected={selected}
+                  leadingAction={(
                     <button
                       type="button"
                       onClick={() => toggleEvidence(item.evidenceId)}
@@ -799,83 +764,18 @@ export default function ConsentAgent() {
                     >
                       ✓
                     </button>
-                    <div className="min-w-0 space-y-2">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge className="bg-slate-900 text-white text-[10px]">{item.evidenceId}</Badge>
-                        <Badge className="bg-slate-100 text-slate-700 text-[10px]">{item.sourceType}</Badge>
-                        {item.retrievalStatus === "pubmed-verified" && (
-                          <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>
-                        )}
-                        {item.physicianReviewTierLabel && item.physicianReviewTier !== "exclude-recommended" && (
-                          <Badge className={`text-[10px] ${
-                            item.physicianReviewTier === "adopt-candidate"
-                              ? "bg-green-600 text-white"
-                              : item.physicianReviewTier === "reference-only"
-                                ? "bg-amber-100 text-amber-900"
-                                : "bg-red-100 text-red-800"
-                          }`}>
-                            {item.physicianReviewTierLabel}
-                          </Badge>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => deleteEvidence(item.evidenceId)}
-                          aria-label={`${item.evidenceId}を根拠一覧から削除`}
-                          className="rounded-full border border-red-200 bg-white px-2 py-0.5 text-[10px] font-black text-red-700 hover:bg-red-50"
-                        >
-                          削除
-                        </button>
-                      </div>
-                      <p className="text-xs font-semibold text-gray-900">{item.title}</p>
-                      {item.clinicalScope && (
-                        <Badge className="bg-amber-100 text-amber-900 text-[10px]">対象: {item.clinicalScope}</Badge>
-                      )}
-                      {item.clinicianSummary && (
-                        <p className="rounded-lg bg-white/80 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-gray-800">
-                          医師向け要約: {item.clinicianSummary}
-                        </p>
-                      )}
-                      {item.physicianReviewReason && (
-                        <p className="rounded-lg bg-white/70 px-2 py-1 text-[11px] font-semibold leading-relaxed text-slate-700">
-                          判定理由: {item.physicianReviewReason}
-                        </p>
-                      )}
-                      {item.outcomeTags && item.outcomeTags.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {item.outcomeTags.map((tag) => (
-                            <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {item.keyFindings && item.keyFindings.length > 0 && (
-                        <div>
-                          <p className="text-[11px] font-bold text-slate-700">主要所見</p>
-                          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-gray-600">
-                            {item.keyFindings.map((finding) => (
-                              <li key={finding}>{finding}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      <p className="text-[11px] leading-relaxed text-gray-600">家族向け: {item.displayForFamily}</p>
-                      <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
-                        <span>{item.citation}</span>
-                        {item.sourceUrl && (
-                          <a
-                            href={item.sourceUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-700 underline underline-offset-2"
-                          >
-                            出典元リンクでfact check
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
+                  )}
+                  action={(
+                    <button
+                      type="button"
+                      onClick={() => deleteEvidence(item.evidenceId)}
+                      aria-label={`${item.evidenceId}を根拠一覧から削除`}
+                      className="rounded-full border border-red-200 bg-white px-2 py-0.5 text-[10px] font-black text-red-700 hover:bg-red-50"
+                    >
+                      削除
+                    </button>
+                  )}
+                />
               );
             })}
           </div>
@@ -1358,6 +1258,111 @@ export default function ConsentAgent() {
           {screens[step]()}
         </main>
 
+      </div>
+    </div>
+  );
+}
+
+function EvidenceDecisionCard({
+  evidence,
+  tone,
+  selected = false,
+  leadingAction,
+  action,
+}: {
+  evidence: EvidenceCard;
+  tone: "pubmed-search" | "selected";
+  selected?: boolean;
+  leadingAction?: ReactNode;
+  action?: ReactNode;
+}) {
+  const isPubMed = evidence.retrievalStatus === "pubmed-verified" || Boolean(evidence.pmid) || evidence.evidenceId.startsWith("PUBMED-");
+  const showDecisionMetadata = tone === "pubmed-search";
+  const shellClass = tone === "pubmed-search"
+    ? "rounded-xl border border-cyan-100 bg-white p-3"
+    : `w-full rounded-xl border p-3 transition-colors ${selected ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"}`;
+  const summaryClass = tone === "pubmed-search"
+    ? "mt-1 rounded-lg bg-cyan-50 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-slate-800"
+    : "rounded-lg bg-white/80 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-gray-800";
+  const reasonClass = tone === "pubmed-search"
+    ? "mt-1 rounded-lg bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-relaxed text-slate-700"
+    : "rounded-lg bg-white/70 px-2 py-1 text-[11px] font-semibold leading-relaxed text-slate-700";
+
+  return (
+    <div className={shellClass} data-testid={`evidence-card-${evidence.evidenceId}`}>
+      <div className="flex items-start gap-2">
+        {leadingAction}
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge className={tone === "pubmed-search" ? "bg-cyan-100 text-cyan-900 text-[10px]" : "bg-slate-900 text-white text-[10px]"}>
+              {evidence.evidenceId}
+            </Badge>
+            {tone !== "pubmed-search" && (
+              <Badge className="bg-slate-100 text-slate-700 text-[10px]">{evidence.sourceType}</Badge>
+            )}
+            {isPubMed && <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>}
+            {isPubMed && <Badge className="bg-cyan-50 text-cyan-900 text-[10px]">抄録/メタデータ</Badge>}
+            {showDecisionMetadata && evidence.physicianReviewTierLabel && evidence.physicianReviewTier !== "exclude-recommended" && (
+              <Badge className={`text-[10px] ${
+                evidence.physicianReviewTier === "adopt-candidate"
+                  ? "bg-green-600 text-white"
+                  : evidence.physicianReviewTier === "reference-only"
+                    ? "bg-amber-100 text-amber-900"
+                    : "bg-red-100 text-red-800"
+              }`}>
+                {evidence.physicianReviewTierLabel}
+              </Badge>
+            )}
+            {evidence.outcomeTags?.map((tag) => (
+              <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{tag}</span>
+            ))}
+            {action}
+          </div>
+
+          <p className="text-xs font-bold text-slate-950">{evidence.title}</p>
+
+          {evidence.clinicalScope && (
+            <span className="clinical-scope-badge block h-auto w-full min-w-0 max-w-full shrink overflow-visible break-words rounded-2xl bg-amber-100 px-2 py-1 text-left text-[10px] font-medium leading-relaxed whitespace-normal text-amber-900">
+              対象: {evidence.clinicalScope}
+            </span>
+          )}
+
+          {isPubMed && (
+            <p className="rounded-lg bg-cyan-50 px-2 py-1.5 text-[11px] font-semibold leading-relaxed text-cyan-950">
+              PubMed検索カードは抄録・メタデータからの確認です。長いガイドライン全文を回答根拠にする場合は、PDF/URL資料として追加してください。
+            </p>
+          )}
+
+          {evidence.clinicianSummary && (
+            <p className={summaryClass}>医師向け要約: {evidence.clinicianSummary}</p>
+          )}
+
+          {showDecisionMetadata && evidence.physicianReviewReason && (
+            <p className={reasonClass}>判定理由: {evidence.physicianReviewReason}</p>
+          )}
+
+          {evidence.keyFindings && evidence.keyFindings.length > 0 && (
+            <div className={tone === "pubmed-search" ? "mt-2" : undefined}>
+              <p className="text-[11px] font-bold text-slate-700">主要所見</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] leading-relaxed text-gray-600">
+                {evidence.keyFindings.map((finding) => <li key={finding}>{finding}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {tone !== "pubmed-search" && (
+            <p className="text-[11px] leading-relaxed text-gray-600">家族向け: {evidence.displayForFamily}</p>
+          )}
+
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
+            <span>{evidence.citation}</span>
+            {evidence.sourceUrl && (
+              <a href={evidence.sourceUrl} target="_blank" rel="noreferrer" className="text-blue-700 underline underline-offset-2">
+                {isPubMed ? "PubMedで確認" : "出典元リンクを確認"}
+              </a>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

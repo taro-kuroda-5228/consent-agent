@@ -278,9 +278,9 @@ function extractKeyFindings(abstractText: string): string[] {
     .split(/(?<=[.!?。])\s+|(?=\b(?:Background|Methods|Results|Conclusions):)/i)
     .map((sentence) => sentence.trim().replace(/^\.\s*/, ""))
     .filter((sentence, index, all) => sentence.length >= 20 && all.indexOf(sentence) === index);
-  const methodOnly = (sentence: string) => /\b(?:a literature search was performed|this study aimed|aimed to explore|we aimed to|the aim of this study|methods?:|background:)\b/i.test(sentence);
+  const methodOnly = (sentence: string) => /\b(?:a literature search was performed|this study aim(?:ed|s)?|aim(?:ed|s)? to (?:explore|analy[sz]e|assess|evaluate|determine)|we aim(?:ed)? to|the aim of this study|the objective(?:s)? (?:of this study )?(?:was|were|is|are|include)|methods?:|background:)\b/i.test(sentence);
   const candidateSentences = sentences.filter((sentence) => !methodOnly(sentence));
-  const numericOutcome = candidateSentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b|sensitivity|specificity/i.test(sentence));
+  const numericOutcome = candidateSentences.filter((sentence) => /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b|\bAUC\b|area under the receiver operating characteristic curve|sensitivity|specificity/i.test(sentence));
   const directOutcome = candidateSentences.filter((sentence) => /dialysis|renal replacement|acute kidney injury|\bAKI\b|acute renal failure|\bARF\b|renal|kidney|mortality|stroke|bleeding|reoperation|re-exploration|risk|outcome|mesenteric|bowel|intestinal|visceral|ischemia|malperfusion|revascularization|necrotic|\bARDS\b|acute respiratory distress|respiratory failure|pulmonary complication|acute lung injury|oxygenation impairment|mechanical ventilation|tracheostomy|tracheotomy|spinal cord|paraplegia|intensive care|\bICU\b|length of stay|infection|pneumonia|sepsis/i.test(sentence));
   const fallbackSentences = candidateSentences.length > 0 ? [] : sentences;
   return Array.from(new Set([...(numericOutcome.length ? numericOutcome : []), ...directOutcome, ...candidateSentences, ...fallbackSentences]))
@@ -312,7 +312,7 @@ function compactFindingForMobile(sentence: string): string {
 }
 
 function hasClinicallySpecificNumber(sentence: string): boolean {
-  return /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b|sensitivity|specificity|\bP\s*[<=>]/i.test(sentence);
+  return /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b|\bAUC\b|area under the receiver operating characteristic curve|sensitivity|specificity|\bP\s*[<=>]/i.test(sentence);
 }
 
 function prioritizeKeyFindingsForQuery(keyFindings: string[], article: PubMedArticle, context: { originalQuery: string; outcomeTags: string[] }): string[] {
@@ -335,7 +335,7 @@ function splitClinicalSentences(text: string): string[] {
     .filter((sentence, index, all) => sentence.length >= 12 && all.indexOf(sentence) === index);
 }
 
-const ANSWER_SIGNAL_PATTERN = /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b|incidence|rate|occurred|required|necessary|predictor|risk factors?|associated|increased|decreased|length of stay|duration/i;
+const ANSWER_SIGNAL_PATTERN = /\d+(?:\.\d+)?\s*%|95\s*%\s*(?:confidence interval|CI)|odds ratio|risk ratio|\bOR\b|\bRR\b|\bAUC\b|area under the receiver operating characteristic curve|incidence|rate|occurred|required|necessary|predictor|risk factors?|associated|increased|decreased|length of stay|duration/i;
 const WEAK_LIST_ONLY_PATTERN = /outcome list|collected variables|secondary outcomes?|composite (?:outcome|endpoint)|definition criteria|without[^.]{0,80}(?:incidence|rate|risk factor|predictor|results?)/i;
 
 function findAnswerBearingSentence(text: string, topics: OutcomeTopic[]): string | undefined {
@@ -418,6 +418,16 @@ function extractOutcomeFrequencyJa(sourceText: string, topics: OutcomeTopic[]): 
   return `${genericOutcomeLabelJa(topics, sentence)}${directPercent}`;
 }
 
+function extractModelPerformanceJa(sourceText: string): string | undefined {
+  const auc = sourceText.match(/(?:\bAUC\b|area under the receiver operating characteristic curve)[^\d]{0,40}(\d+(?:\.\d+)?)/i)?.[1]
+    || sourceText.match(/(\d+(?:\.\d+)?)[^.]{0,60}(?:\bAUC\b|area under the receiver operating characteristic curve)/i)?.[1];
+  const sensitivitySpecificity = sourceText.match(/sensitivity (?:of )?(\d+(?:\.\d+)?%)[^.]{0,80}?specificity (?:of )?(\d+(?:\.\d+)?%)/i);
+  const parts: string[] = [];
+  if (auc) parts.push(`AUC ${auc}`);
+  if (sensitivitySpecificity) parts.push(`感度${sensitivitySpecificity[1]}・特異度${sensitivitySpecificity[2]}`);
+  return parts.length ? parts.join("、") : undefined;
+}
+
 function extractGenericRiskGistJa(sourceText: string): string[] {
   const factors: string[] = [];
   if (/malperfusion/i.test(sourceText)) factors.push("malperfusion");
@@ -426,8 +436,10 @@ function extractGenericRiskGistJa(sourceText: string): string[] {
   if (/operative time|surgical time/i.test(sourceText)) factors.push("手術時間");
   if (/transfusion|pRBC|blood transfusion/i.test(sourceText)) factors.push("輸血");
   if (/advanced age|older age|\bage\b/i.test(sourceText)) factors.push("高齢");
-  if (/preoperative kidney|renal dysfunction|kidney injury/i.test(sourceText)) factors.push("術前腎障害");
-  if (/pneumonia|respiratory failure|pulmonary/i.test(sourceText)) factors.push("肺合併症");
+  if (/preoperative kidney|renal dysfunction|kidney injury|renal failure|\bAKI\b|\bARF\b/i.test(sourceText)) factors.push("腎障害");
+  if (/respiratory failure|oxygenation impairment/i.test(sourceText)) factors.push("呼吸不全/酸素化障害");
+  if (/pneumonia|pulmonary/i.test(sourceText)) factors.push("肺合併症");
+  if (/mechanical ventilation|ventilation time/i.test(sourceText)) factors.push("人工呼吸管理");
   return Array.from(new Set(factors)).slice(0, 4);
 }
 
@@ -487,9 +499,46 @@ function summarizeGenericOutcome(article: PubMedArticle, keyFindings: string[], 
   return `${label}: ${compact.length <= 120 ? compact : `${compact.slice(0, 116).trim()}…`}。`;
 }
 
+function inferDominantArticleFocusJa(article: PubMedArticle, requestedTopics: OutcomeTopic[]): string | undefined {
+  const titleText = article.title;
+  const fullText = `${article.title} ${article.abstractText}`;
+  const titleMatchesRequestedOutcome = requestedTopics.some((topic) => topic.titleFocusPattern.test(titleText));
+  if (titleMatchesRequestedOutcome) return undefined;
+
+  const foci: Array<{ pattern: RegExp; label: string }> = [
+    { pattern: /extracorporeal membrane oxygenation|\bECMO\b/i, label: "ECMO補助" },
+    { pattern: /cardiopulmonary failure|cardiorespiratory failure/i, label: "術後心肺不全" },
+    { pattern: /mechanical circulatory support|circulatory support/i, label: "循環補助" },
+    { pattern: /predictive model|prediction model|nomogram|risk calculator/i, label: "予測モデル" },
+  ];
+
+  return foci.find((focus) => focus.pattern.test(fullText))?.label;
+}
+
+function summarizeSecondaryOutcomeInFocusedArticleJa(article: PubMedArticle, keyFindings: string[], topics: OutcomeTopic[]): string | undefined {
+  const dominantFocus = inferDominantArticleFocusJa(article, topics);
+  if (!dominantFocus) return undefined;
+
+  const sourceText = `${article.title} ${article.abstractText} ${keyFindings.join(" ")}`;
+  const design = inferStudyDesignJa(sourceText);
+  const answerSentence = findAnswerBearingSentence(sourceText, topics)
+    || keyFindings.find((finding) => topics.some((topic) => topic.answerPattern.test(finding)) && !WEAK_LIST_ONLY_PATTERN.test(finding));
+  if (!answerSentence) return undefined;
+
+  const compact = compactFindingForMobile(answerSentence).replace(/\.$/, "");
+  const percent = compact.match(/\d+(?:\.\d+)?%/)?.[0];
+  const outcomeLabel = topics.some((topic) => topic.tags.includes("dialysis")) && /continuous renal replacement therapy|\bCRRT\b/i.test(sourceText)
+    ? "CRRT"
+    : genericOutcomeLabelJa(topics, compact);
+  const prefix = [dominantFocus, design].filter(Boolean).join("の") || dominantFocus;
+  if (percent) return `${prefix}。${outcomeLabel} ${percent}を含む二次アウトカムとして医師確認。`;
+  return `${prefix}。${outcomeLabel}を含む二次アウトカムとして医師確認。`;
+}
+
 function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], context: { originalQuery: string; outcomeTags: string[] }): string {
   const joined = keyFindings.join(" ");
   const sourceText = `${article.title} ${article.abstractText} ${joined}`;
+  const requestedTopics = outcomeTopicsForTags(context.outcomeTags);
   const asksRenal = context.outcomeTags.some((tag) => tag === "renal-failure" || tag === "dialysis");
   const asksMesenteric = context.outcomeTags.some((tag) => tag === "mesenteric-ischemia" || tag === "visceral-malperfusion");
   const asksArds = context.outcomeTags.some((tag) => tag === "ards" || tag === "respiratory-complication");
@@ -574,15 +623,21 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
     return compact.length <= 130 ? `要点: ${compact}。` : `要点: ${compact.slice(0, 126).trim()}…`;
   }
   if (asksTracheostomy) {
+    const modelPerformance = extractModelPerformanceJa(sourceText);
+    const isPredictionModel = /predictive model|prediction model|nomogram|risk calculator|area under the receiver operating characteristic curve|\bAUC\b/i.test(sourceText);
     const trachRate = sourceText.match(/tracheostom(?:y|ies)[^.]{0,80}?(?:was|required|necessary|performed|rate|incidence)?[^.]{0,80}?(\d+(?:\.\d+)?%)/i)?.[1]
       || sourceText.match(/(\d+(?:\.\d+)?%)[^.]{0,100}?tracheostom/i)?.[1];
     const ventilationRate = sourceText.match(/prolonged (?:mechanical )?ventilation[^.]{0,80}?(\d+(?:\.\d+)?%)/i)?.[1]
       || sourceText.match(/(\d+(?:\.\d+)?%)[^.]{0,100}?prolonged (?:mechanical )?ventilation/i)?.[1];
-    const factors: string[] = [];
-    if (/cardiopulmonary bypass|\bCPB\b|circulatory arrest/i.test(sourceText)) factors.push("CPB/循環停止");
-    if (/stroke|neurologic|neurological/i.test(sourceText)) factors.push("神経合併症");
-    if (/renal|kidney|dialysis|acute kidney injury|\bAKI\b/i.test(sourceText)) factors.push("腎障害");
-    if (/pneumonia|pulmonary|respiratory failure|ARDS|acute respiratory distress/i.test(sourceText)) factors.push("肺合併症");
+    const factors = extractGenericRiskGistJa(sourceText);
+    if (isPredictionModel && /prolonged (?:mechanical )?ventilation|tracheostomy|tracheotomy/i.test(sourceText)) {
+      const parts = [
+        "ATAAD術後の長期人工呼吸/気管切開リスク予測モデル",
+        modelPerformance,
+        factors.length ? `関連因子候補: ${factors.slice(0, 4).join("・")}` : undefined,
+      ].filter(Boolean);
+      return `${parts.join("。")}。`;
+    }
     const rate = trachRate || ventilationRate;
     if (rate) {
       return `ATAAD術後の${trachRate ? "気管切開" : "長期人工呼吸"}は${rate}。${factors.length ? `関連因子候補: ${factors.slice(0, 4).join("・")}。` : "術後呼吸管理リスクの根拠候補。"}`;
@@ -592,6 +647,9 @@ function summarizeForDoctor(article: PubMedArticle, keyFindings: string[], conte
       return compact.length <= 130 ? `要点: ${compact}。` : `要点: ${compact.slice(0, 126).trim()}…`;
     }
   }
+  const secondaryOutcomeSummary = summarizeSecondaryOutcomeInFocusedArticleJa(article, keyFindings, requestedTopics);
+  if (secondaryOutcomeSummary) return secondaryOutcomeSummary;
+
   const akiIncidencePercent =
     akiPercent?.[1] ||
     akiPercent?.[2] ||
