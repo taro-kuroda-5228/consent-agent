@@ -14,24 +14,25 @@ describe("physician evidence card UI parity", () => {
   it("keeps selected PubMed evidence labels aligned with the PubMed search card", () => {
     expect(pageSource).toContain("PubMedで確認");
     expect(pageSource).toContain("抄録/メタデータ");
-    expect(pageSource).toContain("長いガイドライン全文を回答根拠にする場合は、PDF/URL資料として追加してください。");
+    expect(pageSource).not.toContain("PubMed検索カードは抄録・メタデータからの確認です。");
+    expect(pageSource).not.toContain("長いガイドライン全文を回答根拠にする場合は、PDF/URL資料として追加してください。");
     expect(pageSource).not.toContain("出典元リンクでfact check");
-    expect(pageSource).toContain("判定理由:");
+    expect(pageSource).not.toContain("判定理由:");
+    expect(pageSource).not.toContain("physicianReviewTierLabel &&");
     expect(pageSource).toContain("主要所見");
-    expect(pageSource).toContain("physicianReviewTierLabel");
     expect(pageSource).toContain("outcomeTags");
   });
 
   it("renders already-selected PubMed evidence as adopted evidence, not as a candidate-review card", () => {
     expect(pageSource).toContain('tone="selected"');
     expect(pageSource).not.toContain('tone={item.retrievalStatus === "pubmed-verified" || item.pmid ? "pubmed-search" : "selected"}');
-    expect(pageSource).toContain('const showDecisionMetadata = tone === "pubmed-search"');
   });
 
-  it("does not show candidate tier or review reason copy in adopted selected-evidence cards", () => {
-    expect(pageSource).toContain('const showDecisionMetadata = tone === "pubmed-search"');
-    expect(pageSource).toContain('showDecisionMetadata && evidence.physicianReviewTierLabel');
-    expect(pageSource).toContain('showDecisionMetadata && evidence.physicianReviewReason');
+  it("does not render candidate tier or review reason copy in evidence cards", () => {
+    expect(pageSource).not.toContain('const showDecisionMetadata = tone === "pubmed-search"');
+    expect(pageSource).not.toContain('showDecisionMetadata && evidence.physicianReviewTierLabel');
+    expect(pageSource).not.toContain('showDecisionMetadata && evidence.physicianReviewReason');
+    expect(pageSource).not.toContain("判定理由:");
   });
 
   it("wraps long clinical scope text inside the evidence card on mobile", () => {
@@ -41,9 +42,10 @@ describe("physician evidence card UI parity", () => {
     expect(clinicalScopeBadge?.[1]).toContain("w-full");
     expect(clinicalScopeBadge?.[1]).toContain("min-w-0");
     expect(clinicalScopeBadge?.[1]).toContain("max-w-full");
-    expect(clinicalScopeBadge?.[1]).toContain("overflow-visible");
+    expect(clinicalScopeBadge?.[1]).toContain("overflow-hidden");
     expect(clinicalScopeBadge?.[1]).toContain("whitespace-normal");
     expect(clinicalScopeBadge?.[1]).toContain("break-words");
+    expect(clinicalScopeBadge?.[1]).toContain("[overflow-wrap:anywhere]");
     expect(clinicalScopeBadge?.[1]).toContain("h-auto");
     expect(clinicalScopeBadge?.[1]).toContain("text-left");
   });
