@@ -1306,13 +1306,6 @@ function EvidenceDecisionCard({
 
           <p className="text-xs font-bold text-slate-950">{evidence.title}</p>
 
-          {evidence.clinicalScope && (
-            <span className="clinical-scope-badge block h-auto w-full min-w-0 max-w-full shrink overflow-hidden break-words rounded-2xl bg-amber-100 px-2 py-1 text-left text-[10px] font-medium leading-relaxed whitespace-normal text-amber-900 [overflow-wrap:anywhere]">
-              対象: {evidence.clinicalScope}
-            </span>
-          )}
-
-
           {evidence.clinicianSummary && (
             <p className={summaryClass}>医師向け要約: {evidence.clinicianSummary}</p>
           )}

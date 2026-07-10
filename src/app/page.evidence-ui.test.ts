@@ -35,18 +35,9 @@ describe("physician evidence card UI parity", () => {
     expect(pageSource).not.toContain("判定理由:");
   });
 
-  it("wraps long clinical scope text inside the evidence card on mobile", () => {
-    const clinicalScopeBadge = pageSource.match(/className=\"([^\"]*clinical-scope-badge[^\"]*)\"/);
-
-    expect(clinicalScopeBadge?.[1]).toContain("block");
-    expect(clinicalScopeBadge?.[1]).toContain("w-full");
-    expect(clinicalScopeBadge?.[1]).toContain("min-w-0");
-    expect(clinicalScopeBadge?.[1]).toContain("max-w-full");
-    expect(clinicalScopeBadge?.[1]).toContain("overflow-hidden");
-    expect(clinicalScopeBadge?.[1]).toContain("whitespace-normal");
-    expect(clinicalScopeBadge?.[1]).toContain("break-words");
-    expect(clinicalScopeBadge?.[1]).toContain("[overflow-wrap:anywhere]");
-    expect(clinicalScopeBadge?.[1]).toContain("h-auto");
-    expect(clinicalScopeBadge?.[1]).toContain("text-left");
+  it("does not render clinical-scope target badges that overflow mobile evidence cards", () => {
+    expect(pageSource).not.toContain("clinical-scope-badge");
+    expect(pageSource).not.toContain("対象: {evidence.clinicalScope}");
+    expect(pageSource).not.toContain("対象：{evidence.clinicalScope}");
   });
 });
