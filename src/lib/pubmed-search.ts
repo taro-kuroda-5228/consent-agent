@@ -836,9 +836,18 @@ function scoreArticleForQuery(article: PubMedArticle, context: { originalQuery: 
     score += /mortality|survival/.test(title) ? 8 : 3;
   }
   if (asksBleeding) {
-    const hasBleeding = /bleeding|hemorrhage|reoperation/.test(combined);
-    if (!hasBleeding) return Number.NEGATIVE_INFINITY;
-    score += /bleeding|hemorrhage|reoperation/.test(title) ? 8 : 3;
+    const activeBleedingTopics = outcomeTopicsForTags(context.outcomeTags);
+    const answerSentence = findAnswerBearingSentence(`${article.abstractText} ${article.title}`, activeBleedingTopics);
+    const titleDirectlyFocusesBleedingOutcome = /bleeding|hemorrhage|postoperative reoperation|reoperation for bleeding|re-exploration for bleeding|re-exploration/i.test(title);
+    const titleUsesReoperationAsIndexProcedure = /clinical study of reoperation|reoperation for acute type a aortic dissection|reoperations? (?:for|of) (?:acute )?type a aortic dissection/.test(title)
+      && !/bleeding|hemorrhage|re-exploration/.test(title);
+    const genericComplicationListWithoutRequestedOutcome = /postoperative complications included/i.test(combined)
+      && !/(bleeding|hemorrhage|re-exploration|reoperation[^.]{0,80}(?:bleeding|hemorrhage)|(?:bleeding|hemorrhage)[^.]{0,80}reoperation)/.test(combined);
+    const hasBleeding = /bleeding|hemorrhage|reoperation|re-exploration/.test(combined);
+    if (!hasBleeding || titleUsesReoperationAsIndexProcedure || genericComplicationListWithoutRequestedOutcome) return Number.NEGATIVE_INFINITY;
+    if (!answerSentence && !titleDirectlyFocusesBleedingOutcome) return Number.NEGATIVE_INFINITY;
+    score += titleDirectlyFocusesBleedingOutcome ? 10 : 3;
+    if (answerSentence) score += 8;
   }
 
   if (/\d+(?:\.\d+)?\s*%/.test(combined)) score += 2;

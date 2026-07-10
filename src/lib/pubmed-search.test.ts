@@ -765,6 +765,32 @@ describe("PubMed natural-language evidence search", () => {
     expect(cards[0].clinicianSummary?.length).toBeLessThanOrEqual(170);
   });
 
+  it("does not treat reoperation-procedure papers or generic complication lists as bleeding-risk evidence", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "38495943",
+        title: "Clinical study of reoperation for acute type A aortic dissection.",
+        abstractText: "In the EVAR group, 47 patients (95.92%) were successfully implanted with overlapping stents, and 2 patients died in the perioperative period. Postoperative complications included cerebral infarction (4.08%), acute renal insufficiency (30.61%), pulmonary insufficiency and need for ventilator (6.12%), poor wound healing. In the TAAR group, 12 patients (92.31%) were successfully revascularized and 1 patient died in the perioperative period.",
+        journal: "Frontiers in cardiovascular medicine",
+        year: "2024",
+        authors: ["Feng X"],
+      },
+      {
+        pmid: "direct-bleeding",
+        title: "Re-exploration for bleeding after acute type A aortic dissection repair: incidence and outcomes.",
+        abstractText: "Re-exploration for bleeding occurred in 9.4% of patients after acute type A aortic dissection repair. Bleeding-related reoperation was associated with higher transfusion and operative mortality.",
+        journal: "Aorta",
+        year: "2025",
+        authors: ["Ito K"],
+      },
+    ], { originalQuery: "大動脈解離の出血リスクについて言及している論文", outcomeTags: ["bleeding", "reoperation"] });
+
+    expect(cards.map((card) => card.evidenceId)).toEqual(["PUBMED-direct-bleeding"]);
+    expect(cards[0].clinicianSummary).toContain("出血");
+    expect(cards[0].clinicianSummary).toContain("9.4%");
+    expect(cards[0].clinicianSummary).not.toMatch(/Postoperative complications included|cerebral infarction|acute renal insufficiency|pulmonary insu/i);
+  });
+
   it("keeps off-domain and outcome-mismatch PubMed cards visible only as reference/exclude tiers, never as adoption candidates", () => {
     const cards = convertPubMedArticlesToEvidenceCards([
       {

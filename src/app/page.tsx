@@ -1277,16 +1277,12 @@ function EvidenceDecisionCard({
   action?: ReactNode;
 }) {
   const isPubMed = evidence.retrievalStatus === "pubmed-verified" || Boolean(evidence.pmid) || evidence.evidenceId.startsWith("PUBMED-");
-  const showDecisionMetadata = tone === "pubmed-search";
   const shellClass = tone === "pubmed-search"
     ? "rounded-xl border border-cyan-100 bg-white p-3"
     : `w-full rounded-xl border p-3 transition-colors ${selected ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"}`;
   const summaryClass = tone === "pubmed-search"
     ? "mt-1 rounded-lg bg-cyan-50 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-slate-800"
     : "rounded-lg bg-white/80 px-2 py-1.5 text-[11px] font-medium leading-relaxed text-gray-800";
-  const reasonClass = tone === "pubmed-search"
-    ? "mt-1 rounded-lg bg-slate-50 px-2 py-1 text-[11px] font-semibold leading-relaxed text-slate-700"
-    : "rounded-lg bg-white/70 px-2 py-1 text-[11px] font-semibold leading-relaxed text-slate-700";
 
   return (
     <div className={shellClass} data-testid={`evidence-card-${evidence.evidenceId}`}>
@@ -1302,17 +1298,6 @@ function EvidenceDecisionCard({
             )}
             {isPubMed && <Badge className="bg-emerald-100 text-emerald-800 text-[10px]">PubMed確認済み</Badge>}
             {isPubMed && <Badge className="bg-cyan-50 text-cyan-900 text-[10px]">抄録/メタデータ</Badge>}
-            {showDecisionMetadata && evidence.physicianReviewTierLabel && evidence.physicianReviewTier !== "exclude-recommended" && (
-              <Badge className={`text-[10px] ${
-                evidence.physicianReviewTier === "adopt-candidate"
-                  ? "bg-green-600 text-white"
-                  : evidence.physicianReviewTier === "reference-only"
-                    ? "bg-amber-100 text-amber-900"
-                    : "bg-red-100 text-red-800"
-              }`}>
-                {evidence.physicianReviewTierLabel}
-              </Badge>
-            )}
             {evidence.outcomeTags?.map((tag) => (
               <span key={tag} className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">{tag}</span>
             ))}
@@ -1322,23 +1307,14 @@ function EvidenceDecisionCard({
           <p className="text-xs font-bold text-slate-950">{evidence.title}</p>
 
           {evidence.clinicalScope && (
-            <span className="clinical-scope-badge block h-auto w-full min-w-0 max-w-full shrink overflow-visible break-words rounded-2xl bg-amber-100 px-2 py-1 text-left text-[10px] font-medium leading-relaxed whitespace-normal text-amber-900">
+            <span className="clinical-scope-badge block h-auto w-full min-w-0 max-w-full shrink overflow-hidden break-words rounded-2xl bg-amber-100 px-2 py-1 text-left text-[10px] font-medium leading-relaxed whitespace-normal text-amber-900 [overflow-wrap:anywhere]">
               対象: {evidence.clinicalScope}
             </span>
           )}
 
-          {isPubMed && (
-            <p className="rounded-lg bg-cyan-50 px-2 py-1.5 text-[11px] font-semibold leading-relaxed text-cyan-950">
-              PubMed検索カードは抄録・メタデータからの確認です。長いガイドライン全文を回答根拠にする場合は、PDF/URL資料として追加してください。
-            </p>
-          )}
 
           {evidence.clinicianSummary && (
             <p className={summaryClass}>医師向け要約: {evidence.clinicianSummary}</p>
-          )}
-
-          {showDecisionMetadata && evidence.physicianReviewReason && (
-            <p className={reasonClass}>判定理由: {evidence.physicianReviewReason}</p>
           )}
 
           {evidence.keyFindings && evidence.keyFindings.length > 0 && (
