@@ -282,6 +282,13 @@ describe("mobile demo UI copy and CTA readability", () => {
     expect(doctorSummarySource).toContain("🧑‍⚕️ AI判定: 医師フォローアップが必要");
   });
 
+  it("shows the actual family question text prominently inside each doctor-summary Q&A log entry", () => {
+    expect(doctorSummarySource).toContain("data-testid=\"doctor-summary-qa-question\"");
+    expect(doctorSummarySource).toContain("<span className=\"text-[11px] font-bold uppercase tracking-wide text-slate-500\">家族からの質問</span>");
+    expect(doctorSummarySource).toContain("<p className=\"mt-1 whitespace-pre-wrap break-words text-base font-bold leading-relaxed text-slate-950\">");
+    expect(doctorSummarySource).toContain("{entry.question}");
+  });
+
   it("keeps selected text readable on the light doctor summary background", () => {
     expect(globalCssSource).toContain("::selection");
     expect(globalCssSource).toContain("color: #0f172a;");
