@@ -265,6 +265,48 @@ describe("PubMed natural-language evidence search", () => {
     expect(cards.every((card) => (card.clinicianSummary?.length ?? 0) <= 150)).toBe(true);
   });
 
+  it("summarizes PMV/tracheostomy model papers as structured Japanese clinical cards instead of objective text", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "38545347",
+        title: "Prediction model for prolonged mechanical ventilation after acute type A aortic dissection surgery.",
+        abstractText: "This study aims to analyze the risk factors associated with prolonged mechanical ventilation after acute type A aortic dissection surgery and establish a nomogram prediction model. Multivariable analysis identified postoperative respiratory failure, renal dysfunction, and pneumonia as independent predictors of prolonged mechanical ventilation. The nomogram model showed an area under the receiver operating characteristic curve (AUC) of 0.856, with calibration and decision curve analysis indicating good clinical utility.",
+        journal: "Journal of cardiothoracic surgery",
+        year: "2024",
+        authors: ["Chen Y"],
+      },
+    ], { originalQuery: "大動脈解離の気管切開リスクについて言及している論文", outcomeTags: ["tracheostomy", "prolonged-ventilation"] });
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].clinicianSummary).toContain("長期人工呼吸");
+    expect(cards[0].clinicianSummary).toContain("予測モデル");
+    expect(cards[0].clinicianSummary).toContain("AUC 0.856");
+    expect(cards[0].clinicianSummary).toMatch(/肺合併症|呼吸不全/);
+    expect(cards[0].clinicianSummary).toContain("腎障害");
+    expect(cards[0].clinicianSummary).not.toMatch(/This study aims|要点:|objective|aims to analyze/i);
+    expect(cards[0].keyFindings?.join(" ")).not.toMatch(/This study aims|objective|aims to analyze/i);
+    expect(cards[0].clinicianSummary?.length).toBeLessThanOrEqual(170);
+  });
+
+  it("does not leak objective-only sentences from the real PMV nomogram PubMed card", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "38545347",
+        title: "Construction of a nomogram risk prediction model for prolonged mechanical ventilation in patients following surgery for acute type A aortic dissection.",
+        abstractText: "This study aims to analyze the risk factors associated with prolonged mechanical ventilation (PMV) in patients following surgical treatment for acute type A aortic dissection and establish a nomogram prediction model. Multivariable analysis identified postoperative respiratory failure, renal dysfunction, and pneumonia as independent predictors of prolonged mechanical ventilation. The area under the curve (AUC) for the validation set ROC curve was 0.856, 95% confidence interval (0.805-0.907), indicating good discrimination. The objectives include constructing a predictive model for risk assessment and validating its predictive efficacy.",
+        journal: "Frontiers in cardiovascular medicine",
+        year: "2024",
+        authors: ["Yu X"],
+      },
+    ], { originalQuery: "大動脈解離の気管切開リスク", outcomeTags: ["tracheostomy", "prolonged-ventilation"] });
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].clinicianSummary).toContain("長期人工呼吸/気管切開リスク予測モデル");
+    expect(cards[0].clinicianSummary).toContain("AUC 0.856");
+    expect(cards[0].clinicianSummary).toMatch(/呼吸不全|腎障害|肺合併症/);
+    expect([cards[0].clinicianSummary, ...(cards[0].keyFindings ?? [])].join(" ")).not.toMatch(/This study aims|The objectives include|要点:/i);
+  });
+
   it("ranks directly answer-bearing tracheostomy papers and omits broad dissection outcomes", () => {
     const cards = convertPubMedArticlesToEvidenceCards([
       {
@@ -640,6 +682,25 @@ describe("PubMed natural-language evidence search", () => {
     expect(cards[0].clinicianSummary).not.toMatch(/主要所見を医師が確認|PubMed候補/);
     expect(cards[1].keyFindings?.join(" ")).toContain("17.6%");
     expect(cards[1].clinicianSummary).toContain("17.6%");
+  });
+
+  it("does not graft renal replacement wording onto ECMO systematic-review papers", () => {
+    const cards = convertPubMedArticlesToEvidenceCards([
+      {
+        pmid: "ecmo-review",
+        title: "Extracorporeal Membrane Oxygenation Following Acute Type A Aortic Dissection Repair: A Systematic Review and Meta-Analysis.",
+        abstractText: "This systematic review evaluated extracorporeal membrane oxygenation following acute type A aortic dissection repair. Acute kidney injury requiring continuous renal replacement therapy rate was 58.3% among ECMO-supported patients. Mortality was high. The review focused on ECMO rescue after postoperative cardiopulmonary failure.",
+        journal: "Journal of cardiac surgery",
+        year: "2025",
+        authors: ["Sato K"],
+      },
+    ], { originalQuery: "大動脈解離の透析リスクについて言及している論文", outcomeTags: ["renal-failure", "dialysis"] });
+
+    expect(cards).toHaveLength(1);
+    expect(cards[0].clinicianSummary).toContain("ECMO");
+    expect(cards[0].clinicianSummary).toContain("CRRT");
+    expect(cards[0].clinicianSummary).toContain("58.3%");
+    expect(cards[0].clinicianSummary).not.toMatch(/A型大動脈解離術後急性腎不全に関する研究|術前からの腎障害|腎代替療法は予後不良の追加リスク/);
   });
 
   it("builds structured Japanese physician summaries for generic answer-bearing PubMed outcome papers", () => {
