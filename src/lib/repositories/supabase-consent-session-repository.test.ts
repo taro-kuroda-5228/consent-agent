@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { retrieveMockEvidence } from '../consent-demo';
+import { retrieveMockEvidence, type FacilityAnswerTemplate } from '../consent-demo';
 import { NOT_SIGNED_CONSENT_NOTICE } from './consent-session-repository';
 import { SupabaseConsentSessionRepository } from './supabase-consent-session-repository';
 
@@ -151,6 +151,55 @@ describe('SupabaseConsentSessionRepository', () => {
     const second = await repo.createSession({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術', modelMode: 'mock' });
     expect(second.id).not.toBe(session.id);
     expect(client.tables.consent_sessions).toHaveLength(2);
+  });
+
+  it('round-trips the latest facility answer template snapshot with deterministic ordering for equal timestamps', async () => {
+    const client = new FakeSupabaseClient();
+    const repo = new SupabaseConsentSessionRepository(client as never);
+    const session = await repo.createSession({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術', modelMode: 'mock' });
+    const firstTemplate: FacilityAnswerTemplate = {
+      templateId: 'FAC-TPL-SELECTED-MORTALITY-V1',
+      label: '当院標準: 手術死亡率（旧版）',
+      questionPatterns: ['死亡率', '院内死亡'],
+      answer: '旧版の施設標準回答です。個別の見込みは担当医が補足します。',
+      scope: '急性A型大動脈解離の緊急手術説明',
+      doctorBurden: 'physician-edited',
+      lastReviewedLabel: '医師確認済み・旧版',
+    };
+    const latestTemplate: FacilityAnswerTemplate = {
+      ...firstTemplate,
+      templateId: 'FAC-TPL-SELECTED-MORTALITY-V2',
+      label: '当院標準: 手術死亡率（最新版）',
+      answer: '最新版の施設標準回答です。個別の見込みは担当医が補足します。',
+      lastReviewedLabel: '医師確認済み・最新版',
+    };
+
+    await repo.appendSessionEvent({
+      sessionId: session.id,
+      eventType: 'explanation_generated',
+      actorType: 'model',
+      payload: { selectedFacilityAnswerTemplates: [firstTemplate] },
+    });
+    await repo.appendSessionEvent({
+      sessionId: session.id,
+      eventType: 'explanation_generated',
+      actorType: 'model',
+      payload: { selectedFacilityAnswerTemplates: [latestTemplate] },
+    });
+
+    // The fake DB gives both events the same created_at. Reverse the physical row
+    // order to prove the repository query supplies its own deterministic tie-breaker.
+    client.tables.session_events.reverse();
+
+    await expect(repo.getSelectedFacilityAnswerTemplates(session.id)).resolves.toEqual([latestTemplate]);
+  });
+
+  it('rejects facility template lookup when the persisted session is unavailable', async () => {
+    const client = new FakeSupabaseClient();
+    const repo = new SupabaseConsentSessionRepository(client as never);
+
+    await expect(repo.getSelectedFacilityAnswerTemplates('00000000-0000-0000-0000-999999999999'))
+      .rejects.toThrow('Consent session not found');
   });
 
   it('persists source URL/PDF chunks so repeated QA can avoid refetching and rechunking', async () => {

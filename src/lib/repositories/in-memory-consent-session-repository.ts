@@ -1,5 +1,5 @@
 import { sanitizeClinicalFreeText } from '../ai-consent-session';
-import type { EvidenceCard } from '../consent-demo';
+import { normalizeFacilityAnswerTemplates, type EvidenceCard, type FacilityAnswerTemplate } from '../consent-demo';
 import {
   DEFAULT_EXPLANATION_VERSION,
   DEMO_CASE_ID,
@@ -111,6 +111,17 @@ export class InMemoryConsentSessionRepository implements ConsentSessionRepositor
 
   async getSelectedEvidence(sessionId: string): Promise<EvidenceCard[]> {
     return requireSession(sessionId).selectedEvidence;
+  }
+
+  async getSelectedFacilityAnswerTemplates(sessionId: string): Promise<FacilityAnswerTemplate[]> {
+    const events = requireSession(sessionId).events;
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event.eventType === 'explanation_generated') {
+        return normalizeFacilityAnswerTemplates(event.payload.selectedFacilityAnswerTemplates);
+      }
+    }
+    return [];
   }
 
   async getSourceDocumentCache(sourceUrl: string): Promise<SourceDocumentCacheRecord | null> {

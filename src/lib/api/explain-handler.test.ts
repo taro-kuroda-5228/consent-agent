@@ -2,7 +2,20 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { handleExplainRequest } from './explain-handler';
 import { handleQaRequest } from './qa-handler';
 import { InMemoryConsentSessionRepository, resetInMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
-import { createAutoPhysicianUrlEvidence, createPhysicianUploadedEvidence, type EvidenceCard } from '../consent-demo';
+import { createAutoPhysicianUrlEvidence, createPhysicianUploadedEvidence, type EvidenceCard, type FacilityAnswerTemplate } from '../consent-demo';
+
+function createFacilityAnswerTemplate(overrides: Partial<FacilityAnswerTemplate> = {}): FacilityAnswerTemplate {
+  return {
+    templateId: 'FAC-TPL-SELECTED-MORTALITY',
+    label: '当院標準: A型大動脈解離 手術死亡率',
+    questionPatterns: ['死亡率', '院内死亡', 'mortality'],
+    answer: '当院では、この手術の死亡率をおおよそ10%前後として説明しています。患者さんごとの見込みは担当医が状態に合わせて補足します。',
+    scope: '急性A型大動脈解離の緊急手術説明',
+    doctorBurden: 'physician-edited',
+    lastReviewedLabel: '医師確認済みテストテンプレ',
+    ...overrides,
+  };
+}
 
 describe('explain and qa handlers persistence', () => {
   beforeEach(() => resetInMemoryConsentSessionRepository());
@@ -16,6 +29,99 @@ describe('explain and qa handlers persistence', () => {
     const summary = await repo.getSessionSummary(String(result.body.sessionId));
     expect(summary?.selectedEvidence.map(e => e.evidenceId)).toEqual(['FAC-001']);
     expect(summary?.events[0].eventType).toBe('explanation_generated');
+  });
+
+  it('persists the facility answer template selected for explanation and prioritizes it in family-link QA over selected literature', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const selectedTemplate = createFacilityAnswerTemplate();
+    const explained = await handleExplainRequest({
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+      selectedEvidenceIds: ['AAD-005'],
+      facilityAnswerTemplates: [selectedTemplate],
+    }, repo);
+    expect(explained.status).toBe(200);
+    const sessionId = String(explained.body.sessionId);
+
+    const summary = await repo.getSessionSummary(sessionId);
+    expect(summary?.events[0].payload.selectedFacilityAnswerTemplates).toEqual([selectedTemplate]);
+    expect(summary?.auditEvents[0].metadata.selectedFacilityTemplateIds).toEqual([selectedTemplate.templateId]);
+
+    const qa = await handleQaRequest({
+      sessionId,
+      question: 'この手術の死亡率はどのくらいですか？',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '上行大動脈人工血管置換術',
+    }, repo);
+
+    expect(qa.status).toBe(200);
+    if ('error' in qa.body) throw new Error(qa.body.error);
+    expect(qa.body.answer).toBe(selectedTemplate.answer);
+    expect(qa.body.evidenceReferences).toEqual([selectedTemplate.templateId]);
+    expect(qa.body.templateReferences).toEqual([selectedTemplate]);
+    expect(qa.body.retrievedEvidence).toEqual([]);
+    expect(qa.body.extractionMode).toBe('facility-template');
+    expect(qa.body.metadata.selectedFacilityTemplateSource).toBe('database');
+  });
+
+  it('falls back to the other physician-selected sources only when the selected facility template cannot answer the question', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const selectedTemplate = createFacilityAnswerTemplate();
+    const explained = await handleExplainRequest({
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '全弓部置換術 + frozen elephant trunk',
+      selectedEvidenceIds: ['AAD-005'],
+      facilityAnswerTemplates: [selectedTemplate],
+    }, repo);
+    const sessionId = String(explained.body.sessionId);
+
+    const qa = await handleQaRequest({
+      sessionId,
+      question: '脳梗塞のリスクは何%ですか？',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '全弓部置換術 + frozen elephant trunk',
+    }, repo);
+
+    expect(qa.status).toBe(200);
+    if ('error' in qa.body) throw new Error(qa.body.error);
+    expect(qa.body.answer).not.toBe(selectedTemplate.answer);
+    expect(qa.body.answer).toContain('5%');
+    expect(qa.body.evidenceReferences).toEqual(['AAD-005']);
+    expect(qa.body.templateReferences).toBeUndefined();
+    expect(qa.body.metadata.selectedFacilityTemplateSource).toBe('database');
+  });
+
+  it('rejects a request-time facility template that was not selected for the persisted explanation', async () => {
+    const repo = new InMemoryConsentSessionRepository();
+    const selectedTemplate = createFacilityAnswerTemplate();
+    const unselectedInjectedTemplate = createFacilityAnswerTemplate({
+      templateId: 'FAC-TPL-NOT-SELECTED-STROKE',
+      label: '未選択テンプレ',
+      questionPatterns: ['脳梗塞', '脳卒中'],
+      answer: '未選択の施設テンプレ回答です。この文言は患者向け回答に使用してはいけません。',
+    });
+    const explained = await handleExplainRequest({
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '全弓部置換術 + frozen elephant trunk',
+      selectedEvidenceIds: ['AAD-005'],
+      facilityAnswerTemplates: [selectedTemplate],
+    }, repo);
+    const sessionId = String(explained.body.sessionId);
+
+    const qa = await handleQaRequest({
+      sessionId,
+      question: '脳梗塞のリスクは何%ですか？',
+      diagnosis: '急性A型大動脈解離',
+      plannedSurgery: '全弓部置換術 + frozen elephant trunk',
+      facilityAnswerTemplates: [unselectedInjectedTemplate],
+    }, repo);
+
+    expect(qa.status).toBe(200);
+    if ('error' in qa.body) throw new Error(qa.body.error);
+    expect(qa.body.answer).not.toContain('未選択の施設テンプレ回答');
+    expect(qa.body.answer).toContain('5%');
+    expect(qa.body.evidenceReferences).toEqual(['AAD-005']);
+    expect(qa.body.metadata.selectedFacilityTemplateSource).toBe('database');
   });
 
   it('accepts physician intake risks sent as a free-text textarea string', async () => {
