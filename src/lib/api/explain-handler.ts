@@ -1,6 +1,6 @@
 import { generateExplanation, shouldUseLiveGemini } from '../gemini';
 import { createFamilyAccessToken } from '../family-access-token';
-import { buildEvidenceTransparency, resolveEvidenceSelectionForRequest, retrieveMockEvidence, type EvidenceCard } from '../consent-demo';
+import { buildEvidenceTransparency, normalizeFacilityAnswerTemplates, resolveEvidenceSelectionForRequest, retrieveMockEvidence, type EvidenceCard } from '../consent-demo';
 import { inMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
 import type { ConsentSessionRepository } from '../repositories/consent-session-repository';
 
@@ -15,6 +15,7 @@ export type ExplainHandlerInput = {
   notes?: string;
   selectedEvidenceIds?: string[];
   customEvidence?: EvidenceCard[];
+  facilityAnswerTemplates?: unknown[];
   sessionId?: string;
 };
 
@@ -56,6 +57,7 @@ export async function handleExplainRequest(input: ExplainHandlerInput, repositor
     [...retrieveMockEvidence(input.diagnosis), ...physicianUploadedEvidence],
     input.selectedEvidenceIds,
   );
+  const selectedFacilityAnswerTemplates = normalizeFacilityAnswerTemplates(input.facilityAnswerTemplates);
   const evidenceTransparency = buildEvidenceTransparency(selectedEvidence);
   const risks = normalizeRiskInput(input.risks);
   await repository.saveSelectedEvidence({ sessionId: session.id, selectedEvidence });
@@ -76,17 +78,38 @@ export async function handleExplainRequest(input: ExplainHandlerInput, repositor
       sessionId: session.id,
       eventType: 'explanation_generated',
       actorType: 'model',
-      payload: { selectedEvidenceIds: selectedEvidence.map((e) => e.evidenceId), evidenceTransparency, explanation },
+      payload: {
+        selectedEvidenceIds: selectedEvidence.map((e) => e.evidenceId),
+        selectedFacilityAnswerTemplates,
+        evidenceTransparency,
+        explanation,
+      },
     });
     const audit = await repository.appendAuditEvent({
       sessionId: session.id,
       action: 'explanation_generated',
       resourceType: 'consent_session',
       resourceId: session.id,
-      metadata: { selectedEvidenceIds: selectedEvidence.map((e) => e.evidenceId), modelMode: session.modelMode },
+      metadata: {
+        selectedEvidenceIds: selectedEvidence.map((e) => e.evidenceId),
+        selectedFacilityTemplateIds: selectedFacilityAnswerTemplates.map((template) => template.templateId),
+        modelMode: session.modelMode,
+      },
     });
     const familyAccessToken = createFamilyAccessToken(session.id);
-    return { status: 200, body: { explanation, selectedEvidence, evidenceTransparency, sessionId: session.id, familyAccessToken, auditEventId: audit.id, sessionEventId: event.id } };
+    return {
+      status: 200,
+      body: {
+        explanation,
+        selectedEvidence,
+        selectedFacilityAnswerTemplates,
+        evidenceTransparency,
+        sessionId: session.id,
+        familyAccessToken,
+        auditEventId: audit.id,
+        sessionEventId: event.id,
+      },
+    };
   } catch {
     const audit = await repository.appendAuditEvent({
       sessionId: session.id,

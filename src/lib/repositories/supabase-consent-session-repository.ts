@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { sanitizeClinicalFreeText } from '../ai-consent-session';
-import type { EvidenceCard } from '../consent-demo';
+import { normalizeFacilityAnswerTemplates, type EvidenceCard, type FacilityAnswerTemplate } from '../consent-demo';
 import type { Database } from '../supabase/types';
 import {
   DEFAULT_EXPLANATION_VERSION,
@@ -204,6 +204,18 @@ export class SupabaseConsentSessionRepository implements ConsentSessionRepositor
     return evidence;
   }
 
+  async getSelectedFacilityAnswerTemplates(sessionId: string): Promise<FacilityAnswerTemplate[]> {
+    await this.requireSessionRow(sessionId);
+    const events = await this.getSessionEvents(sessionId);
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event.eventType === 'explanation_generated') {
+        return normalizeFacilityAnswerTemplates(event.payload.selectedFacilityAnswerTemplates);
+      }
+    }
+    return [];
+  }
+
   async getSourceDocumentCache(sourceUrl: string): Promise<SourceDocumentCacheRecord | null> {
     const doc = await this.queryOne(this.supabase.from('source_documents').select('*').eq('institution_id', DEMO_INSTITUTION_ID).eq('source_url', sourceUrl));
     if (!doc?.id) return null;
@@ -310,7 +322,14 @@ export class SupabaseConsentSessionRepository implements ConsentSessionRepositor
   }
 
   private async getSessionEvents(sessionId: string): Promise<ConsentSessionEvent[]> {
-    const rows = await this.queryRows(this.supabase.from('session_events').select('*').eq('session_id', sessionId).order('created_at', { ascending: true }));
+    const rows = await this.queryRows(
+      this.supabase
+        .from('session_events')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }),
+    );
     return rows.map((row) => ({
       id: String(row.id),
       sessionId,

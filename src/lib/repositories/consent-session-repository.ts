@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { EvidenceCard } from '../consent-demo';
+import type { EvidenceCard, FacilityAnswerTemplate } from '../consent-demo';
 import type { FamilyResponseEvaluation } from '../ai-consent-session';
 
 export type SessionEventType = 'explanation_generated' | 'family_response' | 'qa_answered' | 'understanding_evaluated' | 'intent_recorded' | 'physician_reviewed' | 'export_created' | 'safety_escalation';
@@ -98,6 +98,7 @@ export interface ConsentSessionRepository {
   savePhysicianReview(input: SavePhysicianReviewInput): Promise<PhysicianReviewRecord>;
   getSessionSummary(sessionId: string): Promise<ConsentSessionSummary | null>;
   getSelectedEvidence(sessionId: string): Promise<EvidenceCard[]>;
+  getSelectedFacilityAnswerTemplates(sessionId: string): Promise<FacilityAnswerTemplate[]>;
   getSourceDocumentCache?(sourceUrl: string): Promise<SourceDocumentCacheRecord | null>;
   saveSourceDocumentCache?(input: SaveSourceDocumentCacheInput): Promise<void>;
 }

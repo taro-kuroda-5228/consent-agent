@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { retrieveMockEvidence } from '../consent-demo';
+import { retrieveMockEvidence, type FacilityAnswerTemplate } from '../consent-demo';
 import { NOT_SIGNED_CONSENT_NOTICE } from './consent-session-repository';
 import { SupabaseConsentSessionRepository } from './supabase-consent-session-repository';
 
@@ -27,13 +27,13 @@ class FakeSupabaseClient {
 class FakeQuery {
   private filters: Array<[string, unknown]> = [];
   private selected = '*';
-  private orderBy?: { column: string; ascending: boolean };
+  private orderBy: Array<{ column: string; ascending: boolean }> = [];
 
   constructor(private readonly client: FakeSupabaseClient, private readonly table: string) {}
 
   select(columns = '*') { this.selected = columns; return this; }
   eq(column: string, value: unknown) { this.filters.push([column, value]); return this; }
-  order(column: string, options?: { ascending?: boolean }) { this.orderBy = { column, ascending: options?.ascending ?? true }; return this; }
+  order(column: string, options?: { ascending?: boolean }) { this.orderBy.push({ column, ascending: options?.ascending ?? true }); return this; }
 
   async maybeSingle() {
     const rows = this.applyFilters();
@@ -94,7 +94,15 @@ class FakeQuery {
 
   private applyFilters() {
     let rows = this.client.tables[this.table].filter((row) => this.matches(row));
-    if (this.orderBy) rows = [...rows].sort((a, b) => String(a[this.orderBy!.column]).localeCompare(String(b[this.orderBy!.column])) * (this.orderBy!.ascending ? 1 : -1));
+    if (this.orderBy.length > 0) {
+      rows = [...rows].sort((a, b) => {
+        for (const order of this.orderBy) {
+          const comparison = String(a[order.column]).localeCompare(String(b[order.column]));
+          if (comparison !== 0) return comparison * (order.ascending ? 1 : -1);
+        }
+        return 0;
+      });
+    }
     return rows;
   }
 
@@ -151,6 +159,66 @@ describe('SupabaseConsentSessionRepository', () => {
     const second = await repo.createSession({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術', modelMode: 'mock' });
     expect(second.id).not.toBe(session.id);
     expect(client.tables.consent_sessions).toHaveLength(2);
+  });
+
+  it('round-trips the latest facility answer template snapshot with deterministic ordering for equal timestamps', async () => {
+    const client = new FakeSupabaseClient();
+    const repo = new SupabaseConsentSessionRepository(client as never);
+    const session = await repo.createSession({ diagnosis: '急性A型大動脈解離', plannedSurgery: '上行大動脈人工血管置換術', modelMode: 'mock' });
+    const firstTemplate: FacilityAnswerTemplate = {
+      templateId: 'FAC-TPL-SELECTED-MORTALITY-V1',
+      label: '当院標準: 手術死亡率（旧版）',
+      questionPatterns: ['死亡率', '院内死亡'],
+      answer: '旧版の施設標準回答です。個別の見込みは担当医が補足します。',
+      scope: '急性A型大動脈解離の緊急手術説明',
+      doctorBurden: 'physician-edited',
+      lastReviewedLabel: '医師確認済み・旧版',
+    };
+    const latestTemplate: FacilityAnswerTemplate = {
+      ...firstTemplate,
+      templateId: 'FAC-TPL-SELECTED-MORTALITY-V2',
+      label: '当院標準: 手術死亡率（最新版）',
+      answer: '最新版の施設標準回答です。個別の見込みは担当医が補足します。',
+      lastReviewedLabel: '医師確認済み・最新版',
+    };
+
+    await repo.appendSessionEvent({
+      sessionId: session.id,
+      eventType: 'explanation_generated',
+      actorType: 'model',
+      payload: { selectedFacilityAnswerTemplates: [firstTemplate] },
+    });
+    await repo.appendSessionEvent({
+      sessionId: session.id,
+      eventType: 'explanation_generated',
+      actorType: 'model',
+      payload: { selectedFacilityAnswerTemplates: [latestTemplate] },
+    });
+    await repo.appendSessionEvent({
+      sessionId: session.id,
+      eventType: 'explanation_generated',
+      actorType: 'model',
+      payload: { selectedFacilityAnswerTemplates: [firstTemplate] },
+    });
+
+    const [firstEvent, latestEvent, olderEventWithLargerId] = client.tables.session_events;
+    Object.assign(firstEvent, { created_at: '2026-06-06T00:00:00.000Z', id: '00000000-0000-4000-8000-000000000001' });
+    Object.assign(latestEvent, { created_at: '2026-06-06T00:00:00.000Z', id: '00000000-0000-4000-8000-000000000002' });
+    Object.assign(olderEventWithLargerId, { created_at: '2026-06-05T00:00:00.000Z', id: 'ffffffff-ffff-4fff-bfff-ffffffffffff' });
+
+    // Reverse physical row order and give the older event the largest UUID. The
+    // repository must use created_at first, then id only as the equal-time tie-breaker.
+    client.tables.session_events.reverse();
+
+    await expect(repo.getSelectedFacilityAnswerTemplates(session.id)).resolves.toEqual([latestTemplate]);
+  });
+
+  it('rejects facility template lookup when the persisted session is unavailable', async () => {
+    const client = new FakeSupabaseClient();
+    const repo = new SupabaseConsentSessionRepository(client as never);
+
+    await expect(repo.getSelectedFacilityAnswerTemplates('00000000-0000-0000-0000-999999999999'))
+      .rejects.toThrow('Consent session not found');
   });
 
   it('persists source URL/PDF chunks so repeated QA can avoid refetching and rechunking', async () => {

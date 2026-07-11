@@ -284,8 +284,47 @@ const facilityAnswerTemplates: FacilityAnswerTemplate[] = [
   },
 ];
 
+export function normalizeFacilityAnswerTemplates(value: unknown): FacilityAnswerTemplate[] {
+  if (!Array.isArray(value)) return [];
+
+  const templates: FacilityAnswerTemplate[] = [];
+  const seenTemplateIds = new Set<string>();
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const item = candidate as Record<string, unknown>;
+    const templateId = typeof item.templateId === "string" ? item.templateId.trim() : "";
+    const label = typeof item.label === "string" ? item.label.trim() : "";
+    const answer = typeof item.answer === "string" ? item.answer.trim() : "";
+    const scope = typeof item.scope === "string" ? item.scope.trim() : "";
+    const lastReviewedLabel = typeof item.lastReviewedLabel === "string" ? item.lastReviewedLabel.trim() : "";
+    const doctorBurden = item.doctorBurden;
+    const questionPatterns = Array.isArray(item.questionPatterns)
+      ? item.questionPatterns
+          .filter((pattern): pattern is string => typeof pattern === "string" && pattern.trim().length > 0)
+          .map((pattern) => pattern.trim())
+          .slice(0, 20)
+      : [];
+
+    if (
+      !templateId
+      || seenTemplateIds.has(templateId)
+      || !label
+      || !answer
+      || !scope
+      || !lastReviewedLabel
+      || questionPatterns.length === 0
+      || (doctorBurden !== "auto-seeded-review-only" && doctorBurden !== "physician-edited")
+    ) continue;
+
+    seenTemplateIds.add(templateId);
+    templates.push({ templateId, label, questionPatterns, answer, scope, doctorBurden, lastReviewedLabel });
+    if (templates.length >= 50) break;
+  }
+  return templates;
+}
+
 export function getDefaultFacilityAnswerTemplates(): FacilityAnswerTemplate[] {
-  return facilityAnswerTemplates.map((item) => ({ ...item }));
+  return normalizeFacilityAnswerTemplates(facilityAnswerTemplates);
 }
 
 export function getDefaultCase(): DemoCase {
@@ -816,11 +855,35 @@ function isMortalityRateQuestion(question: string): boolean {
   return ["死亡率", "院内死亡", "死亡", "mortality", "death", "助かる確率"].some((term) => normalized.includes(term.toLowerCase()));
 }
 
+function facilityTemplateExplicitlyCoversNoSurgery(template: FacilityAnswerTemplate): boolean {
+  const templateText = [template.label, template.scope, template.answer, ...template.questionPatterns]
+    .join(" ")
+    .toLowerCase();
+  return /手術.{0,8}(?:しない|しなかった|しなければ|受けない)|(?:no|without)\s+(?:surgery|operation)|untreated/.test(templateText);
+}
+
+function facilityTemplateSafelyHandlesIndividualPrognosis(template: FacilityAnswerTemplate): boolean {
+  const answer = template.answer.toLowerCase();
+  const preservesIndividualUncertainty = /個別|患者.{0,8}(?:状態|見込み|危険度)|人によって|症例ごと|case[- ]?by[- ]?case/.test(answer);
+  const routesFinalAssessmentToPhysician = /担当医|主治医|医師/.test(answer);
+  const makesUnsafeGuarantee = /必ず(?:助か|成功|生存)|絶対(?:に)?(?:助か|成功|生存)|100\s*%|保証/.test(answer);
+  return preservesIndividualUncertainty && routesFinalAssessmentToPhysician && !makesUnsafeGuarantee;
+}
+
 function findMatchingFacilityTemplate(question: string, templates: FacilityAnswerTemplate[] = []): FacilityAnswerTemplate | undefined {
   const normalized = question.toLowerCase();
-  return templates.find((template) =>
-    template.questionPatterns.some((pattern) => normalized.includes(pattern.toLowerCase())),
-  );
+  const asksAboutNoSurgery = isNoSurgeryConsequenceQuestion(question);
+  return templates
+    .map((template, index) => {
+      const longestMatchingPattern = template.questionPatterns
+        .filter((pattern) => normalized.includes(pattern.toLowerCase()))
+        .sort((left, right) => right.length - left.length)[0];
+      return { template, index, longestMatchingPattern };
+    })
+    .filter((candidate) => Boolean(candidate.longestMatchingPattern))
+    .filter((candidate) => !asksAboutNoSurgery || facilityTemplateExplicitlyCoversNoSurgery(candidate.template))
+    .sort((left, right) => (right.longestMatchingPattern?.length ?? 0) - (left.longestMatchingPattern?.length ?? 0) || left.index - right.index)[0]
+    ?.template;
 }
 
 function expandGenericMedicalTerms(question: string): string[] {
@@ -2221,26 +2284,13 @@ export function resolveNonEvidenceQAResult(
   facilityAnswerTemplates?: FacilityAnswerTemplate[],
 ): EvidenceBoundQAResult | undefined {
   const normalized = question.toLowerCase();
-
-  if (isAdministrativeNonEvidenceQuestion(normalized)) {
-    return administrativeNoDirectAnswerResult();
-  }
-
   const facilityTemplate = findMatchingFacilityTemplate(question, facilityAnswerTemplates);
-  if (facilityTemplate) {
-    return {
-      answer: facilityTemplate.answer,
-      safetyLabel: "facility-template",
-      requiresDoctorReview: false,
-      retrievalMode: "physician-curated-only",
-      evidenceReferences: [facilityTemplate.templateId],
-      retrievedEvidence: [],
-      templateReferences: [facilityTemplate],
-      extractionMode: "facility-template",
-    };
-  }
+  const individualPrognosis = isIndividualPrognosisQuestion(normalized);
+  const administrativeQuestion = isAdministrativeNonEvidenceQuestion(normalized);
 
-  if (isIndividualPrognosisQuestion(normalized)) {
+  // 個別予後を断定する施設テンプレは、医師選択済みでも患者向けQAには使わない。
+  // 一方、個別差と担当医確認を明示した施設標準値は、選択済み根拠として使用できる。
+  if (individualPrognosis && (!facilityTemplate || !facilityTemplateSafelyHandlesIndividualPrognosis(facilityTemplate))) {
     return {
       answer: "その質問は患者さんごとの状態で大きく変わるため、選択済み参考資料だけでAIが断定することはできません。担当医が今の状態と手術リスクを見ながら直接説明します。",
       safetyLabel: "individual-prognosis",
@@ -2251,6 +2301,12 @@ export function resolveNonEvidenceQAResult(
     };
   }
 
+  // 費用などの事務質問は、回答可能な選択済み施設テンプレがなければ一般的な窓口案内へ戻す。
+  if (administrativeQuestion && !facilityTemplate) {
+    return administrativeNoDirectAnswerResult();
+  }
+
+  // 同意・治療選択の判断は、広すぎる施設テンプレでも代行しない。
   if (normalized.includes("同意") || normalized.includes("受けるべき") || normalized.includes("やるべき")) {
     return {
       answer: "AIが同意を勧めたり決めたりすることはできません。参考資料の範囲を整理し、最終判断は担当医と確認してください。",
@@ -2259,6 +2315,19 @@ export function resolveNonEvidenceQAResult(
       retrievalMode: "physician-curated-only",
       evidenceReferences: [],
       retrievedEvidence: [],
+    };
+  }
+
+  if (facilityTemplate) {
+    return {
+      answer: facilityTemplate.answer,
+      safetyLabel: "facility-template",
+      requiresDoctorReview: false,
+      retrievalMode: "physician-curated-only",
+      evidenceReferences: [facilityTemplate.templateId],
+      retrievedEvidence: [],
+      templateReferences: [facilityTemplate],
+      extractionMode: "facility-template",
     };
   }
 

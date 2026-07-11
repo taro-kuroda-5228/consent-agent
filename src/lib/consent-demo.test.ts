@@ -1421,6 +1421,76 @@ describe("resolveNonEvidenceQAResult (pre-retrieval fast path)", () => {
     expect(result?.templateReferences?.[0]?.templateId).toBe(templates[0].templateId);
   });
 
+  it("prioritizes a selected facility billing template over the generic administrative fallback", () => {
+    const billingTemplate = {
+      ...templates[0],
+      templateId: "FAC-TPL-BILLING",
+      label: "当院標準: 手術費用の案内",
+      questionPatterns: ["費用", "支払い"],
+      answer: "当院では概算費用を入院前に医事課からご案内します。保険区分により金額が変わるため、個別額は医事課にご確認ください。",
+      scope: "当院の手術費用・支払い案内",
+    };
+
+    const result = resolveNonEvidenceQAResult("手術の費用はどのくらいですか？", [billingTemplate]);
+
+    expect(result?.answer).toBe(billingTemplate.answer);
+    expect(result?.safetyLabel).toBe("facility-template");
+    expect(result?.evidenceReferences).toEqual([billingTemplate.templateId]);
+    expect(result?.extractionMode).toBe("facility-template");
+  });
+
+  it("keeps individual-prognosis and consent safety gates ahead of unsafe broad templates", () => {
+    const unsafeBroadTemplate = {
+      ...templates[0],
+      templateId: "FAC-TPL-UNSAFE-BROAD",
+      label: "使用してはいけない広すぎるテンプレ",
+      questionPatterns: ["助か", "同意", "手術"],
+      answer: "必ず助かるので、この手術に同意してください。",
+      scope: "安全ゲート回帰テスト",
+    };
+
+    const prognosis = resolveNonEvidenceQAResult("父は必ず助かりますか？", [unsafeBroadTemplate]);
+    expect(prognosis?.safetyLabel).toBe("individual-prognosis");
+    expect(prognosis?.requiresDoctorReview).toBe(true);
+    expect(prognosis?.answer).not.toBe(unsafeBroadTemplate.answer);
+
+    const consent = resolveNonEvidenceQAResult("この手術に同意するべきでしょうか？", [unsafeBroadTemplate]);
+    expect(consent?.safetyLabel).toBe("consent-guidance");
+    expect(consent?.requiresDoctorReview).toBe(true);
+    expect(consent?.answer).not.toBe(unsafeBroadTemplate.answer);
+  });
+
+  it("allows a selected facility survival-rate template only when its answer preserves individual uncertainty and physician review", () => {
+    const result = resolveNonEvidenceQAResult("助かる確率はどのくらいですか？", templates);
+
+    expect(result?.safetyLabel).toBe("facility-template");
+    expect(result?.answer).toBe(templates[0].answer);
+    expect(result?.answer).toContain("個別");
+    expect(result?.answer).toContain("担当医");
+  });
+
+  it("does not misapply a surgical-mortality template to the consequences of refusing surgery", () => {
+    const result = resolveNonEvidenceQAResult("手術を受けない場合の死亡リスクはどうなりますか？", templates);
+
+    expect(result).toBeUndefined();
+  });
+
+  it("still allows a selected template that explicitly covers the no-surgery question", () => {
+    const noSurgeryTemplate = {
+      ...templates[0],
+      templateId: "FAC-TPL-NO-SURGERY",
+      label: "当院標準: 手術を受けない場合",
+      questionPatterns: ["手術を受けない場合", "手術しない場合"],
+      answer: "手術を受けない場合の見通しは現在の状態で変わるため、担当医が選択肢とともに説明します。",
+      scope: "急性A型大動脈解離で手術を受けない場合の説明",
+    };
+
+    const result = resolveNonEvidenceQAResult("手術を受けない場合はどうなりますか？", [noSurgeryTemplate]);
+
+    expect(result?.safetyLabel).toBe("facility-template");
+    expect(result?.answer).toBe(noSurgeryTemplate.answer);
+  });
+
   it("refuses individual prognosis and consent guidance questions", () => {
     const prognosis = resolveNonEvidenceQAResult("父は必ず助かりますか？", []);
     expect(prognosis?.safetyLabel).toBe("individual-prognosis");

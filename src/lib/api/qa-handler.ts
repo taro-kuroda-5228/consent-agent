@@ -1,5 +1,5 @@
 import { generateQA } from '../gemini';
-import { resolveEvidenceSelectionForRequest, resolveNonEvidenceQAResult, retrieveMockEvidence, type EvidenceCard, type FacilityAnswerTemplate } from '../consent-demo';
+import { normalizeFacilityAnswerTemplates, resolveEvidenceSelectionForRequest, resolveNonEvidenceQAResult, retrieveMockEvidence, type EvidenceCard, type FacilityAnswerTemplate } from '../consent-demo';
 import { refreshPhysicianSourceEvidenceSetForQuestion } from '../source-url-evidence';
 import { inMemoryConsentSessionRepository } from '../repositories/in-memory-consent-session-repository';
 import type { ConsentSessionRepository } from '../repositories/consent-session-repository';
@@ -16,6 +16,14 @@ export type QaHandlerInput = {
   sessionId?: string;
 };
 
+function appendMetadataWarning(current: string | undefined, warning: string): string {
+  return current ? `${current}; ${warning}` : warning;
+}
+
+function facilityTemplateSnapshotsMatch(left: FacilityAnswerTemplate[], right: FacilityAnswerTemplate[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export async function handleQaRequest(input: QaHandlerInput, repository: ConsentSessionRepository = inMemoryConsentSessionRepository) {
   if (!input.question || !input.question.trim()) {
     return { status: 400, body: { error: 'question is required' } };
@@ -27,6 +35,7 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
         return item.origin === 'physician-upload' || item.retrievalStatus === 'pubmed-verified' || item.evidenceId.startsWith('PUBMED-');
       })
     : [];
+  const requestFacilityAnswerTemplates = normalizeFacilityAnswerTemplates(input.facilityAnswerTemplates);
   let selectedEvidence: EvidenceCard[];
   let selectedEvidenceSource: 'database' | 'request' | 'database+request' = 'request';
   let metadataWarning: string | undefined;
@@ -59,9 +68,29 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
     selectedEvidence = resolveEvidenceSelectionForRequest([...retrieveMockEvidence(input.diagnosis || ''), ...requestCustomEvidence], input.selectedEvidenceIds);
   }
 
-  const facilityAnswerTemplates: FacilityAnswerTemplate[] = Array.isArray(input.facilityAnswerTemplates)
-    ? input.facilityAnswerTemplates as FacilityAnswerTemplate[]
-    : [];
+  let facilityAnswerTemplates = requestFacilityAnswerTemplates;
+  let selectedFacilityTemplateSource: 'database' | 'request' = 'request';
+  if (input.sessionId) {
+    selectedFacilityTemplateSource = 'database';
+    try {
+      facilityAnswerTemplates = await repository.getSelectedFacilityAnswerTemplates(input.sessionId);
+      if (
+        requestFacilityAnswerTemplates.length > 0
+        && !facilityTemplateSnapshotsMatch(requestFacilityAnswerTemplates, facilityAnswerTemplates)
+      ) {
+        metadataWarning = appendMetadataWarning(
+          metadataWarning,
+          'request facilityAnswerTemplates differed from the templates selected for the persisted explanation; database state was used',
+        );
+      }
+    } catch {
+      facilityAnswerTemplates = [];
+      metadataWarning = appendMetadataWarning(
+        metadataWarning,
+        'facility answer templates selected for the persisted explanation could not be loaded; request templates were not used for this session',
+      );
+    }
+  }
 
   // 費用などの事務質問・施設テンプレ・個別予後・同意誘導は資料検索の結果に依存しないため、
   // 質問特化のPDF再抽出やLLM抽出を行わずに確定する。
@@ -91,7 +120,9 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
         answer: result.answer,
         safetyLabel: result.safetyLabel,
         evidenceReferences: result.evidenceReferences ?? [],
+        templateReferenceIds: result.templateReferences?.map((template) => template.templateId) ?? [],
         selectedEvidenceSource,
+        selectedFacilityTemplateSource,
         metadataWarning,
         citationVerification: result.citationVerification,
       },
@@ -102,7 +133,9 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
       resourceType: 'consent_session',
       metadata: {
         evidenceReferences: result.evidenceReferences ?? [],
+        templateReferenceIds: result.templateReferences?.map((template) => template.templateId) ?? [],
         selectedEvidenceSource,
+        selectedFacilityTemplateSource,
         escalated: !result.evidenceReferences?.length,
         citationVerifiedCount: result.citationVerification?.verifiedSpans.length ?? null,
         citationRejectedCount: result.citationVerification?.rejectedSpans.length ?? null,
@@ -110,5 +143,12 @@ export async function handleQaRequest(input: QaHandlerInput, repository: Consent
     });
   }
 
-  return { status: 200, body: { ...result, selectedEvidence, metadata: { selectedEvidenceSource, warning: metadataWarning } } };
+  return {
+    status: 200,
+    body: {
+      ...result,
+      selectedEvidence,
+      metadata: { selectedEvidenceSource, selectedFacilityTemplateSource, warning: metadataWarning },
+    },
+  };
 }
