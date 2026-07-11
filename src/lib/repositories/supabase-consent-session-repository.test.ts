@@ -27,13 +27,13 @@ class FakeSupabaseClient {
 class FakeQuery {
   private filters: Array<[string, unknown]> = [];
   private selected = '*';
-  private orderBy?: { column: string; ascending: boolean };
+  private orderBy: Array<{ column: string; ascending: boolean }> = [];
 
   constructor(private readonly client: FakeSupabaseClient, private readonly table: string) {}
 
   select(columns = '*') { this.selected = columns; return this; }
   eq(column: string, value: unknown) { this.filters.push([column, value]); return this; }
-  order(column: string, options?: { ascending?: boolean }) { this.orderBy = { column, ascending: options?.ascending ?? true }; return this; }
+  order(column: string, options?: { ascending?: boolean }) { this.orderBy.push({ column, ascending: options?.ascending ?? true }); return this; }
 
   async maybeSingle() {
     const rows = this.applyFilters();
@@ -94,7 +94,15 @@ class FakeQuery {
 
   private applyFilters() {
     let rows = this.client.tables[this.table].filter((row) => this.matches(row));
-    if (this.orderBy) rows = [...rows].sort((a, b) => String(a[this.orderBy!.column]).localeCompare(String(b[this.orderBy!.column])) * (this.orderBy!.ascending ? 1 : -1));
+    if (this.orderBy.length > 0) {
+      rows = [...rows].sort((a, b) => {
+        for (const order of this.orderBy) {
+          const comparison = String(a[order.column]).localeCompare(String(b[order.column]));
+          if (comparison !== 0) return comparison * (order.ascending ? 1 : -1);
+        }
+        return 0;
+      });
+    }
     return rows;
   }
 
@@ -186,9 +194,20 @@ describe('SupabaseConsentSessionRepository', () => {
       actorType: 'model',
       payload: { selectedFacilityAnswerTemplates: [latestTemplate] },
     });
+    await repo.appendSessionEvent({
+      sessionId: session.id,
+      eventType: 'explanation_generated',
+      actorType: 'model',
+      payload: { selectedFacilityAnswerTemplates: [firstTemplate] },
+    });
 
-    // The fake DB gives both events the same created_at. Reverse the physical row
-    // order to prove the repository query supplies its own deterministic tie-breaker.
+    const [firstEvent, latestEvent, olderEventWithLargerId] = client.tables.session_events;
+    Object.assign(firstEvent, { created_at: '2026-06-06T00:00:00.000Z', id: '00000000-0000-4000-8000-000000000001' });
+    Object.assign(latestEvent, { created_at: '2026-06-06T00:00:00.000Z', id: '00000000-0000-4000-8000-000000000002' });
+    Object.assign(olderEventWithLargerId, { created_at: '2026-06-05T00:00:00.000Z', id: 'ffffffff-ffff-4fff-bfff-ffffffffffff' });
+
+    // Reverse physical row order and give the older event the largest UUID. The
+    // repository must use created_at first, then id only as the equal-time tie-breaker.
     client.tables.session_events.reverse();
 
     await expect(repo.getSelectedFacilityAnswerTemplates(session.id)).resolves.toEqual([latestTemplate]);
